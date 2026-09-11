@@ -14,12 +14,23 @@ A Raspberry Pi music player appliance.
 ## Run order
 
 ```sh
-sudo ./install/setup.sh --dry-run   # 1. review what it would do
-sudo ./install/setup.sh             # 2. apply
-sudo reboot                         # 3.
-musicbox-bootreport                 # 4. before/after boot timings
-sudo ./install/install.sh           # 5. not implemented yet
+sudo ./install/setup.sh --dry-run       # 1. review what it would do
+sudo ./install/setup.sh                 # 2. OS cleanup + boot tuning
+sudo reboot                             # 3.
+musicbox-bootreport                     # 4. before/after boot timings
+sudo ./install/setup-hardware.sh        # 5. DAC+, DSI panel, HDMI
+sudo reboot                             # 6.
+sudo ./install/install.sh               # 7. not implemented yet
 ```
+
+The three scripts split by concern, and each owns its own managed block in
+`config.txt` so they never collide:
+
+| Script | Owns |
+|---|---|
+| `setup.sh` | OS cleanup and boot tuning — **no hardware** |
+| `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression |
+| `install.sh` | MPD, Bluetooth, USB CD, web UI (still a stub) |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
 
@@ -143,15 +154,48 @@ bootloader-to-kernel span itself was flat at 6038 vs 6042 ms, as expected: the
 > not representative — measure the one after it. And a power cut during that
 > cycle is the one moment this process could leave the bootloader unbootable.
 
-#### Still on the table: ~1-2.3s of HDMI probing
+#### The HDMI theory was wrong — a worked example
 
-Both HDMI connectors report `disconnected`, yet the firmware performs 8 failed
-EDID reads between 005949-006735 ms, with a 1537 ms gap after
-`hdmi_pixel_freq_limit`. Killing that needs `display_auto_detect=0` — but
-auto-detect is currently also what loads `vc4-kms-dsi-7inch.dtbo` for the
-panel (seen at 008657 ms), so the overlay must be pinned first or the display
-goes dark. Deferred to `install.sh`; the ordering trap is documented in its
-header.
+Both HDMI connectors reported `disconnected`, yet the firmware performed 12
+EDID-related operations, with a **1537 ms gap right after
+`hdmi_pixel_freq_limit`**. The obvious reading: suppress HDMI, save ~1-2.3s.
+
+`setup-hardware.sh` suppressed HDMI at both layers. The result:
+
+| | before | after |
+|---|---|---|
+| EDID log lines | 12 | **6** (HDMI0 gone, HDMI1 remains) |
+| bootloader start | 004384 ms | 004393 ms |
+| `Starting ARM` | 010427 ms | 010429 ms |
+| firmware span | 6042 ms | 6036 ms |
+
+**Zero boot-time gain.** Half the EDID probing genuinely disappeared, and the
+firmware stage did not move at all — the 1537 ms gap is *still there*, now
+1543 ms, with HDMI suppressed.
+
+The mistake was attributing a gap to the log line *preceding* it. That gap was
+never HDMI's cost; it is simply whatever the firmware does next. Where the ~6s
+firmware span actually goes:
+
+```
+ +1543 ms  after HDMI1: hdmi_pixel_freq_limit   <- still unexplained
+ +1364 ms  after loading kernel8.img
+ +1231 ms  after sdram refresh
+ + 956 ms  after a 188-byte file read
+ + 582 ms  after arasan_emmc_set_clock
+ + 450 ms  after reading config.txt
+```
+
+Mostly storage and inherent firmware work, not display probing.
+
+The change was kept anyway, because its *other* effects are worth having: the
+`vc4hdmi0`/`vc4hdmi1` ALSA cards and the HDMI DRM connectors are gone, so
+**card 0 is unambiguously the DAC** — which matters when MPD is configured.
+`--keep-hdmi` opts out if you ever want a monitor.
+
+Residual: HDMI1 still probes. Per-port `hdmi_ignore_edid:1` might stop it, but
+since removing HDMI0's probing bought nothing, there is no reason to expect
+HDMI1's would either.
 
 #### The network rework (done manually, not by `setup.sh`)
 
@@ -191,7 +235,7 @@ Both halves are now code, split by how generic they are:
 
 | Component | Status |
 |---|---|
-| HiFiBerry DAC+ | **Working.** `dtoverlay=hifiberry-dacplus-std` registers `snd_rpi_hifiberry_dacplus` / `pcm512x-hifi-0`. Confirmed by a runtime overlay load. |
+| HiFiBerry DAC+ | **Configured and working.** `setup-hardware.sh` pins `dtoverlay=hifiberry-dacplus-std` and `dtparam=audio=off`; it is now the only ALSA card (`card 0: snd_rpi_hifiberry_dacplus`). |
 | DSI touchscreen | **Connected.** `card1-DSI-1 status=connected`, mode `800x480`; touch controller `ft5x06` live at i2c `10-0038`. |
 | USB CD drive | Not attached. |
 
@@ -279,6 +323,7 @@ Or individually:
 
 | | |
 |---|---|
+| `tests/test-hardware-config.sh` | 37 tests of the `config.txt` transform, via `--emit-config` / `--emit-revert`. Covers neutralising conflicting stock lines (duplicates in `config.txt` are not reliably last-wins), the overlay ordering requirement, idempotency, `--keep-hdmi`/`--skip-*`, and that revert restores the original byte-for-byte. |
 | `tests/test-migrate-network.sh` | 25 tests of the netplan→keyfile conversion, via `--convert-only`, which touches no system state. Covers wifi/ethernet/static layouts, UUID preservation, the mandatory `0600` permissions, and that a PSK never leaks into an ethernet profile. |
 | `tests/test-setup-helpers.sh` | 62 unit tests. Sources the helper functions and runs them against throwaway fixtures: managed-block round-trips, the single-line `cmdline.txt` edit, `fstab` rewriting, EEPROM key merge. Touches only its own temp dir. |
 | `tests/test-integration.sh` | 41 end-to-end assertions. Runs the real `setup.sh` inside a throwaway `debian:trixie-slim` container against a fake `/boot/firmware`, checking that `--dry-run` changes nothing, that a real run produces the expected config, and that a second run is byte-for-byte identical. Requires Docker; skips cleanly without it. |

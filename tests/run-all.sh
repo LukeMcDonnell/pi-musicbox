@@ -31,6 +31,9 @@ bash tests/test-setup-helpers.sh || rc=1
 step "netplan -> NM keyfile conversion tests"
 bash tests/test-migrate-network.sh || rc=1
 
+step "hardware config.txt transform tests"
+bash tests/test-hardware-config.sh || rc=1
+
 step "end-to-end integration test"
 bash tests/test-integration.sh || rc=1
 
