@@ -135,6 +135,21 @@ check "reached the summary despite the failure" "0" "$(grep -q 'Summary' /tmp/ru
 rm -f /usr/local/bin/cloud-init /etc/cloud/cloud-init.disabled
 
 # ---------------------------------------------------------------------------
+banner "2c. install.sh --dry-run installs nothing"
+# ---------------------------------------------------------------------------
+before_pkgs="$(dpkg-query -W -f='${Package}\n' 2>/dev/null | wc -l)"
+bash /work/install/install.sh --dry-run --yes >/tmp/inst.log 2>&1
+check "install.sh --dry-run exits 0" "0" "$?"
+check "no packages were installed" "$before_pkgs" "$(dpkg-query -W -f='${Package}\n' 2>/dev/null | wc -l)"
+check "it names the NAS clients" "0" "$(grep -qE 'cifs-utils|nfs-common|smbclient' /tmp/inst.log; echo $?)"
+check "it does not claim to install the music stack" "0" "$(grep -q 'Dry run' /tmp/inst.log; echo $?)"
+
+# setup-nas.sh must refuse to run without the clients, pointing at install.sh
+bash /work/install/setup-nas.sh --protocol nfs --host 127.0.0.1 --share /x </dev/null >/tmp/nas.log 2>&1
+check "setup-nas.sh fails without nfs client" "1" "$?"
+check "and points at install.sh" "0" "$(grep -q 'install.sh' /tmp/nas.log; echo $?)"
+
+# ---------------------------------------------------------------------------
 banner "3. second run must be a byte-for-byte no-op"
 # ---------------------------------------------------------------------------
 snap="$(state_hash)"

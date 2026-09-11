@@ -2,8 +2,15 @@
 #
 # musicbox — install.sh
 #
-# Installs the music player stack. Runs AFTER setup.sh has stripped and tuned
-# the OS. Not yet implemented.
+# Installs packages for the music player stack.
+#
+# Run order:
+#   setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-kiosk.sh
+#
+# THIS is where apt installs live. The setup-*.sh scripts configure; they do not
+# install. The one deliberate exception is setup-kiosk.sh, which installs cage
+# and chromium itself so the entire kiosk can be removed by deleting that one
+# script if this ever goes headless.
 #
 # ===========================================================================
 # CONTRACT WITH setup.sh — read before writing anything here
@@ -57,18 +64,119 @@
 #    (dmix or PipeWire), not just removing the flag.
 #
 # 4. STILL TO DO HERE
-#      - hostname + avahi so the web UI resolves at <hostname>.local
-#      - MPD, its config, and the library mount
+#      - MPD, its config, and pointing music_directory at the NAS mount
 #      - Bluetooth audio (bluez + a BlueALSA/PipeWire sink)
 #      - USB CD audio playback and ripping
 #      - the web UI service
-#      - kiosk browser on the DSI panel (rpd-wayland-core or cage + chromium)
-#      - optional: read-only root via `raspi-config nonint enable_overlayfs`,
-#        once everything above is stable
+#      - optional: read-only root via `raspi-config nonint enable_overlayfs`
 #
 # ===========================================================================
 
 set -euo pipefail
 
-echo "install.sh is not implemented yet. Run install/setup.sh first." >&2
-exit 1
+readonly SCRIPT_VERSION="1.0.0"
+
+# Packages installed now. setup-nas.sh needs all three: the protocol is chosen
+# interactively at run time, so both clients must already be present, and
+# smbclient provides share discovery.
+PACKAGES=(
+    cifs-utils      # SMB/CIFS mounting
+    nfs-common      # NFS mounting + showmount for export discovery
+    smbclient       # SMB share discovery
+)
+
+# TODO, next pass: mpd mpc, bluez-alsa-utils, cdparanoia / libcdio-utils,
+# and whatever the web UI needs.
+
+DRY_RUN=0
+ASSUME_YES=0
+
+if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+    C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
+else
+    C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""
+fi
+
+phase() { printf '\n%s==> %s%s\n' "${C_BOLD}${C_BLUE}" "$*" "${C_RESET}"; }
+log()   { printf '    %s\n' "$*"; }
+ok()    { printf '    %s+%s %s\n' "${C_GREEN}" "${C_RESET}" "$*"; }
+skip()  { printf '    %s.%s %s\n' "${C_DIM}" "${C_RESET}" "${C_DIM}$*${C_RESET}"; }
+die()   { printf '\n%sERROR:%s %s\n' "${C_RED}${C_BOLD}" "${C_RESET}" "$*" >&2; exit 1; }
+dry()   { [[ "$DRY_RUN" -eq 1 ]]; }
+
+run() {
+    if dry; then printf '    %s[dry-run]%s %s\n' "${C_DIM}" "${C_RESET}" "$*"
+    else "$@"; fi
+}
+
+have_pkg() {
+    dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null | grep -q '^installed$'
+}
+
+usage() {
+    cat <<'USAGE'
+musicbox install.sh - installs packages for the music player stack
+
+Usage: sudo ./install.sh [options]
+
+Options:
+  --dry-run    Show what would be installed, change nothing
+  --yes, -y    Skip the confirmation prompt
+  --help, -h   This message
+
+Run order:
+  setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-kiosk.sh
+USAGE
+}
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)  DRY_RUN=1 ;;
+            -y|--yes)   ASSUME_YES=1 ;;
+            -h|--help)  usage; exit 0 ;;
+            *)          usage >&2; die "unknown option: $1" ;;
+        esac
+        shift
+    done
+
+    printf '%smusicbox install.sh %s%s\n' "${C_BOLD}" "${SCRIPT_VERSION}" "${C_RESET}"
+    dry && printf '%sDRY RUN - no changes will be made%s\n' "${C_YELLOW}" "${C_RESET}"
+
+    [[ "$(id -u)" -eq 0 ]] || die "must run as root (try: sudo $0)"
+
+    phase "Packages"
+    local p need=()
+    for p in "${PACKAGES[@]}"; do
+        if have_pkg "$p"; then skip "$p already installed"; else need+=("$p"); fi
+    done
+
+    if [[ ${#need[@]} -eq 0 ]]; then
+        skip "nothing to install"
+    else
+        log "will install: ${need[*]}"
+        if [[ "$ASSUME_YES" -ne 1 ]] && ! dry; then
+            read -r -p "    Continue? [y/N] " reply
+            [[ "$reply" =~ ^[Yy]$ ]] || die "aborted by user"
+        fi
+        run env DEBIAN_FRONTEND=noninteractive apt-get update
+        run env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${need[@]}"
+        dry || ok "installed: ${need[*]}"
+    fi
+
+    phase "Summary"
+    if dry; then
+        log "Dry run - nothing was changed."
+        return 0
+    fi
+    cat <<EOF
+    NAS clients are ready. Next:
+
+      sudo ./install/setup-nas.sh     # mount the music share
+
+    Not implemented yet in this script: MPD, Bluetooth audio, USB CD, web UI.
+EOF
+}
+
+main "$@"

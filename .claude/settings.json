@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash tests/run-all.sh)",
+      "Bash(bash tests/test-*.sh)",
+      "Bash(bash -n:*)",
+      "Bash(shellcheck:*)"
+    ]
+  }
+}

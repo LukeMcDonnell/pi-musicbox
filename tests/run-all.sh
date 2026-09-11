@@ -37,6 +37,9 @@ bash tests/test-hardware-config.sh || rc=1
 step "kiosk artifact tests"
 bash tests/test-kiosk-config.sh || rc=1
 
+step "NAS fstab generation tests"
+bash tests/test-nas-config.sh || rc=1
+
 step "end-to-end integration test"
 bash tests/test-integration.sh || rc=1
 
