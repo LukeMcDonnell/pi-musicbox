@@ -20,7 +20,9 @@ sudo reboot                             # 3.
 musicbox-bootreport                     # 4. before/after boot timings
 sudo ./install/setup-hardware.sh        # 5. DAC+, DSI panel, HDMI
 sudo reboot                             # 6.
-sudo ./install/install.sh               # 7. not implemented yet
+sudo ./install/setup-kiosk.sh           # 7. cage + chromium on the panel
+sudo reboot                             # 8.
+sudo ./install/install.sh               # 9. not implemented yet
 ```
 
 The three scripts split by concern, and each owns its own managed block in
@@ -30,6 +32,7 @@ The three scripts split by concern, and each owns its own managed block in
 |---|---|
 | `setup.sh` | OS cleanup and boot tuning — **no hardware** |
 | `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression |
+| `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
 | `install.sh` | MPD, Bluetooth, USB CD, web UI (still a stub) |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
@@ -290,6 +293,147 @@ lsblk                                  # USB CD drive
 The last four exist to catch exactly the regressions the exclusions table above
 protects against.
 
+## The kiosk
+
+`setup-kiosk.sh` puts a fullscreen chromium on the panel at boot under
+[cage](https://www.hjdskes.nl/projects/cage/), a single-app Wayland kiosk
+compositor. No desktop, no window manager, no display manager, no login prompt.
+
+It installs four things:
+
+| Path | Purpose |
+|---|---|
+| `/etc/musicbox/kiosk.conf` | `KIOSK_URL` and `CHROMIUM_EXTRA_FLAGS` — the only file you should need to edit |
+| `/usr/local/bin/musicbox-kiosk` | launch wrapper; keeps the flag list out of the unit |
+| `/etc/systemd/system/musicbox-kiosk.service` | starts at boot, restarts on crash |
+| `/usr/share/musicbox/kiosk/index.html` | holding page until the web UI exists |
+
+### Touch: use the firmware path, not the i2c driver
+
+The DFRobot panel's touch controller **exposes no interrupt line** — its
+device-tree node has `interrupts`, `interrupt-parent` and `poll-interval` all
+absent. The kernel's `edt-ft5x06` driver therefore falls back to blind polling
+over i2c, and it never identifies the chip either (`fw_version` reads `ff 0a`;
+the driver reports *"generic ft5x06"* despite the DT claiming `edt,edt-ft5506`),
+so it is guessing the register layout as well.
+
+Captured from `/dev/input/event0`, upstream of the compositor and browser:
+
+| | i2c (`edt-ft5x06`) | firmware (`rpi-ft5406`) |
+|---|---|---|
+| contacts | 535 in 67s | **29 in 42s** |
+| phantom contacts (zero points) | most | **0** |
+| negative coordinates | many (−3052, −3577) | **0** |
+| out-of-range points | — | **0** |
+| X / Y range | −3052..799 / −3577..458 | **12..791 / 10..458** |
+| large jumps between samples | — | **0** |
+
+So `setup-hardware.sh` routes touch through the GPU firmware, which is the path
+the official Raspberry Pi panel has always used:
+
+```
+dtoverlay=vc4-kms-dsi-7inch,disable_touch   # disable the panel overlay's i2c touch node
+dtoverlay=rpi-ft5406                        # firmware polls, delivers via mailbox
+```
+
+The input device becomes `raspberrypi-ts` and the i2c client disappears
+entirely, so the two cannot compete. `--touch kernel` selects the old i2c path
+if it is ever wanted; switching backends cleans up the other's settings.
+
+Effective sample rate during a drag is ~24Hz — fine for taps, adequate for
+dragging.
+
+> **Do not mix the two.** With the i2c driver, `disable_touchscreen=1` is
+> mandatory or the firmware polls the same controller and steals its reports —
+> an ft5x06 clears its report register on read, so whoever reads first wins.
+> With the firmware driver, `disable_touchscreen` must **not** be set, because
+> firmware polling is exactly what you want.
+
+### What it costs at boot — and why `systemd-analyze` lies about it
+
+```
+systemd-analyze, before kiosk:  2.349s kernel + 6.686s userspace = 9.036s
+systemd-analyze, after kiosk:   2.363s kernel + 6.982s userspace = 9.345s
+```
+
+**+0.31s. That number is misleading and should not be quoted.** The unit is
+`Type=simple`, so systemd considers it started the instant `cage` execs — while
+chromium carries on loading for another ten seconds. The kiosk unit does not
+even appear in `systemd-analyze blame`.
+
+Measured against actual process start times relative to boot:
+
+| | after boot |
+|---|---|
+| `musicbox-kiosk` unit active | 8.6s |
+| chromium GPU process | 15s |
+| **chromium renderer (page composited)** | **18s** |
+
+Add the ~11s pre-kernel firmware stage and it is roughly **29s from power-on to
+a visible UI**. That is the honest figure for an appliance, and it is the first
+change in this project that made things meaningfully slower.
+
+There is an obvious lead if that matters. `systemd-analyze critical-chain`
+shows the kiosk gated behind the network, even though it renders a local
+`file://` page:
+
+```
+musicbox-kiosk.service @6.227s
+└─systemd-user-sessions.service @6.169s
+  └─network.target @6.162s
+    └─NetworkManager.service @3.866s +2.295s
+```
+
+`systemd-user-sessions.service` is genuinely required — it removes
+`/run/nologin`, without which `PAMName=login` is refused — but it is itself
+ordered after `network.target`. Roughly 4s of the 8.6s is spent waiting for
+networking the kiosk does not need yet.
+
+### How it gets a session
+
+cage needs a logind session owning `seat0`. Rather than run a display manager,
+the unit acquires one directly:
+
+```ini
+User=musicbox
+PAMName=login          # creates the logind session -> libseat gets seat0
+TTYPath=/dev/tty1
+```
+
+Without `PAMName=login`, cage exits with *"Could not open seat"*.
+
+`getty@tty1` is disabled so the panel shows the UI rather than a login prompt.
+**Console recovery is preserved:** `autovt@` is aliased, so Ctrl+Alt+F2 on a
+plugged-in keyboard still gives a login. That matters — it is the stated
+recovery path for this box.
+
+### Pointing it at the real UI
+
+```sh
+sudo sed -i 's|^KIOSK_URL=.*|KIOSK_URL="http://localhost:8080/"|' /etc/musicbox/kiosk.conf
+sudo systemctl restart musicbox-kiosk
+```
+
+### Why `--mute-audio`
+
+MPD is meant to own the DAC exclusively. If chromium opens the ALSA device
+first, MPD will fail to start, so the wrapper mutes it. Verified on the device:
+chromium holds **0** file descriptors on `/dev/snd/*`, and `fuser` reports
+nothing using the DAC.
+
+When the web UI genuinely needs sound, the fix is a shared audio layer (dmix or
+PipeWire) — not just dropping the flag.
+
+### Choosing cage
+
+`cage + chromium` is 129 packages; `labwc + chromium` is 131 and
+`rpd-wayland-core` is 365. Chromium dominates either way, so the choice was
+about behaviour, not size: cage runs exactly one app fullscreen and has no
+config file to get wrong. The trade-off is that **cage cannot rotate the
+output** — fine here, since the panel is mounted in its native landscape
+800x480. A rotation requirement would mean labwc, or a kernel-level `video=`
+rotation in `cmdline.txt`.
+
 ## Rollback
 
 Every multi-line edit sits inside a delimited block:
@@ -323,7 +467,8 @@ Or individually:
 
 | | |
 |---|---|
-| `tests/test-hardware-config.sh` | 37 tests of the `config.txt` transform, via `--emit-config` / `--emit-revert`. Covers neutralising conflicting stock lines (duplicates in `config.txt` are not reliably last-wins), the overlay ordering requirement, idempotency, `--keep-hdmi`/`--skip-*`, and that revert restores the original byte-for-byte. |
+| `tests/test-kiosk-config.sh` | 60 tests of the generated kiosk artifacts, via `--emit`. Asserts every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file actually drives the URL, and that the generated wrapper passes `bash -n`. |
+| `tests/test-hardware-config.sh` | 47 tests of the `config.txt` transform, via `--emit-config` / `--emit-revert`. Covers neutralising conflicting stock lines (duplicates in `config.txt` are not reliably last-wins), the overlay ordering requirement, idempotency, `--keep-hdmi`/`--skip-*`, and that revert restores the original byte-for-byte. |
 | `tests/test-migrate-network.sh` | 25 tests of the netplan→keyfile conversion, via `--convert-only`, which touches no system state. Covers wifi/ethernet/static layouts, UUID preservation, the mandatory `0600` permissions, and that a PSK never leaks into an ethernet profile. |
 | `tests/test-setup-helpers.sh` | 62 unit tests. Sources the helper functions and runs them against throwaway fixtures: managed-block round-trips, the single-line `cmdline.txt` edit, `fstab` rewriting, EEPROM key merge. Touches only its own temp dir. |
 | `tests/test-integration.sh` | 41 end-to-end assertions. Runs the real `setup.sh` inside a throwaway `debian:trixie-slim` container against a fake `/boot/firmware`, checking that `--dry-run` changes nothing, that a real run produces the expected config, and that a second run is byte-for-byte identical. Requires Docker; skips cleanly without it. |

@@ -40,7 +40,23 @@
 #        depends on display_auto_detect.
 #      - HDMI is suppressed at both the firmware and kernel layers.
 #
-# 3. STILL TO DO HERE
+# 3. THE KIOSK IS HANDLED BY setup-kiosk.sh.
+#
+#    A fullscreen chromium under cage is already running on the panel from boot.
+#    To point it at the web UI once it exists:
+#
+#      sed -i 's|^KIOSK_URL=.*|KIOSK_URL="http://localhost:PORT/"|' \\
+#          /etc/musicbox/kiosk.conf
+#      systemctl restart musicbox-kiosk
+#
+#    Do NOT write a second kiosk unit or a second compositor.
+#
+#    Note: the wrapper passes --mute-audio, because MPD is meant to own the DAC
+#    exclusively and chromium holding the ALSA device would stop MPD starting.
+#    If the web UI ever needs to make sound, the fix is a shared audio layer
+#    (dmix or PipeWire), not just removing the flag.
+#
+# 4. STILL TO DO HERE
 #      - hostname + avahi so the web UI resolves at <hostname>.local
 #      - MPD, its config, and the library mount
 #      - Bluetooth audio (bluez + a BlueALSA/PipeWire sink)

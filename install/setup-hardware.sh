@@ -63,6 +63,9 @@ FORCE=0
 DO_DAC=1
 DO_DISPLAY=1
 SUPPRESS_HDMI=1
+# firmware = GPU polls the controller and delivers via mailbox (rpi-ft5406).
+# kernel   = edt-ft5x06 reads it directly over i2c.
+TOUCH_BACKEND="firmware"
 MODE="apply"
 
 if [[ -t 1 ]]; then
@@ -95,6 +98,8 @@ conflicting_patterns() {
     fi
     if [[ "$DO_DISPLAY" -eq 1 ]]; then
         printf '%s\n' '^[[:space:]]*display_auto_detect='
+        printf '%s\n' '^[[:space:]]*disable_touchscreen='
+        printf '%s\n' '^[[:space:]]*dtoverlay=rpi-ft5406([,[:space:]]|$)'
         printf '%s\n' '^[[:space:]]*max_framebuffers='
         # Must be re-declared WITH parameters; a second dtoverlay line for the
         # same overlay would try to load it twice.
@@ -121,7 +126,24 @@ build_block() {
             printf '%s\n' "dtoverlay=vc4-kms-v3d"
         fi
         # MUST follow vc4-kms-v3d: the panel overlay depends on it.
-        printf '%s\n' "dtoverlay=vc4-kms-dsi-7inch"
+        if [[ "$TOUCH_BACKEND" == "firmware" ]]; then
+            # Touch via the GPU firmware's mailbox (rpi-ft5406), the path the
+            # official panel has always used. The panel overlay's own i2c touch
+            # node is disabled so the two cannot fight.
+            #
+            # Why not the kernel i2c driver: this panel exposes no interrupt
+            # line, so edt-ft5x06 falls back to blind polling. Measured on this
+            # board that produced 535 phantom contacts in 67s, coordinates as
+            # low as -3052, and an irregular ~28Hz sample rate. The data was
+            # corrupt before it ever reached userspace.
+            printf '%s\n' "dtoverlay=vc4-kms-dsi-7inch,disable_touch"
+            printf '%s\n' "dtoverlay=rpi-ft5406"
+        else
+            # Kernel i2c path. disable_touchscreen=1 is REQUIRED here, or the
+            # firmware polls the same controller and steals its reports.
+            printf '%s\n' "dtoverlay=vc4-kms-dsi-7inch"
+            printf '%s\n' "disable_touchscreen=1"
+        fi
         printf '%s\n' "display_auto_detect=0"
         printf '%s\n' "max_framebuffers=1"
         if [[ "$SUPPRESS_HDMI" -eq 1 ]]; then
@@ -333,6 +355,7 @@ main() {
             --skip-dac)     DO_DAC=0 ;;
             --skip-display) DO_DISPLAY=0 ;;
             --keep-hdmi)    SUPPRESS_HDMI=0 ;;
+            --touch)        TOUCH_BACKEND="${2:?--touch needs firmware|kernel}"; shift ;;
             --revert)       MODE="revert" ;;
             --emit-config)  MODE="emit"; src="${2:-}"; dest="${3:-}"; shift 2 ;;
             --emit-revert)  MODE="emit-revert"; src="${2:-}"; dest="${3:-}"; shift 2 ;;
@@ -341,6 +364,11 @@ main() {
         esac
         shift
     done
+
+    case "$TOUCH_BACKEND" in
+        firmware|kernel) ;;
+        *) die "--touch must be 'firmware' or 'kernel', got: ${TOUCH_BACKEND}" ;;
+    esac
 
     if [[ "$DO_DAC" -eq 0 && "$DO_DISPLAY" -eq 0 ]]; then
         die "--skip-dac and --skip-display together leave nothing to do"

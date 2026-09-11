@@ -72,6 +72,9 @@ check "max_framebuffers=1"       "1" "$(active 'max_framebuffers=1$' "$OUT")"
 check "hifiberry-dacplus-std"    "1" "$(active 'dtoverlay=hifiberry-dacplus-std$' "$OUT")"
 check "exactly one active vc4-kms-v3d" "1" "$(active 'dtoverlay=vc4-kms-v3d' "$OUT")"
 check "vc4-kms-v3d carries nohdmi,noaudio" "1" "$(active 'dtoverlay=vc4-kms-v3d,nohdmi,noaudio$' "$OUT")"
+check "DSI overlay has disable_touch" "1" "$(active 'dtoverlay=vc4-kms-dsi-7inch,disable_touch$' "$OUT")"
+check "firmware touch overlay pinned"  "1" "$(active 'dtoverlay=rpi-ft5406$' "$OUT")"
+check "no disable_touchscreen in firmware mode" "0" "$(active 'disable_touchscreen=' "$OUT")"
 check "hdmi_ignore_edid set"     "1" "$(active 'hdmi_ignore_edid=' "$OUT")"
 check "hdmi_ignore_hotplug set"  "1" "$(active 'hdmi_ignore_hotplug=' "$OUT")"
 
@@ -94,13 +97,28 @@ check "re-emitting is byte-identical" "0" "$(cmp -s "$OUT" "$OUT2"; echo $?)"
 check "still exactly one block" "1" "$(grep -cF '>>> musicbox setup-hardware.sh' "$OUT2")"
 check "still one tagged set (no double-tagging)" "4" "$(grep -c '#musicbox-hw# ' "$OUT2")"
 
+banner "--touch kernel selects the i2c backend"
+OUTK2="$WORK/tk.txt"
+bash "$SCRIPT" --touch kernel --emit-config "$SRC" "$OUTK2"
+check "kernel mode: plain DSI overlay"      "1" "$(active 'dtoverlay=vc4-kms-dsi-7inch$' "$OUTK2")"
+check "kernel mode: no rpi-ft5406"          "0" "$(active 'dtoverlay=rpi-ft5406' "$OUTK2")"
+check "kernel mode: disable_touchscreen=1"  "1" "$(active 'disable_touchscreen=1$' "$OUTK2")"
+bash "$SCRIPT" --touch bogus --emit-config "$SRC" "$WORK/z.txt" >/dev/null 2>&1
+check "invalid --touch is refused" "1" "$?"
+
+# switching backends must not leave the other one's settings active
+OUTSW="$WORK/sw.txt"
+bash "$SCRIPT" --touch firmware --emit-config "$OUTK2" "$OUTSW"
+check "switching kernel->firmware clears disable_touchscreen" "0" "$(active 'disable_touchscreen=' "$OUTSW")"
+check "switching kernel->firmware adds rpi-ft5406" "1" "$(active 'dtoverlay=rpi-ft5406$' "$OUTSW")"
+
 banner "--keep-hdmi"
 OUTK="$WORK/keep.txt"
 bash "$SCRIPT" --keep-hdmi --emit-config "$SRC" "$OUTK"
 check "no hdmi_ignore_edid"        "0" "$(active 'hdmi_ignore_edid=' "$OUTK")"
 check "no hdmi_ignore_hotplug"     "0" "$(active 'hdmi_ignore_hotplug=' "$OUTK")"
 check "vc4-kms-v3d without nohdmi" "1" "$(active 'dtoverlay=vc4-kms-v3d$' "$OUTK")"
-check "DSI overlay still pinned"   "1" "$(active 'dtoverlay=vc4-kms-dsi-7inch$' "$OUTK")"
+check "DSI overlay still pinned"   "1" "$(active 'dtoverlay=vc4-kms-dsi-7inch,disable_touch$' "$OUTK")"
 
 banner "--skip-dac / --skip-display"
 OUTND="$WORK/nodac.txt"
@@ -112,6 +130,7 @@ check "skip-dac still does display"   "1" "$(active 'display_auto_detect=0$' "$O
 OUTNS="$WORK/nodisp.txt"
 bash "$SCRIPT" --skip-display --emit-config "$SRC" "$OUTNS"
 check "skip-display omits DSI overlay"    "0" "$(active 'dtoverlay=vc4-kms-dsi-7inch' "$OUTNS")"
+check "skip-display omits touch overlays" "0" "$(active 'dtoverlay=rpi-ft5406' "$OUTNS")"
 check "skip-display leaves vc4 untouched" "1" "$(active 'dtoverlay=vc4-kms-v3d$' "$OUTNS")"
 check "skip-display still does DAC"       "1" "$(active 'dtoverlay=hifiberry-dacplus-std$' "$OUTNS")"
 
