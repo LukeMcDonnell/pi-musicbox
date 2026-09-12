@@ -101,6 +101,115 @@ Verified: 6 fields, mounted `nfs4` vers=4.1 read-only, `touch` fails with
 > through the tree. MPD's `music_directory` must be the nested path or the scan
 > picks up thousands of junk files. 488 artist directories as of 2026-09-12.
 
+## MPD (2026-09-12)
+
+| | |
+|---|---|
+| Version on Trixie | `mpd` 0.24.4-1, `mpc` 0.35-1+b2 |
+| Package cost | **118 new packages** with `--no-install-recommends` — all hard Depends |
+| ALSA | `card 0: sndrpihifiberry [snd_rpi_hifiberry_dacplus]`, device 0 |
+| Mixer control | **`Digital`** (also `Analogue`; there is no `PCM`) |
+| Library size | 489 directories, **49,711 files** under `/srv/music/Music` |
+| Actual disk cost | 4.8G → **5.1G** used; 23G still free |
+| New enabled units | **none** — still 34. No PipeWire/JACK/Pulse/fluidsynth daemon appears |
+| Post-install state | `mpd.service` and `mpd.socket` install **disabled and inactive**; `setup-mpd.sh` enables the service |
+
+Config is at `/etc/musicbox/mpd.conf`, with `/etc/default/mpd` carrying a
+managed block that sets `MPDCONF`. `/etc/mpd.conf` is left as the package
+shipped it — `dpkg --verify mpd` confirms it unmodified. See `architecture.md`
+for why.
+
+`mpd.socket` listens on `%t/mpd/socket` **and** port 6600 on all interfaces, so
+phone clients reach it over the LAN and no `bind_to_address` is needed.
+
+**MPD reads `music_directory` at startup and triggers the automount** — observed,
+not assumed. So the mount does happen at boot.
+
+### Boot cost, measured (2026-09-12)
+
+```
+before MPD:  2.069s kernel +  7.279s userspace =  9.348s
+with MPD:    2.332s kernel + 15.564s userspace = 17.896s
+```
+
+`mpd.service` is on the critical path and takes **5.960s**:
+
+```
+multi-user.target @15.563s
+└─mpd.service @9.601s +5.960s
+  └─network.target @9.597s
+```
+
+Decomposed from the journal, the NFS mount is **not** the cost:
+
+| | |
+|---|---|
+| 11.934s | `mpd.service` starts |
+| 16.366s | first mpd log line — **4.43s** of silent startup |
+| 16.381s | automount triggered by mpd |
+| 16.925s | mount complete — the NFS mount costs only **0.54s** |
+| 17.895s | ready |
+
+The 4.43s is MPD loading a 3.4M `tag_cache` of 37,289 songs plus initialising
+the decoder plugins those 118 packages brought. `After=network.target` defers
+the start to 9.6s on top of that. A warm restart is only ~2s — the cold figure
+is page-cache-empty.
+
+**This 6s is accepted deliberately.** Socket activation would give the boot time
+back (mpd starts on first connection instead), and is a one-command change if it
+is ever wanted:
+`systemctl disable mpd.service` — keep `mpd.socket` enabled.
+
+### Boot with the NAS unreachable (2026-09-12)
+
+The test the automount design exists for. NAS powered off, cold boot:
+
+```
+NAS up:   2.332s kernel + 15.564s userspace = 17.896s
+NAS off:  2.383s kernel + 16.586s userspace = 18.969s   (+1.07s)
+```
+
+**Nothing hung.** From the journal:
+
+| | |
+|---|---|
+| 13.029s | mpd triggers the automount |
+| 18.076s | `mount.nfs: Failed to resolve server synonas.local` |
+| 18.079s | mount unit fails — `nofail` means boot carries on |
+| 18.083s | mpd logs `Failed to access /srv/music/Music: No such device` and **keeps running** |
+
+MPD stayed active with its database intact (37,289 songs, loaded from the local
+`tag_cache`). The automount stayed **armed**: each later access retries in ~5s
+and fails cleanly rather than wedging, so the share simply starts working again
+when the NAS comes back. `srv-music.mount` sits in `failed` state until then,
+which is cosmetic.
+
+**Caveat — this tested the name-resolution path.** `synonas.local` is mDNS, so
+with the NAS off the name does not resolve and the mount gives up in 5.05s. A
+NAS that resolves but does not answer (a static DNS or `/etc/hosts` entry, or
+the host up with NFS stopped) would get as far as TCP, where
+`x-systemd.mount-timeout` defaults to **90s**. That case is still untested. If it
+ever bites, the fix is `x-systemd.mount-timeout=10` in `setup-nas.sh`'s
+`LAZY_OPTS`.
+
+### The initial scan
+
+`time mpc update --wait` over NFS: **48m40s** for 49,711 files → 37,289 songs,
+535 artists, 2,731 albums, 3.4M `tag_cache`. One-time; it survives reboots
+because `/var/lib` is not volatile.
+
+### mDNS does not work, and that is deliberate
+
+MPD logs `zeroconf: No global port, disabling zeroconf`. Under socket activation
+MPD never creates a listener of its own, so it has no port to advertise. Setting
+`port` alone does not help — measured. Making it work means taking the listeners
+back from systemd (`bind_to_address "any"`, `systemctl disable mpd.socket`, and a
+`RuntimeDirectory=mpd` drop-in so `/run/mpd/socket` still exists), which trades a
+supported default for a nice-to-have.
+
+MPD is still reachable on 6600 across the LAN — verified over both IPv4 and IPv6,
+loopback and remote.
+
 ## Verifying a device after a run
 
 ```sh
@@ -112,6 +221,8 @@ aplay -l | grep hifiberry           # DAC is card 0
 findmnt /srv/music                  # share present, ro, sane version
 systemctl list-units '*.automount'  # the unit exists AND is active
 lsblk                               # USB CD drive
+systemctl is-active mpd             # player running
+mpc status && mpc stats             # and it can see the library
 ```
 
 The `.automount` check matters: `ls` on an unmounted empty mountpoint succeeds

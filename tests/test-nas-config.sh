@@ -106,6 +106,9 @@ HARNESS="$WORK/h.sh"
 sed -e '$ d' -e 's/^readonly \(FSTAB\|CREDS\|CONF_DIR\|STATE_DIR\)=/\1=/' "$SCRIPT" > "$HARNESS"
 # shellcheck source=/dev/null
 source "$HARNESS"
+# The sourced script carries `set -euo pipefail`, which would now apply to THIS
+# shell and abort the run on the first deliberately-failing assertion.
+set +e
 
 FIX="$WORK/fstab"
 cat > "$FIX" <<'FSTABFIX'

@@ -5,7 +5,8 @@
 # Installs packages for the music player stack.
 #
 # Run order:
-#   setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-kiosk.sh
+#   setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-mpd.sh
+#   -> setup-kiosk.sh
 #
 # THIS is where apt installs live. The setup-*.sh scripts configure; they do not
 # install. The one deliberate exception is setup-kiosk.sh, which installs cage
@@ -63,8 +64,19 @@
 #    If the web UI ever needs to make sound, the fix is a shared audio layer
 #    (dmix or PipeWire), not just removing the flag.
 #
-# 4. STILL TO DO HERE
-#      - MPD, its config, and pointing music_directory at the NAS mount
+# 4. MPD IS CONFIGURED BY setup-mpd.sh, NOT HERE.
+#
+#    This script installs mpd and mpc; install/setup-mpd.sh writes the config.
+#    Two things it gets right that are easy to get wrong by hand:
+#      - music_directory is /srv/music/Music, NOT /srv/music. The share root
+#        also holds #recycle and Synology's @eaDir thumbnail directories.
+#      - the ALSA mixer control is "Digital", not "PCM".
+#
+#    It does not touch /etc/mpd.conf. Debian's unit reads MPDCONF from
+#    /etc/default/mpd, so the config lives at /etc/musicbox/mpd.conf and the
+#    package conffile stays pristine.
+#
+# 5. STILL TO DO HERE
 #      - Bluetooth audio (bluez + a BlueALSA/PipeWire sink)
 #      - USB CD audio playback and ripping
 #      - the web UI service
@@ -76,17 +88,29 @@ set -euo pipefail
 
 readonly SCRIPT_VERSION="1.0.0"
 
-# Packages installed now. setup-nas.sh needs all three: the protocol is chosen
-# interactively at run time, so both clients must already be present, and
-# smbclient provides share discovery.
+# Packages installed now.
+#
+# setup-nas.sh needs all three NAS entries: the protocol is chosen interactively
+# at run time, so both clients must already be present, and smbclient provides
+# share discovery.
+#
+# mpd is heavy — 118 packages with --no-install-recommends, all hard Depends:
+# the full ffmpeg stack, fluidsynth and a soundfont, OpenAL, JACK, PipeWire,
+# PulseAudio, sndio, libupnp. That sits oddly beside setup.sh stripping the OS,
+# and it is accepted deliberately: they are shared libraries rather than
+# services, so they cost disk (which is not scarce here) and not boot time
+# (which is). The alternative was a source build, and owning that rebuild
+# forever is worse than 350MB on a 29G card.
 PACKAGES=(
     cifs-utils      # SMB/CIFS mounting
     nfs-common      # NFS mounting + showmount for export discovery
     smbclient       # SMB share discovery
+    mpd             # the player itself; configured by setup-mpd.sh
+    mpc             # CLI client, and how setup-mpd.sh verifies the result
 )
 
-# TODO, next pass: mpd mpc, bluez-alsa-utils, cdparanoia / libcdio-utils,
-# and whatever the web UI needs.
+# TODO, next pass: bluez-alsa-utils, cdparanoia / libcdio-utils, and whatever
+# the web UI needs.
 
 DRY_RUN=0
 ASSUME_YES=0
@@ -126,7 +150,8 @@ Options:
   --help, -h   This message
 
 Run order:
-  setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-kiosk.sh
+  setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-mpd.sh
+  -> setup-kiosk.sh
 USAGE
 }
 
@@ -156,6 +181,9 @@ main() {
         skip "nothing to install"
     else
         log "will install: ${need[*]}"
+        if printf '%s\n' "${need[@]}" | grep -qx mpd; then
+            log "(mpd pulls in ~118 packages; this takes a few minutes)"
+        fi
         if [[ "$ASSUME_YES" -ne 1 ]] && ! dry; then
             read -r -p "    Continue? [y/N] " reply
             [[ "$reply" =~ ^[Yy]$ ]] || die "aborted by user"
@@ -171,11 +199,16 @@ main() {
         return 0
     fi
     cat <<EOF
-    NAS clients are ready. Next:
+    Packages are ready. Next:
 
       sudo ./install/setup-nas.sh     # mount the music share
+      sudo ./install/setup-mpd.sh     # configure MPD against it
 
-    Not implemented yet in this script: MPD, Bluetooth audio, USB CD, web UI.
+    Installing mpd does NOT configure or enable it. On Trixie the package leaves
+    mpd.service and mpd.socket disabled and inactive, on a default config
+    pointing at /var/lib/mpd/music. setup-mpd.sh is what makes it useful.
+
+    Not implemented yet: Bluetooth audio, USB CD, web UI.
 EOF
 }
 

@@ -1,6 +1,6 @@
 # Architecture
 
-Five bash scripts in `install/`, run in a fixed order on a freshly-flashed
+Six bash scripts in `install/`, run in a fixed order on a freshly-flashed
 Raspberry Pi OS Lite (Trixie) image. Each owns one concern and one managed
 block. Nothing here is a package or a service — the scripts are run by hand over
 SSH and are safe to re-run.
@@ -12,6 +12,7 @@ setup.sh            OS cleanup + boot tuning          (no hardware)
 setup-hardware.sh   DAC+, DSI panel, touch, HDMI       reboot after
 install.sh          apt packages for the music stack
 setup-nas.sh        mount the music library            interactive
+setup-mpd.sh        point MPD at the library + DAC
 setup-kiosk.sh      cage + chromium on the panel       reboot after
 ```
 
@@ -26,6 +27,7 @@ the 6.6s total boot saving, so in practice it is not optional at all.
 | `setup.sh` | package purge, service/timer masking, `config.txt` boot tunables, `cmdline.txt`, EEPROM, fstab `noatime`/tmpfs/journald, `musicbox-bootreport` | `# >>> musicbox setup.sh managed block >>>` |
 | `setup-hardware.sh` | `config.txt` hardware: DAC overlay, DSI overlay, touch backend, HDMI suppression | `# >>> musicbox setup-hardware.sh managed block >>>` |
 | `setup-nas.sh` | one `/etc/fstab` entry + `/etc/musicbox/nas.credentials` | `# >>> musicbox setup-nas.sh managed block >>>` |
+| `setup-mpd.sh` | `/etc/musicbox/mpd.conf` + one `MPDCONF=` line in `/etc/default/mpd` | `# >>> musicbox setup-mpd.sh managed block >>>` |
 | `setup-kiosk.sh` | 4 files, `getty@tty1`, its own packages | (no shared file) |
 | `install.sh` | `apt-get install` only | (none) |
 | `migrate-network.sh` | `/etc/NetworkManager/system-connections/` | (none) |
@@ -105,11 +107,14 @@ Flags: `--touch firmware|kernel`, `--keep-hdmi`, `--skip-dac`, `--skip-display`,
 
 ### `install.sh` (182 lines)
 
-Currently installs `cifs-utils`, `nfs-common`, `smbclient` — both NAS clients,
-because `setup-nas.sh` chooses the protocol interactively at run time and cannot
-install anything itself. Its header carries the contract with `setup.sh` (the
-automount rule, the hardware and kiosk handoffs); read it before adding
-packages. MPD, Bluetooth, CD and web-UI packages are marked TODO.
+Installs `cifs-utils`, `nfs-common`, `smbclient` (both NAS clients, because
+`setup-nas.sh` chooses the protocol interactively at run time and cannot install
+anything itself) plus `mpd` and `mpc`. Its header carries the contract with
+`setup.sh` (the automount rule, the hardware, MPD and kiosk handoffs); read it
+before adding packages. Bluetooth, CD and web-UI packages are marked TODO.
+
+`mpd` alone costs **118 packages** with `--no-install-recommends`. See
+`decisions.md` for why that is accepted.
 
 ### `setup-nas.sh` (488 lines)
 
@@ -138,6 +143,42 @@ success.
 
 Credentials: `0600 root:root`, never echoed, never on a command line visible to
 `ps`, never written into fstab.
+
+### `setup-mpd.sh`
+
+Writes MPD's configuration. Installs nothing; dies pointing at `install.sh` if
+`mpd` is missing.
+
+**It does not touch `/etc/mpd.conf`.** Debian's unit is
+`ExecStart=/usr/bin/mpd --systemd $MPDCONF` with
+`EnvironmentFile=/etc/default/mpd`, and that file ships with
+`# MPDCONF=/etc/mpd.conf` commented out. So the config lives at
+`/etc/musicbox/mpd.conf` and a managed block in `/etc/default/mpd` points MPD at
+it. The package conffile stays pristine, dpkg never prompts on upgrade, and
+`--revert` is exact: strip one block, delete one file.
+
+An `include` file does not work as an alternative — Debian's `mpd.conf` already
+sets `music_directory` and `bind_to_address`, and MPD treats a redefined
+parameter as a fatal duplicate.
+
+The three settings that matter:
+
+| | |
+|---|---|
+| `music_directory "/srv/music/Music"` | **not** `/srv/music` — the share root holds `#recycle` and Synology's `@eaDir` dirs |
+| `mixer_control "Digital"` | **not** `PCM`, which does not exist on a pcm512x |
+| `auto_update "no"` | MPD's auto-update is inotify-based, and inotify cannot see changes made on the far side of an NFS mount |
+
+An unreadable `/srv/music/Music` is a **warning, not a failure**. MPD is required
+to tolerate an absent library and pick it up on first access; refusing to
+configure would contradict the whole point of the lazy automount.
+
+No `bind_to_address` is set: Debian enables `mpd.socket`, which passes listening
+sockets in, and binding as well risks a double bind.
+
+The script does not run the first scan — 49,711 files over NFS is minutes, and
+burying it in a config script makes a re-run look hung. It prints
+`time mpc update --wait` instead.
 
 ### `setup-kiosk.sh` (453 lines)
 

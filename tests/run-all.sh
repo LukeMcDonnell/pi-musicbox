@@ -8,7 +8,7 @@ rc=0
 step() { printf '\n\033[1m### %s\033[0m\n' "$1"; }
 
 step "bash -n (syntax)"
-for f in install/setup.sh install/install.sh tests/*.sh; do
+for f in install/setup.sh install/install.sh install/setup-mpd.sh tests/*.sh; do
     bash -n "$f" && printf 'ok  %s\n' "$f" || rc=1
 done
 
@@ -39,6 +39,9 @@ bash tests/test-kiosk-config.sh || rc=1
 
 step "NAS fstab generation tests"
 bash tests/test-nas-config.sh || rc=1
+
+step "MPD config tests"
+bash tests/test-mpd-config.sh || rc=1
 
 step "end-to-end integration test"
 bash tests/test-integration.sh || rc=1

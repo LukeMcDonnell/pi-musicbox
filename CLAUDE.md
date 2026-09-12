@@ -27,6 +27,7 @@ for whoever is editing the code.
 3. **`install.sh` installs packages. `setup-*.sh` configure.** The single
    deliberate exception is `setup-kiosk.sh`, which installs `cage` and
    `chromium` itself so the whole kiosk can be removed by deleting one script.
+   MPD follows the rule: packages in `install.sh`, config in `setup-mpd.sh`.
 4. **Every script must be idempotent and re-runnable**, and must have a
    `--dry-run` and a working `--revert`.
 5. **Measure, don't assume.** Several confident predictions in this project were
@@ -50,8 +51,8 @@ for whoever is editing the code.
 ## Commands
 
 ```sh
-bash tests/run-all.sh          # syntax + shellcheck + 6 suites (307 assertions)
-bash tests/test-nas-config.sh  # one suite
+bash tests/run-all.sh          # syntax + shellcheck + 7 suites (365 assertions)
+bash tests/test-mpd-config.sh  # one suite
 shellcheck install/*.sh tests/*.sh
 ```
 

@@ -1,6 +1,6 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, then six suites. **307 assertions**,
+`bash tests/run-all.sh` — syntax, shellcheck, then seven suites. **365 assertions**,
 all green, shellcheck clean (verified 2026-09-12). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 
@@ -11,6 +11,7 @@ all green, shellcheck clean (verified 2026-09-12). Safe on a dev machine:
 | `test-hardware-config.sh` | 47 | `--emit-config`/`--emit-revert`: neutralising conflicting stock lines, overlay ordering, idempotency, `--keep-hdmi`/`--skip-*`, byte-for-byte revert |
 | `test-kiosk-config.sh` | 60 | `--emit`: every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file drives the URL, and that the wrapper passes `bash -n` |
 | `test-nas-config.sh` | 66 | `--emit-fstab` plus the sourced block writer: the boot contract, `ro`, `soft`, `\040` escaping, 6 fields, password never in fstab |
+| `test-mpd-config.sh` | 58 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0 with the `Digital` mixer, `auto_update` off, no `bind_to_address`, and the `MPDCONF=` block uses its own marker |
 | `test-integration.sh` | 47 | The real `setup.sh` + `install.sh --dry-run` in `debian:trixie-slim` against a fake `/boot/firmware` |
 
 ## Three layers
@@ -53,3 +54,15 @@ The boot contract, for both protocols: `noauto` **and** `x-systemd.automount`
 **and** `nofail` present in the generated fstab line. That is what makes
 `setup.sh`'s masked `NetworkManager-wait-online` safe. If someone "simplifies"
 the mount, these assertions are the thing that catches it.
+
+## A trap in the sourcing layer
+
+Both `test-nas-config.sh` and `test-mpd-config.sh` source their script minus
+`main` to reach the internal block writers. The sourced file carries
+`set -euo pipefail`, which then applies to the **test shell** — which is
+deliberately `set -uo pipefail`, no `-e`, so that a failing assertion does not
+abort the run. The first deliberately-failing check after the `source` silently
+kills the suite mid-way, and the summary line never prints.
+
+Both suites now call `set +e` immediately after sourcing. If you add a third
+suite that sources a script, do the same.

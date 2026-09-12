@@ -9,7 +9,7 @@ A Raspberry Pi music player appliance.
 | Audio | HiFiBerry DAC+ **Standard** (I2S HAT) |
 | Display | DFRobot DFR0550 — 5" 800×480 DSI capacitive touchscreen |
 | Library | NFS/SMB network share |
-| Planned | MPD · Bluetooth audio · USB CD audio · web UI on `<hostname>.local` |
+| Planned | Bluetooth audio · USB CD audio · web UI on `<hostname>.local` |
 
 ## Run order
 
@@ -20,9 +20,11 @@ sudo reboot                             # 3.
 musicbox-bootreport                     # 4. before/after boot timings
 sudo ./install/setup-hardware.sh        # 5. DAC+, DSI panel, HDMI
 sudo reboot                             # 6.
-sudo ./install/setup-kiosk.sh           # 7. cage + chromium on the panel
-sudo reboot                             # 8.
-sudo ./install/install.sh               # 9. not implemented yet
+sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc)
+sudo ./install/setup-nas.sh             # 8. mount the music share (interactive)
+sudo ./install/setup-mpd.sh             # 9. point MPD at the library and the DAC
+sudo ./install/setup-kiosk.sh           # 10. cage + chromium on the panel
+sudo reboot                             # 11.
 ```
 
 The three scripts split by concern, and each owns its own managed block in
@@ -33,7 +35,9 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup.sh` | OS cleanup and boot tuning — **no hardware** |
 | `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression |
 | `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
-| `install.sh` | MPD, Bluetooth, USB CD, web UI (still a stub) |
+| `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
+| `setup-mpd.sh` | `/etc/musicbox/mpd.conf` and the `MPDCONF=` line that selects it |
+| `install.sh` | apt packages — and nothing else |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
 
@@ -434,6 +438,84 @@ output** — fine here, since the panel is mounted in its native landscape
 800x480. A rotation requirement would mean labwc, or a kernel-level `video=`
 rotation in `cmdline.txt`.
 
+## MPD
+
+`setup-mpd.sh` configures the player. It installs nothing — `mpd` and `mpc` come
+from `install.sh`, which is deliberate: MPD alone pulls **118 packages** even
+with `--no-install-recommends` (the whole ffmpeg stack, fluidsynth, OpenAL,
+JACK, PipeWire, PulseAudio, sndio, libupnp — all hard `Depends`). That is a real
+departure from the stripping this image does elsewhere, taken on the grounds
+that they are shared libraries rather than services: the cost is disk, which is
+not scarce here, and not boot time, which is.
+
+### It does not edit `/etc/mpd.conf`
+
+Debian's unit is `ExecStart=/usr/bin/mpd --systemd $MPDCONF` with
+`EnvironmentFile=/etc/default/mpd`, and that file ships with
+`# MPDCONF=/etc/mpd.conf` commented out. So the config goes to
+`/etc/musicbox/mpd.conf` and a small managed block in `/etc/default/mpd` selects
+it. The package conffile is never modified, dpkg never prompts on upgrade, and
+the revert is exact.
+
+An `include` file will not work as an alternative: Debian's `mpd.conf` already
+sets `music_directory` and `bind_to_address`, and MPD treats a redefined
+parameter as a fatal duplicate.
+
+### Three settings that are easy to get wrong
+
+| Setting | Why |
+|---|---|
+| `music_directory "/srv/music/Music"` | **Not** `/srv/music`. The share root also holds `#recycle`, and Synology scatters `@eaDir` thumbnail directories through the tree. |
+| `mixer_control "Digital"` | **Not** `"PCM"`, which is what most MPD examples show and does not exist on a pcm512x. Check with `amixer -c 0 scontrols`. |
+| `auto_update "no"` | MPD's auto-update is inotify-based, and inotify cannot see changes made on the far side of an NFS mount. It would watch ~50,000 files and never fire. Run `mpc update --wait`. Note this does **not** disable the *initial* scan — MPD builds the database itself on startup when `tag_cache` is absent. |
+
+An unreadable library is a **warning, not an error**. MPD has to tolerate the
+share being down and pick it up on first access — refusing to configure would
+contradict the whole point of the lazy automount.
+
+The script does not run the first scan. 49,711 files over NFS takes minutes, and
+burying that in a config script makes a re-run look hung.
+
+### What it costs at boot
+
+```
+before MPD:  2.069s kernel +  7.279s userspace =  9.348s
+with MPD:    2.332s kernel + 15.564s userspace = 17.896s
+```
+
+`mpd.service` is on the critical path at **5.960s**. The lazy mount is not the
+problem — from the journal, the NFS mount takes **0.54s**. The cost is 4.43s of
+MPD loading a 3.4M `tag_cache` (37,289 songs) and initialising the decoder
+plugins those 118 packages brought, with `After=network.target` deferring the
+start to 9.6s on top.
+
+**The 6 seconds are accepted deliberately** so MPD is resident and instantly
+ready. Socket activation gives the time back — MPD then starts on the first
+connection instead — and is one command away if that trade looks better later:
+
+```sh
+sudo systemctl disable mpd.service     # keep mpd.socket enabled
+```
+
+The initial scan took **48m40s** over NFS for 49,711 files. One-time; the
+database survives reboots.
+
+### Proven: the NAS can be off
+
+The whole point of `noauto,x-systemd.automount,nofail`. Cold boot with the NAS
+powered off costs **+1.07s** (18.969s vs 17.896s). The mount attempt fails in
+5.05s on name resolution, `nofail` lets boot carry on, and MPD logs
+`Failed to access /srv/music/Music: No such device` and keeps running with its
+database intact. The automount stays armed, so the share recovers on its own when
+the NAS returns — no intervention.
+
+Not yet tested: a NAS that *resolves* but does not answer. That path reaches TCP,
+where `x-systemd.mount-timeout` defaults to 90s.
+
+Related: because MPD builds the database itself on first start, **restarting
+mpd mid-scan abandons the scan and leaves a partial database.** `setup-mpd.sh`
+therefore restarts mpd only when the config actually changed.
+
 ## Rollback
 
 Every multi-line edit sits inside a delimited block:
@@ -470,6 +552,7 @@ Or individually:
 | `tests/test-kiosk-config.sh` | 60 tests of the generated kiosk artifacts, via `--emit`. Asserts every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file actually drives the URL, and that the generated wrapper passes `bash -n`. |
 | `tests/test-hardware-config.sh` | 47 tests of the `config.txt` transform, via `--emit-config` / `--emit-revert`. Covers neutralising conflicting stock lines (duplicates in `config.txt` are not reliably last-wins), the overlay ordering requirement, idempotency, `--keep-hdmi`/`--skip-*`, and that revert restores the original byte-for-byte. |
 | `tests/test-migrate-network.sh` | 25 tests of the netplan→keyfile conversion, via `--convert-only`, which touches no system state. Covers wifi/ethernet/static layouts, UUID preservation, the mandatory `0600` permissions, and that a PSK never leaks into an ethernet profile. |
+| `tests/test-mpd-config.sh` | 53 tests of the generated MPD config, via `--emit`. Asserts `music_directory` is the nested `/srv/music/Music` and not the share root, that the ALSA output targets card 0 with the `Digital` hardware mixer (not `PCM`, which does not exist on a pcm512x), that `auto_update` is off, that no `bind_to_address` is set, and that the `/etc/default/mpd` block uses its own marker. Also round-trips the managed block against a fixture. |
 | `tests/test-setup-helpers.sh` | 62 unit tests. Sources the helper functions and runs them against throwaway fixtures: managed-block round-trips, the single-line `cmdline.txt` edit, `fstab` rewriting, EEPROM key merge. Touches only its own temp dir. |
 | `tests/test-integration.sh` | 41 end-to-end assertions. Runs the real `setup.sh` inside a throwaway `debian:trixie-slim` container against a fake `/boot/firmware`, checking that `--dry-run` changes nothing, that a real run produces the expected config, and that a second run is byte-for-byte identical. Requires Docker; skips cleanly without it. |
 

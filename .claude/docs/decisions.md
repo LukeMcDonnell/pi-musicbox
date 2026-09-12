@@ -39,6 +39,37 @@ is on the network), removing `avahi-daemon` (the web UI is served at
 USB/`sr_mod` (a USB CD drive is planned), removing DRM (a kiosk browser is
 coming).
 
+**MPD's config lives at `/etc/musicbox/mpd.conf`, not `/etc/mpd.conf`.** Debian's
+unit already provides the hook — `EnvironmentFile=/etc/default/mpd` and
+`ExecStart=/usr/bin/mpd --systemd $MPDCONF` — and ships `MPDCONF` commented out.
+Setting it in a managed block leaves the package conffile untouched, so dpkg
+never prompts on upgrade and `--revert` is exact. An include file was the
+obvious-looking alternative and does not work: Debian's `mpd.conf` already sets
+`music_directory` and `bind_to_address`, and MPD treats a redefined parameter as
+a fatal duplicate.
+
+**118 packages for MPD, accepted.** `--no-install-recommends` does not help —
+they are all hard Depends: the full ffmpeg stack, fluidsynth and a soundfont,
+OpenAL, JACK, PipeWire, PulseAudio, sndio, libupnp. This sits badly next to
+`setup.sh` stripping the OS, and it was taken deliberately: they are shared
+libraries, not services, so the cost is disk (23G free) and not boot time (the
+scarce resource). A source build would mean owning the rebuild forever.
+
+**`auto_update "no"` is not a preference.** MPD's auto-update watches the
+library with inotify, and inotify cannot see changes made on the far side of an
+NFS mount. Turning it on would hold a watch on ~50,000 files and still never
+fire. Updates are explicit.
+
+It does **not** disable the initial scan, which was a wrong assumption on my
+part: with no `tag_cache`, MPD builds the database itself at startup. Observed
+on the device — MPD scanned unprompted on its first start. Two consequences that
+are now written into the config and the script: MPD reads `music_directory` at
+startup and therefore **does** trigger the lazy automount, and restarting mpd
+mid-scan abandons the scan and leaves a partial database.
+
+**`mixer_control "Digital"`, not `"PCM"`.** `PCM` is what most MPD examples show
+and it does not exist on a pcm512x. Verified with `amixer -c 0 scontrols`.
+
 ## Predictions the hardware disproved
 
 **"Masking `NetworkManager-wait-online` is the biggest single win, 6–19s."**
@@ -92,6 +123,43 @@ requires `findmnt`.
 Both bugs survived because the tests only exercised the *line generator* via
 `--emit-fstab`, not the code that writes the line into the file. Test the
 function that touches the filesystem, by sourcing it, not just the pure one.
+
+**Backticks inside an unquoted heredoc execute.** A comment in `gen_conf()`'s
+`cat <<CONF` block mentioned `` `port` ``; bash ran `port` as a command, printed
+"command not found" to stderr, and silently deleted the word from the generated
+config. shellcheck flagged it as SC2006 "style" — it was not style, it was a
+correctness bug. The generators interpolate `${MUSIC_DIR}` and friends, so the
+heredoc has to stay unquoted; prose inside it must therefore avoid backticks and
+`$(`.
+
+**MPD costs ~6s of boot, and that is accepted.** 9.348s → 17.896s, with
+`mpd.service` on the critical path. Decomposed, the NFS mount is only 0.54s of
+it; the rest is MPD loading a 3.4M database and its decoder plugins, plus
+`After=network.target` deferring the start to 9.6s. Socket activation would give
+the time back but means MPD is not running at all until something connects —
+a deliberate choice against it. Reversible in one command if that changes.
+
+**An unconditional `systemctl restart` in an idempotent script is harmful.**
+`setup-mpd.sh` restarted mpd on every run. Re-running it during MPD's initial
+library scan aborted the scan and left a partial database — which is exactly
+what happened on the device, self-inflicted, during verification. It now
+restarts only when the generated config actually changed, starts mpd if it is
+down, and otherwise leaves a playing box alone. Same class of bug as a blanket
+`daemon-reload`: cheap-looking, and not cheap while something is using the
+service.
+
+**Debian's mpd installs disabled, not running.** I claimed a package-only change
+would leave "a useless daemon enabled at boot". On Trixie both `mpd.service` and
+`mpd.socket` install `disabled` and `inactive`, so `setup-mpd.sh` enabling the
+service is doing necessary work. The argument for configuring it properly stands;
+the stated reason was wrong.
+
+**A sourced script's `set -e` leaks into the test shell.** The suites are
+deliberately `set -uo pipefail` with no `-e` so a failing assertion does not
+abort the run — but sourcing a script to reach its internals re-enables `-e`,
+and the first deliberately-failing check afterwards kills the suite silently,
+with no summary line. Caught while writing `test-mpd-config.sh`; both affected
+suites now `set +e` after sourcing.
 
 **A stale copy on the device cost a debugging cycle.** Files were `scp`'d
 piecemeal. Sync whole directories and check `md5sum`.
