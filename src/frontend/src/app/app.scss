@@ -78,6 +78,9 @@
 
   &__title {
     margin: 0;
+    /* Explicit: Tailwind's preflight resets h1 to font-weight: inherit, so the
+       browser default bold is no longer there to rely on. */
+    font-weight: 600;
     font-size: clamp(1.3rem, 4.2vw, 2rem);
     line-height: 1.2;
     /* Long track names must not push the layout wider than the panel. */

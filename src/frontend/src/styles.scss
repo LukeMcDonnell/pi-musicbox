@@ -1,4 +1,8 @@
-/* You can add global styles to this file, and also import other style files */
+/* Global styles. Tailwind v4 is configured CSS-first: this import is the whole
+   config surface — there is no tailwind.config.js. The Angular build picks the
+   plugin up via .postcssrc.json. */
+@use 'tailwindcss';
+
 body {
   margin: 0;
 }
