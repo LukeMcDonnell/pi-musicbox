@@ -108,7 +108,7 @@ Verified: 6 fields, mounted `nfs4` vers=4.1 read-only, `touch` fails with
 | Version on Trixie | `mpd` 0.24.4-1, `mpc` 0.35-1+b2 |
 | Package cost | **118 new packages** with `--no-install-recommends` — all hard Depends |
 | ALSA | `card 0: sndrpihifiberry [snd_rpi_hifiberry_dacplus]`, device 0 |
-| Mixer control | **`Digital`** (also `Analogue`; there is no `PCM`) |
+| Mixer control | none — MPD uses `mixer_type "none"`; see "The DAC and the signal path" |
 | Library size | 489 directories, **49,711 files** under `/srv/music/Music` |
 | Actual disk cost | 4.8G → **5.1G** used; 23G still free |
 | New enabled units | **none** — still 34. No PipeWire/JACK/Pulse/fluidsynth daemon appears |
@@ -209,6 +209,66 @@ supported default for a nice-to-have.
 
 MPD is still reachable on 6600 across the LAN — verified over both IPv4 and IPv6,
 loopback and remote.
+
+## The DAC and the signal path
+
+This box has **no volume control**: it feeds a preamp and power amp which own that
+job, so MPD runs `mixer_type "none"` and never touches the DAC.
+
+Every mixer control on card 0, with the values `musicbox-dac-unity.service`
+asserts at boot:
+
+| Control | Range | Held at | |
+|---|---|---|---|
+| `Digital` | 0–207 | **0 dB** (207) | pcm512x digital attenuator; every dB down discards bits |
+| `Analogue` | 0–1 | **0 dB** (1) | 2-position analog gain; 0 is −6 dB |
+| `Analogue Playback Boost` | 0–1 | **0 dB** (0) | 1 is +0.8 dB |
+| `Deemphasis` | switch | **off** | was found **on**; only correct for pre-emphasised discs |
+| `DSP Program` | 0–4 | default (0) | oversampling filter — voicing, not purity |
+
+`DSP Program` options, so it is a known dial rather than a mystery:
+`0 FIR interpolation with de-emphasis` · `1 Low latency IIR with de-emphasis` ·
+`2 High attenuation with de-emphasis` · `3 Fixed process flow` ·
+`4 Ringing-less low latency FIR`. Note the selected program is a "with
+de-emphasis" variant — the program provides the capability, the `Deemphasis`
+switch decides whether it is applied.
+
+### Passthrough is verified, not assumed
+
+`audio_output_format` and `samplerate_converter` are unset, so MPD passes the
+file's native rate and depth straight to `hw:0,0`. Confirmed by reading the FLAC
+header against the live device:
+
+```
+file:      Radiohead — Decks Dark      44100 Hz, 2ch, 16-bit
+hw_params: S16_LE, 44100 Hz, 2ch
+```
+
+A 24-bit track in the same library shows `S24_LE`, so the format follows the
+source rather than being pinned.
+
+### To attenuate, use the analog control
+
+If the preamp input clips, the right knob is `Analogue` at −6 dB — analog domain,
+costs no bits. **Never** attenuate digitally.
+
+```sh
+amixer -c 0 sset Analogue 0      # -6 dB
+amixer -c 0 sset Analogue 0dB    # back to unity
+```
+
+`mpc volume` now reports `volume: n/a` and refuses to set anything. That is
+intended.
+
+## Networking is unreliable — see wifi-instability.md
+
+The Pi is on **wifi** (`wlan0`, brcmfmac43455), 5GHz channel 40 at −65 to −75 dBm,
+with `eth0` down and no cable. It intermittently drops off the network entirely
+while continuing to run locally. Power save is now disabled as a mitigation.
+
+**Anything that probes this box over the network can report a total hang when the
+box is actually fine.** `.claude/docs/wifi-instability.md` covers the symptom,
+the confirmed facts, the dead ends, and the instrumentation currently installed.
 
 ## Verifying a device after a run
 

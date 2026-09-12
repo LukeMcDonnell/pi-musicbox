@@ -89,7 +89,6 @@ export function unavailableSnapshot(now: number): Snapshot {
         status: 'unavailable',
         source: 'mpd',
         state: 'stop',
-        volume: null,
         repeat: false,
         random: false,
         single: false,
@@ -114,15 +113,12 @@ export function buildSnapshot(status: Reply, currentSong: Reply, now: number): S
     const songGroups = groupBy(currentSong, 'file');
     const track = songGroups.length > 0 ? trackFromTags(songGroups[0]) : null;
 
-    const volume = num(get('volume'));
-
     return {
         apiVersion: API_VERSION,
         status: 'ok',
         source: 'mpd',
         state,
-        // MPD reports -1 when it has no mixer; surface that as null, not -1.
-        volume: volume === undefined || volume < 0 ? null : volume,
+        // No volume: MPD runs mixer_type "none" and reports -1. See shared/api.ts.
         repeat: get('repeat') === '1',
         random: get('random') === '1',
         single: get('single') === '1' || get('single') === 'oneshot',
@@ -326,10 +322,6 @@ export class MpdBridge {
             .map(trackFromTags)
             .filter((t): t is Track => t !== null);
         return { version: this.snapshot.queueVersion, tracks };
-    }
-
-    async setVolume(value: number): Promise<void> {
-        await this.command(`setvol ${Math.round(value)}`);
     }
 
     async find(what: string, value: string): Promise<Track[]> {

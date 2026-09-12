@@ -42,6 +42,9 @@ export class App implements OnDestroy {
 
     readonly playing = computed(() => this.snapshot()?.state === 'play');
 
+    /** scaleX rather than width — see the comment in app.scss for why it matters. */
+    readonly progressTransform = computed(() => `scaleX(${this.progress() / 100})`);
+
     /** Shown when there is no track; also covers MPD being down. */
     readonly statusLine = computed(() => {
         if (this.stream() === 'offline') return 'Reconnecting to musicbox…';
@@ -54,8 +57,23 @@ export class App implements OnDestroy {
 
     readonly error = signal<string | null>(null);
 
-    // 4Hz is enough for a progress bar to look continuous and costs nothing.
-    private readonly ticker = setInterval(() => this.tick.update((n) => n + 1), 250);
+    /*
+     * 1Hz, and only while playing.
+     *
+     * This is not a style preference. Every repaint on the DSI panel becomes a
+     * vc4 atomic commit, which calls the GPU firmware over the mailbox while
+     * holding the kernel clock mutex — a path that has hard-locked this box.
+     * At 1Hz with no CSS transition the panel commits about once a second
+     * instead of ~60 times a second, which is a ~60x reduction in traffic
+     * through it.
+     *
+     * A second of granularity is invisible on a progress bar for a 4-6 minute
+     * track: one step is well under half a percent of its width. The elapsed
+     * time readout only has second resolution anyway.
+     */
+    private readonly ticker = setInterval(() => {
+        if (this.playing()) this.tick.update((n) => n + 1);
+    }, 1000);
 
     ngOnDestroy(): void {
         clearInterval(this.ticker);
@@ -72,15 +90,5 @@ export class App implements OnDestroy {
 
     async toggle(): Promise<void> {
         await this.command(this.playing() ? 'pause' : 'play');
-    }
-
-    async onVolume(event: Event): Promise<void> {
-        const value = Number((event.target as HTMLInputElement).value);
-        this.error.set(null);
-        try {
-            await this.api.setVolume(value);
-        } catch (err) {
-            this.error.set((err as Error).message);
-        }
     }
 }

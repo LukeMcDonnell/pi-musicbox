@@ -32,9 +32,15 @@ export class MusicboxApi {
     private source: EventSource | null = null;
 
     /**
-     * Wall-clock reference captured when the snapshot arrived, so elapsed time can
-     * be advanced locally. MPD does not push progress continuously and polling for
-     * a smooth progress bar is the wrong answer.
+     * Client-clock reference captured when the snapshot arrived, so elapsed time
+     * can be advanced locally. MPD does not push progress continuously and
+     * polling for a smooth progress bar is the wrong answer.
+     *
+     * This is the CLIENT's clock, deliberately, not snapshot.serverTime — using
+     * the server's timestamp would require a phone's clock to agree with the
+     * Pi's. It is only correct because the server sends a freshly queried
+     * snapshot on connect; if that ever regresses, a page load will show the
+     * position as at the last MPD event instead of now.
      */
     private receivedAt = 0;
 
@@ -75,10 +81,6 @@ export class MusicboxApi {
 
     async playback(command: PlaybackCommand): Promise<void> {
         await this.post(`/api/playback/${command}`);
-    }
-
-    async setVolume(value: number): Promise<void> {
-        await this.post('/api/volume', { value });
     }
 
     async queue(): Promise<QueueResponse> {

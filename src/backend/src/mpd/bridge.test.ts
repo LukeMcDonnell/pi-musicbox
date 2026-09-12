@@ -50,7 +50,6 @@ test('snapshot carries complete playback state', () => {
     const s = buildSnapshot(STATUS, CURRENT, 1_700_000_000_000);
     assert.equal(s.status, 'ok');
     assert.equal(s.state, 'play');
-    assert.equal(s.volume, 74);
     assert.equal(s.random, true);
     assert.equal(s.repeat, false);
     assert.equal(s.elapsed, 65.482);
@@ -126,9 +125,15 @@ test('unavailable snapshot has the same shape as a live one', () => {
     assert.equal(dead.track, null);
 });
 
-test('MPD reporting no mixer surfaces as null, not -1', () => {
-    const s = buildSnapshot(reply('volume: -1', 'state: stop'), reply(), 0);
-    assert.equal(s.volume, null);
+test('the snapshot carries no volume at all', () => {
+    // This box has no volume control: MPD runs mixer_type "none" and volume is
+    // handled downstream by the preamp. A reappearing `volume` field would mean
+    // someone gave MPD the pcm512x attenuator back, which costs bits.
+    const s = buildSnapshot(reply('volume: -1', 'state: stop'), reply(), 0) as unknown as Record<
+        string,
+        unknown
+    >;
+    assert.equal(Object.prototype.hasOwnProperty.call(s, 'volume'), false);
 });
 
 test('unknown play states fall back to stop', () => {

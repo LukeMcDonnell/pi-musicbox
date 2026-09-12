@@ -28,7 +28,7 @@
       <p class="now__album">{{ track.album }}@if (track.date) { <span class="now__year"> · {{ track.date }}</span> }</p>
 
       <div class="progress" role="progressbar" [attr.aria-valuenow]="progress()">
-        <div class="progress__fill" [style.width.%]="progress()"></div>
+        <div class="progress__fill" [style.transform]="progressTransform()"></div>
       </div>
       <div class="times">
         <span>{{ elapsedLabel() }}</span>
@@ -44,15 +44,6 @@
     </button>
     <button class="btn" (click)="command('next')" aria-label="Next track">⏭</button>
   </section>
-
-  @if (snapshot()?.volume !== null && snapshot()?.volume !== undefined) {
-    <section class="volume">
-      <label class="volume__label" for="vol">Volume</label>
-      <input id="vol" class="volume__slider" type="range" min="0" max="100"
-             [value]="snapshot()?.volume" (change)="onVolume($event)" />
-      <span class="volume__value">{{ snapshot()?.volume }}</span>
-    </section>
-  }
 
   @if (error(); as message) {
     <p class="error" role="alert">{{ message }}</p>

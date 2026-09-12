@@ -102,6 +102,26 @@ Worth the extra unit: the dev loop then needs no sudo at all, and rsync's
 temp-file-plus-rename means the watch fires once on a complete file. Never use
 `rsync --inplace` here — it would break that.
 
+**No volume control on this device.** It sits upstream of a preamp and power amp
+that both have volume, so MPD runs `mixer_type "none"` and never touches the
+pcm512x attenuator — every dB of digital attenuation discards resolution. Volume
+was removed from the API and UI rather than left inert, and `API_VERSION` was
+deliberately **not** bumped because nothing consumes the API from outside this
+repo yet.
+
+`musicbox-dac-unity.service` then has to exist: with MPD no longer owning those
+controls, `alsa-restore` reloads whatever is in `asound.state`, so a single stray
+`amixer` call would leave the box quietly attenuated with nothing to notice. The
+unit asserts 0 dB at boot, costs 220ms, and finishes ~3s before MPD starts.
+
+**`Deemphasis` was on by default and is now off.** A fixed treble de-emphasis
+filter, correct only for pre-emphasised recordings. Unnecessary DSP has no place
+in a path aiming to be bit-perfect. Reversible with one `amixer` call if anything
+ever sounds wrong.
+
+**Attenuation, if ever needed, belongs in the analog domain** — the `Analogue`
+control's −6 dB step — never the digital attenuator.
+
 ## Predictions the hardware disproved
 
 **"Masking `NetworkManager-wait-online` is the biggest single win, 6–19s."**
@@ -171,6 +191,22 @@ Fixed three ways: the app ends its SSE streams on SIGTERM,
 bounds the worst case. The tests pin each independently, including one that
 deliberately reproduces the hang.
 
+**A page refresh showed the elapsed time from the last MPD event, not now.**
+MPD's `idle` never fires merely because elapsed time advanced, so `bridge.current`
+keeps the `elapsed` from the last real event — a resume, seek or track change. The
+client interpolates from *when it received the frame*, so being handed that cached
+snapshot made it count up from the old position: pause, resume, wait, reload, and
+the UI showed the resume position as though it were current.
+
+The tell was that `serverTime` — which the shared type documents as "for
+interpolation" — was never read by anything. Fixed server-side instead of by
+trusting it: `/api/events` refreshes before its first frame and `/api/status`
+refreshes before responding. Using `serverTime` on the client would require a
+phone's clock to agree with the Pi's; re-querying MPD needs no such assumption.
+
+Verified on the device — three connects 12s apart returned 4:49, 5:06, 5:23
+where all three would previously have returned the resume position.
+
 **Volume accepted `null` and coerced it to 0.** `Number(null)` is `0`, so a
 malformed request silently meant "set volume to silent" rather than being
 rejected. Found by a test asserting the wrong thing, which is the good kind of
@@ -192,6 +228,13 @@ requires `findmnt`.
 Both bugs survived because the tests only exercised the *line generator* via
 `--emit-fstab`, not the code that writes the line into the file. Test the
 function that touches the filesystem, by sourcing it, not just the pure one.
+
+**Backticks inside an unquoted heredoc execute — and this has now happened
+twice in the same generator.** The second time, a comment reading `` `mpc volume` ``
+ran `mpc`, printed "command not found", and deleted the word from the emitted
+config. `tests/test-mpd-config.sh` now asserts that `--emit` produces **no stderr
+output** and that no generator contains a backtick, which catches the whole class
+rather than each instance.
 
 **Backticks inside an unquoted heredoc execute.** A comment in `gen_conf()`'s
 `cat <<CONF` block mentioned `` `port` ``; bash ran `port` as a command, printed

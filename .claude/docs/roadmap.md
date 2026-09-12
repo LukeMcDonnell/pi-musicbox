@@ -21,6 +21,17 @@ Last updated 2026-09-12.
 - MPD playing that library through the DAC — 37,289 songs indexed, resident from
   boot at a deliberate cost of ~6s (9.348s → 17.896s; see `device.md`)
 
+## Open issue: the box drops off the network under load
+
+Unresolved. Streaming for tens of minutes over wifi and the Pi disappears from
+the network while continuing to run locally — the kiosk keeps working, MPD starts
+erroring on the NAS. Power save has been disabled and it has since run 47+
+minutes clean, but that is not proof. Diagnostic instrumentation is installed on
+the device.
+
+**`.claude/docs/wifi-instability.md` has the full picture, the dead ends worth not
+repeating, and how to remove the instrumentation.**
+
 ## Next
 
 1. **Flesh out the UI** — the skeleton is now-playing plus transport and volume.

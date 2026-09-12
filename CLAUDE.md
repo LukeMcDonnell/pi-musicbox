@@ -22,6 +22,7 @@ for whoever is editing the code.
 | `.claude/docs/decisions.md` | **Before "fixing" something that looks wrong** — it usually isn't |
 | `.claude/docs/testing.md` | Writing or debugging tests |
 | `.claude/docs/roadmap.md` | Picking up the next piece of work |
+| `.claude/docs/wifi-instability.md` | **Any "the box stopped responding" report** — open issue, and there is temporary instrumentation on the device |
 
 ## Non-negotiables
 
@@ -63,7 +64,7 @@ for whoever is editing the code.
 ## Commands
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 8 suites (427 asserts) + 41 node tests
+bash tests/run-all.sh          # shellcheck + 8 suites (451 asserts) + 44 node tests
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s
@@ -73,6 +74,15 @@ shellcheck install/*.sh tests/*.sh
 Tests must stay green and shellcheck clean before anything is called done.
 `run-all.sh` is safe on this dev machine — the scripts only ever execute inside
 a throwaway container.
+
+## The device has temporary diagnostic instrumentation on it
+
+Persistent journald and a `musicbox-netwatch` service, installed by
+`tools/instrument-wifi-debug.sh` and **not** by any `install/setup*.sh`. It is
+there because the box intermittently drops off the network and every earlier
+failure erased its own evidence. Do not be surprised by it, and do not remove it
+piecemeal — `tools/uninstrument-wifi-debug.sh` takes it all out.
+See `.claude/docs/wifi-instability.md`.
 
 ## Working on the device
 

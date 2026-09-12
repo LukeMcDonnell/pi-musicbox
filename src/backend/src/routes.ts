@@ -69,7 +69,13 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         };
     });
 
-    app.get('/api/status', async (): Promise<Snapshot> => bridge.current);
+    // Refreshed, not cached. MPD's `idle` does not fire as elapsed time advances,
+    // so bridge.current can be minutes old — fine for a live SSE client, which
+    // interpolates from when it received the frame, but wrong for a one-shot GET.
+    app.get('/api/status', async (): Promise<Snapshot> => {
+        await bridge.refresh();
+        return bridge.current;
+    });
 
     app.get('/api/queue', async (_req: FastifyRequest, reply: FastifyReply) => {
         try {
@@ -94,28 +100,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
     });
 
-    app.post('/api/volume', async (request: FastifyRequest, reply: FastifyReply) => {
-        const body = request.body as { value?: unknown } | undefined;
-        const value = body?.value;
-        // Must be an actual number: Number(null) is 0 and Number("") is 0, so
-        // coercing would turn a malformed request into "set volume to silent".
-        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) {
-            return reply.code(400).send({ error: 'value must be a number from 0 to 100' });
-        }
-        try {
-            await bridge.setVolume(value);
-            return bridge.current;
-        } catch (err) {
-            return reply.code(503).send({ error: (err as Error).message });
-        }
-    });
-
     /**
      * SSE stream. Sends the current snapshot immediately on connect, so a client
      * is correct from its first frame without a separate /api/status call, then
      * a fresh full snapshot on every change.
      */
-    app.get('/api/events', (request: FastifyRequest, reply: FastifyReply) => {
+    app.get('/api/events', async (request: FastifyRequest, reply: FastifyReply) => {
         reply.raw.writeHead(200, {
             'content-type': 'text/event-stream; charset=utf-8',
             'cache-control': 'no-cache, no-transform',
@@ -128,6 +118,18 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             reply.raw.write(sseFrame(SSE_SNAPSHOT_EVENT, snapshot));
         };
 
+        // The FIRST frame must be freshly queried, not bridge.current.
+        //
+        // MPD's `idle` never fires merely because elapsed time advanced, so the
+        // cached snapshot's `elapsed` dates from the last real event — a resume,
+        // a seek, a track change. A client interpolates from the moment it
+        // received the frame, so handing it a stale snapshot makes it count up
+        // from that old position: refresh the page after pausing and resuming and
+        // the UI shows the resume position as though it were now.
+        //
+        // Fixed here rather than by having the client trust snapshot.serverTime,
+        // because that would require a phone's clock to agree with the Pi's.
+        await bridge.refresh();
         send(bridge.current);
         const unsubscribe = bridge.onSnapshot(send);
 

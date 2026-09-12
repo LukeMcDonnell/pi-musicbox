@@ -2,6 +2,9 @@
   Sized for two targets: a 800x480 DSI panel viewed at arm's length with touch,
   and a phone in the hand. Controls are deliberately large — the panel has no
   pointer, and a 44px minimum is the smallest reliably tappable target.
+
+  There is no volume control: this box feeds a preamp and power amp which own
+  that job. See install/setup-mpd.sh.
 */
 :host {
   --bg: #12100f;
@@ -106,9 +109,29 @@
 
   &__fill {
     height: 100%;
+    width: 100%;
     background: var(--accent);
-    /* Matches the 250ms ticker so the bar glides rather than stepping. */
-    transition: width 250ms linear;
+
+    /* scaleX, NOT width. Animating width forces layout + paint + composite on
+       every frame; on the DSI panel each composite drives a vc4 atomic commit,
+       which calls into the GPU firmware mailbox. A transform is composited on
+       the GPU with no layout at all.
+       This matters here: the box deadlocked once with the display commit path
+       stuck in that mailbox while holding the clock-framework mutex, which took
+       MPD's DAC output thread down with it. Keeping panel repaints cheap is not
+       cosmetic. */
+    transform-origin: left center;
+    transform: scaleX(0);
+    will-change: transform;
+
+    /* NO transition, deliberately.
+       A CSS transition animates every frame, and on this DSI panel every frame
+       is a vc4 atomic commit -> clk_set_min_rate -> GPU firmware mailbox call.
+       That path has deadlocked the box while holding the clock-framework mutex,
+       taking MPD's DAC thread with it. A transition here means ~60 commits per
+       second for the entire length of a track; stepping means one per second.
+       scaleX (rather than width) is still the right property: it keeps the one
+       commit we do make cheap, with no layout or repaint. */
   }
 }
 
@@ -149,30 +172,6 @@
     background: var(--accent);
     color: #1a1413;
     font-size: 1.7rem;
-  }
-}
-
-.volume {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-
-  &__label {
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-
-  &__slider {
-    flex: 1;
-    accent-color: var(--accent);
-    height: 2rem;
-  }
-
-  &__value {
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
-    min-width: 2.5ch;
-    text-align: right;
   }
 }
 

@@ -628,9 +628,57 @@ The queue is described by three fields rather than carried: `queueVersion`,
 comes from MPD's `status`, not the track, so it stays correct even when
 `currentsong` returns nothing — it is what you highlight a row with.
 
-Elapsed time is **interpolated client-side** from `(elapsed, duration, state,
-serverTime)`. MPD does not push progress continuously, and polling for a smooth
-progress bar is the obvious wrong answer.
+Elapsed time is **interpolated client-side**. MPD does not push progress
+continuously, and polling for a smooth progress bar is the obvious wrong answer.
+
+The client interpolates from **its own receive time**, so a phone's clock never
+has to agree with the Pi's. That only works because the server sends a **freshly
+queried** snapshot on SSE connect and on `GET /api/status` — MPD's `idle` does not
+fire as elapsed time advances, so the cached snapshot's `elapsed` dates from the
+last real event. Sending that to a new client made a page reload show the elapsed
+time as at the last pause/resume.
+
+## Volume, and why there isn't any
+
+This box feeds a preamp which feeds a power amp, both of which have volume
+controls. So volume is handled downstream and the job here is to pass the purest
+signal possible.
+
+MPD runs **`mixer_type "none"`** — it reports `volume: n/a`, refuses volume
+commands, and never writes to the DAC. `replaygain` and `volume_normalization` are
+explicitly off, and `audio_output_format`/`samplerate_converter` are deliberately
+unset so the file's native rate and depth go straight to `hw:0,0`. Verified: a
+16-bit/44.1k FLAC arrives as `S16_LE / 44100`, a 24-bit one as `S24_LE`.
+
+`musicbox-dac-unity.service` pins the gain stages at 0 dB on every boot and turns
+`Deemphasis` off. It exists because once MPD stops managing those controls,
+`alsa-restore` will happily reload whatever was last saved — one stray `amixer`
+call would otherwise leave the box quietly attenuated forever. It costs 220ms and
+finishes ~3s before MPD starts.
+
+`Deemphasis` was found **enabled**. It is a fixed treble filter, correct only for
+pre-emphasised recordings (a handful of early-80s CDs), so it is now off.
+
+**To attenuate**, use the analog control — never digital:
+
+```sh
+amixer -c 0 sset Analogue 0      # -6 dB, costs no bits
+amixer -c 0 sset Analogue 0dB    # back to unity
+```
+
+The web UI has no volume slider, and `POST /api/volume` no longer exists.
+
+## Known issue: wifi drops under sustained load
+
+The Pi is on wifi at −65 to −75 dBm and has twice disappeared from the network
+after ~20 minutes of streaming, while continuing to run fine locally — the panel
+keeps working, only the network goes. Wifi power save has been disabled as a
+mitigation and it has run clean since, but it is not called fixed.
+
+Full write-up, including the leads that turned out to be dead ends and the
+diagnostic instrumentation currently on the device, is in
+`.claude/docs/wifi-instability.md`. The two highest-leverage remaining options are
+pinning the connection to 2.4GHz (the stronger AP here) or plugging in ethernet.
 
 ## Rollback
 

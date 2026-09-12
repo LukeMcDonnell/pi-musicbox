@@ -19,6 +19,12 @@ import { MpdBridge } from './bridge.ts';
 import type { Snapshot } from '../../../shared/api.ts';
 
 const STATUS_REPLY = 'volume: 50\nstate: play\nplaylist: 7\nplaylistlength: 3\nelapsed: 1.0\nduration: 100.0\nOK\n';
+/** Elapsed advances on each `status`, so a cached snapshot is distinguishable. */
+let statusCalls = 0;
+function movingStatus(): string {
+    statusCalls += 1;
+    return `volume: 50\nstate: play\nplaylist: 7\nplaylistlength: 3\nelapsed: ${statusCalls * 10}.0\nduration: 300.0\nOK\n`;
+}
 const SONG_REPLY = 'file: a/b.flac\nTitle: Test\nArtist: Tester\nOK\n';
 
 interface Fake {
@@ -33,7 +39,7 @@ interface Fake {
 }
 
 /** A minimal MPD good enough to exercise the bridge's connection handling. */
-async function startFakeMpd(opts: { idleForever?: boolean } = {}): Promise<Fake> {
+async function startFakeMpd(opts: { idleForever?: boolean; movingElapsed?: boolean } = {}): Promise<Fake> {
     const commands: string[] = [];
     const sockets = new Set<Socket>();
 
@@ -56,7 +62,7 @@ async function startFakeMpd(opts: { idleForever?: boolean } = {}): Promise<Fake>
                     // A real idle blocks until something changes.
                     if (!opts.idleForever) socket.write('changed: player\nOK\n');
                 } else if (line === 'status') {
-                    socket.write(STATUS_REPLY);
+                    socket.write(opts.movingElapsed ? movingStatus() : STATUS_REPLY);
                 } else if (line === 'currentsong') {
                     socket.write(SONG_REPLY);
                 } else {
@@ -182,4 +188,40 @@ test('the idle connection subscribes to the subsystems that matter', async () =>
     for (const subsystem of ['player', 'mixer', 'playlist', 'options']) {
         assert.ok(idle.includes(subsystem), `idle should cover ${subsystem}`);
     }
+});
+
+test('refresh() re-queries MPD rather than reusing the cached snapshot', async () => {
+    /*
+     * The bug this guards against, seen in the real UI: MPD's `idle` never fires
+     * merely because elapsed time advanced, so bridge.current keeps the elapsed
+     * value from the last real event — a resume, a seek, a track change. A client
+     * interpolates from when it received the frame, so being handed that stale
+     * snapshot makes it count up from the OLD position. Reloading the page after
+     * pausing and resuming showed the resume position as though it were now.
+     *
+     * The fix is server-side: /api/events refreshes before its first frame, and
+     * /api/status refreshes before responding. Both rely on refresh() actually
+     * hitting MPD every time.
+     */
+    statusCalls = 0;
+    const fake = await startFakeMpd({ idleForever: true, movingElapsed: true });
+    const { bridge } = makeBridge(fake, { keepaliveMs: 10_000 });
+    bridge.start();
+    await wait(300);
+
+    const first = bridge.current.elapsed;
+    await bridge.refresh();
+    const second = bridge.current.elapsed;
+    await bridge.refresh();
+    const third = bridge.current.elapsed;
+
+    bridge.stop();
+    await fake.close();
+
+    assert.notEqual(first, second, 'refresh() must re-query, not return the cache');
+    assert.notEqual(second, third, 'every refresh() must re-query');
+    assert.ok(
+        (third ?? 0) > (first ?? 0),
+        `elapsed should advance across refreshes, got ${first} -> ${second} -> ${third}`,
+    );
 });

@@ -41,13 +41,50 @@ check "the reason is written down" "0" "$(has '#recycle' "$CONF")"
 banner "audio output — card 0 is the DAC"
 check "type alsa"              "0" "$(hasre '^[[:space:]]+type[[:space:]]+"alsa"$' "$CONF")"
 check "device hw:0,0"          "0" "$(hasre '^[[:space:]]+device[[:space:]]+"hw:0,0"$' "$CONF")"
-check "mixer_type hardware"    "0" "$(hasre '^[[:space:]]+mixer_type[[:space:]]+"hardware"$' "$CONF")"
-check "mixer_device hw:0"      "0" "$(hasre '^[[:space:]]+mixer_device[[:space:]]+"hw:0"$' "$CONF")"
-# "PCM" is the plausible-looking wrong answer; it does not exist on a pcm512x.
-check "mixer_control Digital"  "0" "$(hasre '^[[:space:]]+mixer_control[[:space:]]+"Digital"$' "$CONF")"
-check "mixer_control is NOT PCM" "1" "$(hasre '^[[:space:]]+mixer_control[[:space:]]+"PCM"$' "$CONF")"
 check "exactly one audio_output block" "1" "$(count 'audio_output {' "$CONF")"
 check "block is closed" "0" "$(hasre '^\}$' "$CONF")"
+
+banner "NO VOLUME — volume is handled downstream by the preamp"
+# Giving MPD the pcm512x attenuator back is the regression that silently costs
+# bits: every dB of digital attenuation discards resolution.
+check "mixer_type none"          "0" "$(hasre '^[[:space:]]+mixer_type[[:space:]]+"none"$' "$CONF")"
+check "mixer_type NOT hardware"  "1" "$(hasre '^[[:space:]]+mixer_type[[:space:]]+"hardware"$' "$CONF")"
+check "mixer_type NOT software"  "1" "$(hasre '^[[:space:]]+mixer_type[[:space:]]+"software"$' "$CONF")"
+check "no mixer_control"         "1" "$(hasre '^[[:space:]]+mixer_control' "$CONF")"
+check "no mixer_device"          "1" "$(hasre '^[[:space:]]+mixer_device' "$CONF")"
+check "the reason is written down" "0" "$(has 'handled downstream' "$CONF")"
+
+banner "nothing applies gain, and nothing resamples"
+check "replaygain off"            "0" "$(hasre '^replaygain[[:space:]]+"off"$' "$CONF")"
+check "volume_normalization no"   "0" "$(hasre '^volume_normalization[[:space:]]+"no"$' "$CONF")"
+# Setting either of these would make MPD convert instead of passing the file
+# through at its native rate and depth.
+check "no audio_output_format"    "1" "$(hasre '^audio_output_format' "$CONF")"
+check "no samplerate_converter"   "1" "$(hasre '^samplerate_converter' "$CONF")"
+
+banner "the DAC is pinned at unity by its own unit"
+UNITY="$OUT/musicbox-dac-unity"
+UUNIT="$OUT/musicbox-dac-unity.service"
+check "unity script written"   "0" "$(if [[ -f "$UNITY" ]]; then echo 0; else echo 1; fi)"
+check "unity script is executable" "755" "$(stat -c %a "$UNITY" 2>/dev/null)"
+check "unity script is valid bash" "0" "$(bash -n "$UNITY" 2>/dev/null; echo $?)"
+check "unity unit written"     "0" "$(if [[ -f "$UUNIT" ]]; then echo 0; else echo 1; fi)"
+# dB, not percent: "100%" and "0 dB" coincide on the pcm512x today, but a
+# percentage silently means something else if the control's range changes.
+check "Digital set in dB"      "0" "$(has "set_control 'Digital' '0dB'" "$UNITY")"
+check "Analogue set in dB"     "0" "$(has "set_control 'Analogue' '0dB'" "$UNITY")"
+check "no percentages anywhere" "1" "$(grep -qE "set_control[^']*'[^']*'[[:space:]]*'[0-9]+%'" "$UNITY"; echo $?)"
+check "analogue boost off"     "0" "$(has "set_control 'Analogue Playback Boost' '0dB'" "$UNITY")"
+# De-emphasis is correct only for pre-emphasised recordings; it was found on.
+check "deemphasis turned off"  "0" "$(has "set_control 'Deemphasis' 'off'" "$UNITY")"
+# Wrong order and MPD can start against a restored, attenuated state.
+check "runs after alsa-restore" "0" "$(hasre '^After=.*alsa-restore\.service' "$UUNIT")"
+check "runs before mpd"         "0" "$(hasre '^Before=mpd\.service$' "$UUNIT")"
+check "oneshot that stays"      "0" "$(hasre '^Type=oneshot$' "$UUNIT")"
+check "remains after exit"      "0" "$(hasre '^RemainAfterExit=yes$' "$UUNIT")"
+check "enabled at boot"         "0" "$(hasre '^WantedBy=multi-user\.target$' "$UUNIT")"
+check "setup-mpd.sh enables it" "0" "$(has 'systemctl enable musicbox-dac-unity.service' "$SCRIPT")"
+check "and revert removes it"   "0" "$(has 'disable --now musicbox-dac-unity.service' "$SCRIPT")"
 
 banner "settings that must not drift"
 # inotify cannot see changes made on the far side of an NFS mount.
@@ -143,6 +180,15 @@ rm -f "$out2"
 out3="$(strip_managed_block "$FIX.new")"
 check "strip restores the original exactly" "$ORIG" "$(cat "$out3")"
 rm -f "$out3"
+
+banner "--emit must be silent (a backtick in an unquoted heredoc executes)"
+# This has bitten gen_conf twice: text inside `cat <<CONF` containing backticks or
+# $( ) runs as a command, prints "not found" to stderr, and deletes the word from
+# the generated file. Any such slip shows up as stderr output here.
+bash "$SCRIPT" --emit "$WORK/silent" 2>"$WORK/emit.err" >/dev/null
+check "no stderr from --emit" "" "$(cat "$WORK/emit.err")"
+check "no backticks in any generator" "1" \
+    "$(sed -n '/^gen_conf()/,/^CONF$/p;/^gen_unity_unit()/,/^UNIT$/p;/^gen_default_block()/,/^DEFAULTS$/p' "$SCRIPT" | grep -q '`'; echo $?)"
 
 banner "idempotency"
 sum1="$(cat "$OUT"/* | md5sum)"

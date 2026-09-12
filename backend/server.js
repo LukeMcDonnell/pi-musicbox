@@ -37093,7 +37093,6 @@ function unavailableSnapshot(now) {
     status: "unavailable",
     source: "mpd",
     state: "stop",
-    volume: null,
     repeat: false,
     random: false,
     single: false,
@@ -37113,14 +37112,12 @@ function buildSnapshot(status, currentSong, now) {
   const state = rawState === "play" || rawState === "pause" ? rawState : "stop";
   const songGroups = groupBy(currentSong, "file");
   const track = songGroups.length > 0 ? trackFromTags(songGroups[0]) : null;
-  const volume = num(get("volume"));
   return {
     apiVersion: API_VERSION,
     status: "ok",
     source: "mpd",
     state,
-    // MPD reports -1 when it has no mixer; surface that as null, not -1.
-    volume: volume === void 0 || volume < 0 ? null : volume,
+    // No volume: MPD runs mixer_type "none" and reports -1. See shared/api.ts.
     repeat: get("repeat") === "1",
     random: get("random") === "1",
     single: get("single") === "1" || get("single") === "oneshot",
@@ -37299,9 +37296,6 @@ var MpdBridge = class {
     const tracks = groupBy(reply, "file").map(trackFromTags).filter((t) => t !== null);
     return { version: this.snapshot.queueVersion, tracks };
   }
-  async setVolume(value) {
-    await this.command(`setvol ${Math.round(value)}`);
-  }
   async find(what, value) {
     if (!this.commands.connected) throw new Error("MPD is not connected");
     const reply = await this.commands.send(`find ${quoteArg(what)} ${quoteArg(value)}`);
@@ -37336,7 +37330,10 @@ function registerRoutes(app, opts) {
       mpd: bridge.status
     };
   });
-  app.get("/api/status", async () => bridge.current);
+  app.get("/api/status", async () => {
+    await bridge.refresh();
+    return bridge.current;
+  });
   app.get("/api/queue", async (_req, reply) => {
     try {
       return await bridge.queue();
@@ -37358,20 +37355,7 @@ function registerRoutes(app, opts) {
       return reply.code(503).send({ error: err.message });
     }
   });
-  app.post("/api/volume", async (request, reply) => {
-    const body = request.body;
-    const value = body?.value;
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
-      return reply.code(400).send({ error: "value must be a number from 0 to 100" });
-    }
-    try {
-      await bridge.setVolume(value);
-      return bridge.current;
-    } catch (err) {
-      return reply.code(503).send({ error: err.message });
-    }
-  });
-  app.get("/api/events", (request, reply) => {
+  app.get("/api/events", async (request, reply) => {
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
@@ -37382,6 +37366,7 @@ function registerRoutes(app, opts) {
     const send = (snapshot) => {
       reply.raw.write(sseFrame(SSE_SNAPSHOT_EVENT, snapshot));
     };
+    await bridge.refresh();
     send(bridge.current);
     const unsubscribe = bridge.onSnapshot(send);
     const heartbeat = setInterval(() => {
@@ -37496,7 +37481,7 @@ Deploy one with tools/dev-push.sh
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-12T02:59:21Z" : "dev";
+var BUILD = true ? "2026-09-12T06:21:16Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

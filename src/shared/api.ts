@@ -19,7 +19,13 @@
  *   self-describing; it just describes the queue by version rather than value.
  */
 
-/** Wire-format version. Bumped when a change is not backwards compatible. */
+/**
+ * Wire-format version. Bumped when a change is not backwards compatible.
+ *
+ * Deliberately NOT bumped when `volume` was removed from Snapshot: nothing is in
+ * production yet, so a bump would imply a compatibility story that does not exist.
+ * Start bumping it once something outside this repo consumes the API.
+ */
 export const API_VERSION = 1;
 
 /** Playback sources. Bluetooth and CD are not implemented yet. */
@@ -60,8 +66,14 @@ export interface Snapshot {
     source: Source;
     state: PlaybackState;
 
-    /** 0-100, or null when MPD reports no mixer. */
-    volume: number | null;
+    /*
+     * NOTE: there is no `volume`. This box has no volume control — it feeds a
+     * preamp and power amp which own that job, and MPD runs mixer_type "none" so
+     * it never touches the DAC's attenuator. See install/setup-mpd.sh.
+     *
+     * If a future source (Bluetooth, CD) genuinely has its own volume, add it
+     * there rather than reviving a global one.
+     */
 
     repeat: boolean;
     random: boolean;
@@ -130,11 +142,6 @@ export interface ErrorResponse {
 /** Commands accepted by POST /api/playback/:command */
 export const PLAYBACK_COMMANDS = ['play', 'pause', 'stop', 'next', 'previous'] as const;
 export type PlaybackCommand = (typeof PLAYBACK_COMMANDS)[number];
-
-export interface VolumeRequest {
-    /** 0-100. */
-    value: number;
-}
 
 /** The SSE event name carrying a Snapshot. */
 export const SSE_SNAPSHOT_EVENT = 'snapshot';

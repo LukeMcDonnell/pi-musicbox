@@ -168,8 +168,17 @@ The three settings that matter:
 | | |
 |---|---|
 | `music_directory "/srv/music/Music"` | **not** `/srv/music` — the share root holds `#recycle` and Synology's `@eaDir` dirs |
-| `mixer_control "Digital"` | **not** `PCM`, which does not exist on a pcm512x |
+| `mixer_type "none"` | **no volume control.** Volume is handled downstream by the preamp; MPD moving the pcm512x attenuator would discard bits |
 | `auto_update "no"` | MPD's auto-update is inotify-based, and inotify cannot see changes made on the far side of an NFS mount |
+
+It also installs `musicbox-dac-unity.service` (`Type=oneshot`,
+`After=alsa-restore.service`, `Before=mpd.service`) which pins `Digital` and
+`Analogue` at 0 dB and turns `Deemphasis` off. That unit exists because with MPD
+no longer managing those controls, `alsa-restore` would faithfully reload whatever
+was last written to `asound.state` — one stray `amixer` call and the box is
+quietly attenuated with nothing to catch it. Measured at **220ms**, finishing ~3s
+before `mpd.service` starts, so it costs nothing at boot despite being ordered
+ahead of it.
 
 An unreadable `/srv/music/Music` is a **warning, not a failure**. MPD is required
 to tolerate an absent library and pick it up on first access; refusing to
@@ -269,9 +278,14 @@ correct when `currentsong` returns nothing. Use it to highlight the playing row
 in a queue listing; use `track.id` instead if you need a handle that survives
 the queue being reordered.
 
-Elapsed time is interpolated client-side from `(elapsed, duration, state,
-serverTime)`; MPD does not push progress continuously and polling for a smooth
-progress bar is the wrong answer.
+Elapsed time is interpolated client-side; MPD does not push progress
+continuously and polling for a smooth progress bar is the wrong answer. The
+client interpolates from **its own receive time**, not `serverTime`, so a phone's
+clock never has to match the Pi's — which is only sound because **the server
+sends a freshly queried snapshot** on SSE connect and on `GET /api/status`.
+Handing a new client the cached snapshot instead made a page reload display the
+elapsed time as at the last MPD event. Tests assert the refresh happens before
+the first frame.
 
 ### `setup-kiosk.sh` (453 lines)
 

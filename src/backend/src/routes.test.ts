@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { request as httpRequest } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
@@ -153,19 +154,38 @@ test('an unknown playback command is rejected, not passed to MPD', async () => {
     await app.close();
 });
 
-test('volume outside 0-100 is rejected', async () => {
+test('POST /api/volume no longer exists', async () => {
+    // Volume is handled downstream; the endpoint was removed rather than left to
+    // fail, so there is nothing pretending to work.
     const { app, bridge, routes, port } = await startServer();
-    // null and strings must be rejected rather than coerced to 0 ('silent').
-    for (const value of [-1, 101, 'loud', null, undefined]) {
-        const response = await fetch(`http://127.0.0.1:${port}/api/volume`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ value }),
-        });
-        assert.equal(response.status, 400, `value ${JSON.stringify(value)} should be rejected`);
-    }
+    const response = await fetch(`http://127.0.0.1:${port}/api/volume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: 50 }),
+    });
+    assert.equal(response.status, 404);
 
     bridge.stop();
     routes.closeStreams();
     await app.close();
+});
+
+test('a new SSE client is sent a FRESH frame, not the cached snapshot', async () => {
+    // Guards the reported bug: reload after pause/resume showed the resume
+    // position as current. The handler must refresh before its first frame.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const eventsHandler = src.slice(src.indexOf("app.get('/api/events'"));
+    const refreshAt = eventsHandler.indexOf('bridge.refresh()');
+    const sendAt = eventsHandler.indexOf('send(bridge.current)');
+    assert.ok(refreshAt !== -1, '/api/events must refresh before sending');
+    assert.ok(
+        refreshAt < sendAt,
+        'refresh() must come BEFORE the first send(), or the first frame is stale',
+    );
+});
+
+test('/api/status refreshes rather than returning a cached snapshot', async () => {
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const handler = src.slice(src.indexOf("app.get('/api/status'"), src.indexOf("app.get('/api/queue'"));
+    assert.ok(handler.includes('bridge.refresh()'), '/api/status must refresh first');
 });
