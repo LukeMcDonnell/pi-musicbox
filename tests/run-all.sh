@@ -8,14 +8,14 @@ rc=0
 step() { printf '\n\033[1m### %s\033[0m\n' "$1"; }
 
 step "bash -n (syntax)"
-for f in install/setup.sh install/install.sh install/setup-mpd.sh tests/*.sh; do
+for f in install/*.sh tools/*.sh tests/*.sh; do
     bash -n "$f" && printf 'ok  %s\n' "$f" || rc=1
 done
 
 step "shellcheck"
 # Glob on the host, then map each path into the container's mount point —
 # a literal /mnt/tests/*.sh would be expanded by this shell, not the container's.
-mapfile -t SH_FILES < <(printf '%s\n' install/*.sh tests/*.sh)
+mapfile -t SH_FILES < <(printf '%s\n' install/*.sh tools/*.sh tests/*.sh)
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "${SH_FILES[@]}" && echo "clean" || rc=1
 elif command -v docker >/dev/null 2>&1; then
@@ -42,6 +42,17 @@ bash tests/test-nas-config.sh || rc=1
 
 step "MPD config tests"
 bash tests/test-mpd-config.sh || rc=1
+
+step "web server config tests"
+bash tests/test-server-config.sh || rc=1
+
+step "backend unit tests (node)"
+if command -v node >/dev/null 2>&1 && [[ -d src/backend/node_modules ]]; then
+    ( cd src/backend && node --test --experimental-strip-types "src/**/*.test.ts" 2>&1 \
+        | tail -8 ) || rc=1
+else
+    echo "SKIP: node or src/backend/node_modules missing (run tools/build.sh)"
+fi
 
 step "end-to-end integration test"
 bash tests/test-integration.sh || rc=1

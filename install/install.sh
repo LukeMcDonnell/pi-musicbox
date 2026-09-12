@@ -6,7 +6,7 @@
 #
 # Run order:
 #   setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-mpd.sh
-#   -> setup-kiosk.sh
+#   -> setup-server.sh -> setup-kiosk.sh
 #
 # THIS is where apt installs live. The setup-*.sh scripts configure; they do not
 # install. The one deliberate exception is setup-kiosk.sh, which installs cage
@@ -76,7 +76,16 @@
 #    /etc/default/mpd, so the config lives at /etc/musicbox/mpd.conf and the
 #    package conffile stays pristine.
 #
-# 5. STILL TO DO HERE
+# 5. THE WEB SERVER IS CONFIGURED BY setup-server.sh, NOT HERE.
+#
+#    This script installs nodejs; install/setup-server.sh writes the units. The
+#    application itself is built on the DEV MACHINE and pushed with
+#    tools/dev-push.sh — the Pi is never a build machine and never needs npm.
+#
+#    The server unit is deliberately NOT ordered after mpd.service: mpd takes
+#    ~6s at boot and is on the critical path. Do not "fix" that ordering.
+#
+# 6. STILL TO DO HERE
 #      - Bluetooth audio (bluez + a BlueALSA/PipeWire sink)
 #      - USB CD audio playback and ripping
 #      - the web UI service
@@ -107,7 +116,13 @@ PACKAGES=(
     smbclient       # SMB share discovery
     mpd             # the player itself; configured by setup-mpd.sh
     mpc             # CLI client, and how setup-mpd.sh verifies the result
+    nodejs          # runtime for the web server; configured by setup-server.sh
 )
+
+# NOTE: nodejs only, NEVER npm. The runtime is 12 packages; Debian's npm is 363,
+# because it unbundles every npm dependency into its own node-* package. The Pi
+# does not need npm: the frontend and backend are built on the dev machine and
+# the device receives a single bundled server.js plus static files.
 
 # TODO, next pass: bluez-alsa-utils, cdparanoia / libcdio-utils, and whatever
 # the web UI needs.
@@ -151,7 +166,7 @@ Options:
 
 Run order:
   setup.sh -> setup-hardware.sh -> install.sh -> setup-nas.sh -> setup-mpd.sh
-  -> setup-kiosk.sh
+  -> setup-server.sh -> setup-kiosk.sh
 USAGE
 }
 
@@ -203,12 +218,13 @@ main() {
 
       sudo ./install/setup-nas.sh     # mount the music share
       sudo ./install/setup-mpd.sh     # configure MPD against it
+      sudo ./install/setup-server.sh  # web server + API
 
     Installing mpd does NOT configure or enable it. On Trixie the package leaves
     mpd.service and mpd.socket disabled and inactive, on a default config
     pointing at /var/lib/mpd/music. setup-mpd.sh is what makes it useful.
 
-    Not implemented yet: Bluetooth audio, USB CD, web UI.
+    Not implemented yet: Bluetooth audio, USB CD.
 EOF
 }
 

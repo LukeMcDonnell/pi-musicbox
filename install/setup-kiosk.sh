@@ -51,6 +51,9 @@ DRY_RUN=0
 ASSUME_YES=0
 MODE="apply"
 KIOSK_USER="musicbox"
+# The web UI served by musicbox-server.service. Override with --url to point the
+# panel at the bundled holding page or a dev machine.
+DEFAULT_URL="http://localhost/"
 EMIT_HOSTNAME=""
 
 if [[ -t 1 ]]; then
@@ -98,12 +101,13 @@ gen_conf() {
     cat <<CONF
 # musicbox kiosk configuration.
 #
-# install.sh should point KIOSK_URL at the real web UI once it exists and then:
-#   systemctl restart musicbox-kiosk
-# Do not write a second kiosk unit.
-
-# Page the panel displays at boot.
-KIOSK_URL="file://${PAGE}"
+# Page the panel displays at boot. This is the web UI served by
+# musicbox-server.service on port 80; the unit is ordered after it.
+#
+# To go back to the bundled holding page (useful when debugging the panel
+# itself rather than the app):
+#   KIOSK_URL="file://${PAGE}"
+KIOSK_URL="${DEFAULT_URL}"
 
 # Appended verbatim to the chromium command line. Example:
 #   CHROMIUM_EXTRA_FLAGS="--force-device-scale-factor=1.25"
@@ -121,7 +125,7 @@ CONF=/etc/musicbox/kiosk.conf
 # shellcheck source=/dev/null
 [[ -r "$CONF" ]] && . "$CONF"
 
-KIOSK_URL="${KIOSK_URL:-file:///usr/share/musicbox/kiosk/index.html}"
+KIOSK_URL="${KIOSK_URL:-http://localhost/}"
 CHROMIUM_EXTRA_FLAGS="${CHROMIUM_EXTRA_FLAGS:-}"
 
 # Debian ships the binary as `chromium`; older Pi OS used `chromium-browser`.
@@ -163,6 +167,11 @@ After=systemd-user-sessions.service
 # The panel shows the UI, not a login prompt. Ctrl+Alt+F2 still gives a console.
 Conflicts=getty@tty1.service
 After=getty@tty1.service
+# Chromium loading KIOSK_URL before the server is listening shows an error page.
+# Wants= rather than Requires=: if the server is broken the panel should still
+# come up and say so, not silently stay black.
+Wants=musicbox-server.service
+After=musicbox-server.service
 
 [Service]
 Type=simple
@@ -424,6 +433,7 @@ main() {
             -y|--yes)   ASSUME_YES=1 ;;
             --user)     KIOSK_USER="${2:?--user needs a value}"; shift ;;
             --hostname) EMIT_HOSTNAME="${2:?--hostname needs a value}"; shift ;;
+            --url)      DEFAULT_URL="${2:?--url needs a value}"; shift ;;
             --revert)   MODE="revert" ;;
             --emit)     MODE="emit"; dest="${2:-}"; shift ;;
             -h|--help)  usage; exit 0 ;;

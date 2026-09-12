@@ -1,6 +1,6 @@
 # Architecture
 
-Six bash scripts in `install/`, run in a fixed order on a freshly-flashed
+Seven bash scripts in `install/`, run in a fixed order on a freshly-flashed
 Raspberry Pi OS Lite (Trixie) image. Each owns one concern and one managed
 block. Nothing here is a package or a service — the scripts are run by hand over
 SSH and are safe to re-run.
@@ -13,6 +13,7 @@ setup-hardware.sh   DAC+, DSI panel, touch, HDMI       reboot after
 install.sh          apt packages for the music stack
 setup-nas.sh        mount the music library            interactive
 setup-mpd.sh        point MPD at the library + DAC
+setup-server.sh     web server + API units
 setup-kiosk.sh      cage + chromium on the panel       reboot after
 ```
 
@@ -28,6 +29,7 @@ the 6.6s total boot saving, so in practice it is not optional at all.
 | `setup-hardware.sh` | `config.txt` hardware: DAC overlay, DSI overlay, touch backend, HDMI suppression | `# >>> musicbox setup-hardware.sh managed block >>>` |
 | `setup-nas.sh` | one `/etc/fstab` entry + `/etc/musicbox/nas.credentials` | `# >>> musicbox setup-nas.sh managed block >>>` |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf` + one `MPDCONF=` line in `/etc/default/mpd` | `# >>> musicbox setup-mpd.sh managed block >>>` |
+| `setup-server.sh` | `/etc/musicbox/server.conf` + three systemd units | (owns whole files) |
 | `setup-kiosk.sh` | 4 files, `getty@tty1`, its own packages | (no shared file) |
 | `install.sh` | `apt-get install` only | (none) |
 | `migrate-network.sh` | `/etc/NetworkManager/system-connections/` | (none) |
@@ -179,6 +181,97 @@ sockets in, and binding as well risks a double bind.
 The script does not run the first scan — 49,711 files over NFS is minutes, and
 burying it in a config script makes a re-run look hung. It prints
 `time mpc update --wait` instead.
+
+### `setup-server.sh` + the application
+
+One Node process serves the Angular build **and** the API that bridges it to
+MPD. The repo splits source from committed build output:
+
+```
+src/backend/   Fastify + TypeScript   --esbuild-->  backend/server.js   (one file)
+src/frontend/  Angular workspace      --ng build->  frontend/           (hashed)
+src/shared/    api.ts — the wire format, imported by BOTH sides
+```
+
+`src/shared/api.ts` is the single definition of the contract; change it and both
+sides stop compiling until they agree. That is the whole reason the stack is
+TypeScript end to end.
+
+**Runtime dependencies: one.** Fastify. Static serving and the MPD protocol are
+hand-written (~150 lines each) so the bundle has no dynamic requires and the Pi
+needs no `node_modules`. `nodejs` is 12 apt packages; `npm` is 363 and is never
+installed on the device.
+
+#### Three units, and why
+
+| Unit | |
+|---|---|
+| `musicbox-server.service` | the server |
+| `musicbox-server-restart.service` | `Type=oneshot`, runs `systemctl restart` |
+| `musicbox-server.path` | watches `backend/server.js`, triggers the shim |
+
+A `.path` unit can only *start* a unit, and the service is already running — so
+restarting on deploy needs the one-shot in between. The payoff is that a deploy
+is just an rsync: **no sudo anywhere in the dev loop.**
+
+#### The ordering that costs real money
+
+```
+musicbox-server.service   NO After=mpd.service, NO After=network.target
+musicbox-kiosk.service    After=musicbox-server.service  (Wants, not Requires)
+```
+
+`mpd.service` takes ~6s and is on the critical path; ordering behind it would
+add that for nothing. `network.target` is not reached until NetworkManager
+starts (~6s here) and binding `0.0.0.0` needs no interface up first. Measured:
+the server starts from `basic.target` at **5.4s** and adds **0s** to boot.
+
+MPD being absent is handled in the app, not by systemd — two connections, each
+reconnecting with backoff, reporting `status: "unavailable"` meanwhile. Observed
+on a real boot: the first attempt times out because MPD has not started yet, and
+it reconnects a second later.
+
+**The command connection pings every 20s.** MPD closes a connection that sends
+nothing for `connection_timeout` (default 60s), and the command connection is
+otherwise silent — without the keepalive MPD hung up roughly once a minute. The
+idle connection needs none: it is blocked in `idle`, which MPD exempts.
+
+**Reporting `unavailable` is delayed by 3s.** Reconnecting takes ~500ms and
+`systemctl restart mpd` about 2s; surfacing either as an error is worse than
+briefly showing slightly stale state. A real outage still surfaces.
+
+**Shutdown must end the SSE streams first.** Fastify's `close()` waits for open
+connections and an SSE stream never finishes, so a single connected client — the
+kiosk always has one — wedges shutdown until systemd gives up. The app ends them
+on SIGTERM, `forceCloseConnections` destroys the rest, and `TimeoutStopSec=10`
+bounds it.
+
+The kiosk `Wants` the server rather than `Requires` it, so a broken server still
+leaves a panel that can say so instead of a black screen.
+
+#### Port 80 without root
+
+`AmbientCapabilities=CAP_NET_BIND_SERVICE`, running as the existing `musicbox`
+user — forced by `/home/musicbox` being `0700`, which a dedicated service user
+could not read. `ProtectHome` is therefore deliberately unset.
+
+#### The API
+
+SSE for state, REST for commands. **Every event is a complete snapshot, never a
+delta**, so a dropped event costs nothing and the client never reconciles. The
+queue is referenced by `queueVersion` rather than embedded — with 37,289 songs,
+embedding it would mean megabytes of JSON on every volume nudge.
+
+Three fields describe the queue without carrying it: `queueVersion` (refetch when
+it changes), `queueLength`, and `queuePosition` — the 0-based index of the
+current track, read from MPD's `status` rather than from the track, so it stays
+correct when `currentsong` returns nothing. Use it to highlight the playing row
+in a queue listing; use `track.id` instead if you need a handle that survives
+the queue being reordered.
+
+Elapsed time is interpolated client-side from `(elapsed, duration, state,
+serverTime)`; MPD does not push progress continuously and polling for a smooth
+progress bar is the wrong answer.
 
 ### `setup-kiosk.sh` (453 lines)
 

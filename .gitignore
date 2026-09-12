@@ -1,2 +1,11 @@
 .idea
 .claude/settings.local.json
+
+# Dependencies are installed on the dev machine only; the Pi never needs them.
+node_modules/
+
+# Angular scratch output. The REAL build output (backend/ and frontend/) is
+# committed on purpose, so a stable update is a pull and a restart.
+src/frontend/.angular/
+src/frontend/dist/
+src/backend/out-tsc/

@@ -1,0 +1,60 @@
+<!--
+  Now Playing. One responsive layout for both the 800x480 panel and phones —
+  the panel is landscape and wide, a phone is portrait and narrow, so the layout
+  is a single column that simply has more room on the panel.
+-->
+<main class="shell">
+  <header class="bar">
+    <span class="brand">musicbox</span>
+    <span class="pill" [class.pill--warn]="stream() !== 'live' || !mpdAvailable()">
+      @if (stream() !== 'live') {
+        offline
+      } @else if (!mpdAvailable()) {
+        no mpd
+      } @else {
+        live
+      }
+    </span>
+  </header>
+
+  @if (statusLine(); as message) {
+    <section class="idle">
+      <p class="idle__text">{{ message }}</p>
+    </section>
+  } @else if (snapshot()?.track; as track) {
+    <section class="now">
+      <h1 class="now__title">{{ track.title || track.file }}</h1>
+      <p class="now__artist">{{ track.artist || 'Unknown artist' }}</p>
+      <p class="now__album">{{ track.album }}@if (track.date) { <span class="now__year"> · {{ track.date }}</span> }</p>
+
+      <div class="progress" role="progressbar" [attr.aria-valuenow]="progress()">
+        <div class="progress__fill" [style.width.%]="progress()"></div>
+      </div>
+      <div class="times">
+        <span>{{ elapsedLabel() }}</span>
+        <span>{{ durationLabel() }}</span>
+      </div>
+    </section>
+  }
+
+  <section class="controls">
+    <button class="btn" (click)="command('previous')" aria-label="Previous track">⏮</button>
+    <button class="btn btn--primary" (click)="toggle()" [attr.aria-label]="playing() ? 'Pause' : 'Play'">
+      {{ playing() ? '⏸' : '▶' }}
+    </button>
+    <button class="btn" (click)="command('next')" aria-label="Next track">⏭</button>
+  </section>
+
+  @if (snapshot()?.volume !== null && snapshot()?.volume !== undefined) {
+    <section class="volume">
+      <label class="volume__label" for="vol">Volume</label>
+      <input id="vol" class="volume__slider" type="range" min="0" max="100"
+             [value]="snapshot()?.volume" (change)="onVolume($event)" />
+      <span class="volume__value">{{ snapshot()?.volume }}</span>
+    </section>
+  }
+
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+</main>

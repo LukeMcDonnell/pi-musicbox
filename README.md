@@ -9,7 +9,8 @@ A Raspberry Pi music player appliance.
 | Audio | HiFiBerry DAC+ **Standard** (I2S HAT) |
 | Display | DFRobot DFR0550 — 5" 800×480 DSI capacitive touchscreen |
 | Library | NFS/SMB network share |
-| Planned | Bluetooth audio · USB CD audio · web UI on `<hostname>.local` |
+| Web UI | Angular + Fastify at `http://musicbox.local/` |
+| Planned | Bluetooth audio · USB CD audio |
 
 ## Run order
 
@@ -23,8 +24,10 @@ sudo reboot                             # 6.
 sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc)
 sudo ./install/setup-nas.sh             # 8. mount the music share (interactive)
 sudo ./install/setup-mpd.sh             # 9. point MPD at the library and the DAC
-sudo ./install/setup-kiosk.sh           # 10. cage + chromium on the panel
-sudo reboot                             # 11.
+sudo ./install/setup-server.sh          # 10. web server + API
+tools/dev-push.sh                       # 11. build here, push the app to the Pi
+sudo ./install/setup-kiosk.sh           # 12. cage + chromium on the panel
+sudo reboot                             # 13.
 ```
 
 The three scripts split by concern, and each owns its own managed block in
@@ -37,6 +40,7 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
 | `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf` and the `MPDCONF=` line that selects it |
+| `setup-server.sh` | the web server units and `/etc/musicbox/server.conf` |
 | `install.sh` | apt packages — and nothing else |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
@@ -516,6 +520,118 @@ Related: because MPD builds the database itself on first start, **restarting
 mpd mid-scan abandons the scan and leaves a partial database.** `setup-mpd.sh`
 therefore restarts mpd only when the config actually changed.
 
+## The web server
+
+One Node process serves the Angular build and the API that bridges it to MPD, at
+`http://musicbox.local/` — port 80, so no port suffix to type on a phone.
+
+```
+src/backend/   Fastify + TypeScript   --esbuild-->  backend/server.js   (one file)
+src/frontend/  Angular workspace      --ng build->  frontend/           (hashed)
+src/shared/    api.ts — the wire format, imported by BOTH sides
+```
+
+`backend/` and `frontend/` are committed on purpose, so a stable update can be a
+pull and a restart.
+
+### The Pi is never a build machine
+
+`nodejs` is **12 apt packages**. Debian's `npm` is **363**, because it unbundles
+every npm dependency into its own `node-*` package — and it is only `Suggests:`,
+so the device never gets it. Both halves are built here; the Pi receives one
+bundled `server.js` plus static files, and needs no `node_modules`.
+
+That is possible because the backend has exactly **one runtime dependency**
+(Fastify). The MPD protocol client and the static file handler are hand-written,
+roughly 150 lines each.
+
+### The dev loop
+
+Most work never touches the device, because MPD is reachable over the network:
+
+```sh
+cd src/backend  && MUSICBOX_MPD_HOST=musicbox.local MUSICBOX_PORT=8099 \
+                   MUSICBOX_CONF=/dev/null npm run dev    # real MPD, real library
+cd src/frontend && npx ng serve                           # proxies /api to :8099
+```
+
+When you need the actual panel — touch, the DAC, 800×480 rendering:
+
+```sh
+tools/dev-push.sh --backend    # measured: 2.5s
+tools/dev-push.sh              # both halves: 4.3s
+tools/dev-push.sh --watch      # rebuild and re-push on save
+```
+
+**No sudo anywhere in that loop.** `musicbox-server.path` watches
+`backend/server.js` and restarts the service itself. rsync writes a temp file and
+renames it, so the watch fires once on a complete file — which is why
+`rsync --inplace` must never be used here.
+
+### It costs nothing at boot
+
+```
+before the server:  2.332s kernel + 15.564s userspace = 17.896s
+with the server:    3.139s kernel + 14.647s userspace = 17.786s
+```
+
+Because it is **not** ordered behind MPD:
+
+```
+musicbox-server.service @5.433s
+└─basic.target @5.400s          <- mpd.service is still 6.008s, in parallel
+```
+
+`After=mpd.service` would have added that 6s for nothing, and `network.target`
+is not reached until NetworkManager starts — binding `0.0.0.0` needs neither.
+MPD being absent is handled in the application: two connections, each
+reconnecting with backoff, reporting `status: "unavailable"` meanwhile. On a real
+boot the first attempt times out because MPD has not started yet, and it
+reconnects a second later.
+
+The kiosk **is** ordered after the server, since chromium loading `KIOSK_URL`
+before anything listens shows an error page — but with `Wants=`, not `Requires=`,
+so a broken server still leaves a panel that can say so.
+
+### Two things the live device taught us
+
+**MPD hangs up on a silent connection.** `connection_timeout` defaults to 60s and
+the command connection only carries commands, so MPD closed it about once a
+minute; each reconnect briefly published "unavailable" and the UI flashed
+*"MPD is not running"*. Fixed with a 20s `ping` keepalive, plus a 3s grace period
+before any outage reaches the UI. The idle connection is exempt — it sits in
+`idle`. Verified: one connection in 215s, where there had been three.
+
+**An SSE stream blocks shutdown.** Fastify's `close()` waits for connections to
+finish; `/api/events` never does. Once the kiosk held one open, every deploy hung
+for systemd's 90s stop timeout. The app now ends its streams on SIGTERM, with
+`forceCloseConnections` and `TimeoutStopSec=10` behind it. Deploys went from 30s
+and failing back to **2s**.
+
+### The API
+
+SSE carries state, REST carries commands.
+
+```
+GET  /api/health     GET /api/status    GET /api/events (SSE)    GET /api/queue
+POST /api/playback/{play,pause,stop,next,previous}        POST /api/volume
+```
+
+**Every SSE event is a complete snapshot, never a delta.** A dropped, duplicated
+or out-of-order event costs nothing — the client replaces its state and can never
+drift out of sync. The one thing not embedded is the queue, referenced by
+`queueVersion` instead: with 37,289 songs, embedding it would mean megabytes of
+JSON on every volume nudge.
+
+The queue is described by three fields rather than carried: `queueVersion`,
+`queueLength` and `queuePosition` (0-based index of the current track). The last
+comes from MPD's `status`, not the track, so it stays correct even when
+`currentsong` returns nothing — it is what you highlight a row with.
+
+Elapsed time is **interpolated client-side** from `(elapsed, duration, state,
+serverTime)`. MPD does not push progress continuously, and polling for a smooth
+progress bar is the obvious wrong answer.
+
 ## Rollback
 
 Every multi-line edit sits inside a delimited block:
@@ -553,6 +669,8 @@ Or individually:
 | `tests/test-hardware-config.sh` | 47 tests of the `config.txt` transform, via `--emit-config` / `--emit-revert`. Covers neutralising conflicting stock lines (duplicates in `config.txt` are not reliably last-wins), the overlay ordering requirement, idempotency, `--keep-hdmi`/`--skip-*`, and that revert restores the original byte-for-byte. |
 | `tests/test-migrate-network.sh` | 25 tests of the netplan→keyfile conversion, via `--convert-only`, which touches no system state. Covers wifi/ethernet/static layouts, UUID preservation, the mandatory `0600` permissions, and that a PSK never leaks into an ethernet profile. |
 | `tests/test-mpd-config.sh` | 53 tests of the generated MPD config, via `--emit`. Asserts `music_directory` is the nested `/srv/music/Music` and not the share root, that the ALSA output targets card 0 with the `Digital` hardware mixer (not `PCM`, which does not exist on a pcm512x), that `auto_update` is off, that no `bind_to_address` is set, and that the `/etc/default/mpd` block uses its own marker. Also round-trips the managed block against a fixture. |
+| `tests/test-server-config.sh` | 60 tests of the web server units, via `--emit`. Asserts the server is **not** ordered after `mpd.service`, that port 80 comes from `CAP_NET_BIND_SERVICE` rather than root, the `.path`+one-shot restart pair, that the kiosk `Wants` rather than `Requires` the server, and that `dev-push.sh` never invokes sudo or `rsync --inplace`. |
+| `src/backend` (`node:test`) | 25 backend tests: snapshot shape (no delta fields, queue by version), config precedence, static path traversal. Run by `run-all.sh` and by `tools/build.sh --check`. |
 | `tests/test-setup-helpers.sh` | 62 unit tests. Sources the helper functions and runs them against throwaway fixtures: managed-block round-trips, the single-line `cmdline.txt` edit, `fstab` rewriting, EEPROM key merge. Touches only its own temp dir. |
 | `tests/test-integration.sh` | 41 end-to-end assertions. Runs the real `setup.sh` inside a throwaway `debian:trixie-slim` container against a fake `/boot/firmware`, checking that `--dry-run` changes nothing, that a real run produces the expected config, and that a second run is byte-for-byte identical. Requires Docker; skips cleanly without it. |
 

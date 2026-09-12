@@ -1,7 +1,7 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, then seven suites. **365 assertions**,
-all green, shellcheck clean (verified 2026-09-12). Safe on a dev machine:
+`bash tests/run-all.sh` — syntax, shellcheck, eight bash suites (**426 assertions**)
+and the backend's 41 `node:test` cases. All green, shellcheck clean (2026-09-12). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 
 | Suite | Assertions | Covers |
@@ -12,6 +12,8 @@ all green, shellcheck clean (verified 2026-09-12). Safe on a dev machine:
 | `test-kiosk-config.sh` | 60 | `--emit`: every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file drives the URL, and that the wrapper passes `bash -n` |
 | `test-nas-config.sh` | 66 | `--emit-fstab` plus the sourced block writer: the boot contract, `ro`, `soft`, `\040` escaping, 6 fields, password never in fstab |
 | `test-mpd-config.sh` | 58 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0 with the `Digital` mixer, `auto_update` off, no `bind_to_address`, and the `MPDCONF=` block uses its own marker |
+| `test-server-config.sh` | 60 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, and that `dev-push.sh` never invokes sudo or `rsync --inplace` |
+| `src/backend` (node:test) | 41 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
 | `test-integration.sh` | 47 | The real `setup.sh` + `install.sh --dry-run` in `debian:trixie-slim` against a fake `/boot/firmware` |
 
 ## Three layers

@@ -63,10 +63,19 @@ check "wrapper sources the conf" "0" "$(has '/etc/musicbox/kiosk.conf' "$WRAP")"
 check "wrapper uses the KIOSK_URL variable, not a literal" "0" "$(has '--kiosk "$KIOSK_URL"' "$WRAP")"
 check "CHROMIUM_EXTRA_FLAGS honoured" "0" "$(has 'CHROMIUM_EXTRA_FLAGS' "$WRAP")"
 
-# The conf must actually override the default when sourced.
+# The conf must actually override the default when sourced. KIOSK_URL now points
+# at the web server rather than the bundled holding page — see setup-server.sh.
 # shellcheck source=/dev/null
-( . "$CONF" >/dev/null 2>&1; [[ "$KIOSK_URL" == file://* ]] )
+( . "$CONF" >/dev/null 2>&1; [[ "$KIOSK_URL" == http://* ]] )
 check "conf is sourceable and sets KIOSK_URL" "0" "$?"
+
+# --url still selects the holding page, which is how you debug the panel itself
+# without the app in the way.
+bash "$SCRIPT" --emit "$WORK/holding" --url "file:///usr/share/musicbox/kiosk/index.html" \
+    --hostname testbox >/dev/null 2>&1
+# shellcheck source=/dev/null
+( . "$WORK/holding/kiosk.conf" >/dev/null 2>&1; [[ "$KIOSK_URL" == file://* ]] )
+check "--url can select the holding page" "0" "$?"
 printf 'KIOSK_URL="http://localhost:8080/"\n' > "$WORK/override.conf"
 # shellcheck source=/dev/null
 ( . "$WORK/override.conf"; [[ "$KIOSK_URL" == "http://localhost:8080/" ]] )

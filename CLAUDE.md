@@ -1,8 +1,15 @@
 # musicbox
 
-A Raspberry Pi music player appliance. Right now the repo is **install scripts +
-a test suite** — there is no application code yet (`frontend/` is an empty
-placeholder).
+A Raspberry Pi music player appliance: bash install scripts, a TypeScript
+backend bridging MPD, and an Angular frontend served to both the panel and
+phones.
+
+```
+src/backend/   Fastify + TS source      ->  backend/    committed build output
+src/frontend/  Angular workspace        ->  frontend/   committed build output
+src/shared/    the API contract, imported by BOTH sides
+install/       setup scripts     tools/  build + dev-push     tests/
+```
 
 `README.md` is the user-facing document: run order, measurements, rationale.
 Keep it in sync when behaviour changes. The files below are the working notes
@@ -30,7 +37,10 @@ for whoever is editing the code.
    MPD follows the rule: packages in `install.sh`, config in `setup-mpd.sh`.
 4. **Every script must be idempotent and re-runnable**, and must have a
    `--dry-run` and a working `--revert`.
-5. **Measure, don't assume.** Several confident predictions in this project were
+5. **The Pi is never a build machine.** No npm on the device — the runtime is 12
+   packages, Debian's npm is 363. Build here, push a single bundled
+   `backend/server.js` plus static files.
+6. **Measure, don't assume.** Several confident predictions in this project were
    wrong on the real hardware (see `decisions.md`). `systemd-analyze` cannot see
    the ~11s pre-kernel firmware stage; use `sudo vclog --msg`.
 
@@ -44,6 +54,8 @@ for whoever is editing the code.
 - **Pure emit modes** are how everything is tested without root or hardware:
   `--emit-config`/`--emit-revert` (hardware), `--emit` (kiosk),
   `--emit-fstab` (nas), `--convert-only` (network). Add one to any new script.
+- **SSE events are always a complete snapshot, never a delta** — a dropped event
+  must cost nothing. The queue is referenced by version, not embedded.
 - Comments explain *why*, especially where the obvious-looking code is wrong.
   The existing headers carry the reasoning — do not strip them when editing.
 - Backups go to `/var/lib/musicbox/`, config to `/etc/musicbox/`.
@@ -51,8 +63,10 @@ for whoever is editing the code.
 ## Commands
 
 ```sh
-bash tests/run-all.sh          # syntax + shellcheck + 7 suites (365 assertions)
-bash tests/test-mpd-config.sh  # one suite
+bash tests/run-all.sh          # shellcheck + 8 suites (427 asserts) + 41 node tests
+bash tests/test-server-config.sh   # one suite
+tools/build.sh --check             # typecheck + node tests + bundle
+tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s
 shellcheck install/*.sh tests/*.sh
 ```
 

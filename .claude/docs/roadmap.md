@@ -14,19 +14,23 @@ Last updated 2026-09-12.
   hangs, MPD starts and keeps running, and the automount stays armed so the
   share recovers by itself. The one untested sub-case is a NAS that resolves but
   does not answer — see `device.md`.
+- Web server and API: Angular on the panel and phones, Fastify bridging MPD over
+  SSE. Added **0s** to boot (17.786s vs 17.896s) because it starts from
+  `basic.target` in parallel with MPD rather than behind it.
+- A dev loop that is **2.5s** backend-only, **4.3s** for both halves, with no sudo.
 - MPD playing that library through the DAC — 37,289 songs indexed, resident from
   boot at a deliberate cost of ~6s (9.348s → 17.896s; see `device.md`)
 
 ## Next
 
-1. **Bluetooth audio** — bluez + a BlueALSA or PipeWire sink. Note chromium runs
+1. **Flesh out the UI** — the skeleton is now-playing plus transport and volume.
+   Queue, library browse and search are next, and the API is shaped for them.
+2. **Bluetooth audio** — bluez + a BlueALSA or PipeWire sink. Note chromium runs
    with `--mute-audio` precisely because MPD is meant to own the DAC
    exclusively; adding a second audio consumer means a shared layer, not just
    dropping the flag.
-2. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`).
-3. **Web UI**, then point the kiosk at it:
-   `sed -i 's|^KIOSK_URL=.*|...|' /etc/musicbox/kiosk.conf && systemctl restart musicbox-kiosk`.
-   `frontend/` is an empty placeholder.
+3. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`).
+
 
 ## Offered, not actioned
 

@@ -1,0 +1,21 @@
+{
+  "name": "@musicbox/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "musicbox backend — bridges the web UI to MPD (and later Bluetooth and CD)",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/**/*.test.ts",
+    "dev": "node --watch --experimental-strip-types src/server.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}
