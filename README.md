@@ -76,7 +76,7 @@ It is safe to re-run; a second run reports no changes.
 | 1 | Purges `triggerhappy`, `modemmanager`, `rpi-connect*`, `cups*`, `unattended-upgrades` — only if actually installed |
 | 2 | Disables cloud-init (only once it reports `done`); masks `NetworkManager-wait-online`; disables `rpi-eeprom-update`, `man-db.timer`, apt timers |
 | 3 | `config.txt`: `disable_splash`, `boot_delay=0`, `camera_auto_detect=0`, `disable_poe_fan=1`, `initial_turbo=30` |
-| 4 | `cmdline.txt`: adds `quiet` and `logo.nologo` |
+| 4 | `cmdline.txt`: adds `quiet`, `logo.nologo`, and `cpufreq.default_governor=performance` (a deadlock fix — see below) |
 | 5 | EEPROM: `BOOT_UART=0`, `NET_INSTALL_*=0`. `BOOT_ORDER` left at the bootloader default unless the tunable is set |
 | 6 | `noatime`, tmpfs `/tmp` and `/var/tmp`, volatile journald, swap check |
 | 7 | Installs `musicbox-bootreport` |
@@ -668,12 +668,71 @@ amixer -c 0 sset Analogue 0dB    # back to unity
 
 The web UI has no volume slider, and `POST /api/volume` no longer exists.
 
+## Mitigated, not proven fixed: the board deadlocked under sustained playback
+
+Twice the box stopped playing while still looking healthy — `systemctl` reported
+MPD `active (running)`, the network was up, ssh worked, and yet MPD answered
+nothing and the panel was frozen. One incident had been running wedged for
+**1h57m** before it was noticed.
+
+The cause: two subsystems — the CPU frequency governor and the display stack —
+both drive clocks through the Pi's single VideoCore firmware mailbox, serialised
+by one global kernel clock lock. Under sustained concurrent use they deadlock on
+it. Everything needing any clock then piles up behind them, unkillable: MPD's
+audio output thread, the display pipeline, the GPU's power management. The last
+incident stayed wedged for about **2h50m** until it was power cycled, which is the
+only recovery.
+
+The fix takes **two** changes, both applied by `setup.sh`, and the obvious one
+alone does nothing:
+
+1. `cpufreq.default_governor=performance` in `cmdline.txt`.
+2. Shadowing Debian's `60-ondemand-governor.rules`, which forces `ondemand` on
+   every CPU as udev settles and silently overwrites whatever the kernel chose.
+   Measured: the parameter was present in `/proc/cmdline` and the governor was
+   still `ondemand`.
+
+`performance` sets the clock once at boot and then makes no further firmware
+calls, so one of the two contending parties — the only one that fires on a timer
+rather than following user activity — stops existing. It costs idle power and heat,
+the CPU sitting at 1.5GHz instead of dropping to 600MHz. On a mains-powered
+appliance that must not stop playing, that is the right trade.
+
+It is **not proven fixed**: the kernel's own hung-task report named the *display*
+worker as the lock owner, not the governor, and that inconsistency is unresolved.
+If the deadlock can form between the display and GPU paths alone, this will not
+prevent it. The diagnostic instrumentation stays on until a long soak has passed.
+Full reasoning and evidence in `.claude/docs/clock-deadlock.md`.
+
+Check the **governor**, not the cmdline:
+`cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor` should say
+`performance`. Not a power or heat problem, incidentally — `vcgencmd
+get_throttled` reads `0x0`.
+
+Do not switch the governor back to save power. The full trace, the reasoning and
+the triage commands for telling this fault apart from the wifi one are in
+`.claude/docs/clock-deadlock.md`.
+
+A second, independent bug surfaced alongside it and is also fixed: the backend's
+MPD client had a connect timeout but no **reply** timeout, so a wedged MPD — one
+that accepts a connection and answers nothing — hung every request and took the
+web UI down with it. Commands now carry a 10s deadline, so an unresponsive MPD
+degrades to "MPD is not running" in the UI instead of killing the server.
+
 ## Known issue: wifi drops under sustained load
 
-The Pi is on wifi at −65 to −75 dBm and has twice disappeared from the network
-after ~20 minutes of streaming, while continuing to run fine locally — the panel
-keeps working, only the network goes. Wifi power save has been disabled as a
-mitigation and it has run clean since, but it is not called fixed.
+The Pi is on wifi at −65 to −75 dBm and repeatedly disappears from the network
+while continuing to run fine locally — the panel keeps working, only the network
+goes. Wifi power save has been disabled, which helped, but it is not fixed: a
+third episode on 2026-09-12 logged **38** unreachable samples in 53 minutes at
+−72 dBm, this time with playback **paused**, and it **recovered on its own**
+without a power cycle. So it is neither load-dependent nor terminal, which points
+at a plain weak-signal problem rather than a driver fault.
+
+This is a **different** fault from the deadlock above, and the two were conflated
+for a while. The quickest way to tell them apart: in this one the network is down
+and the panel keeps rendering; in the deadlock the network is up and the panel is
+frozen.
 
 Full write-up, including the leads that turned out to be dead ends and the
 diagnostic instrumentation currently on the device, is in

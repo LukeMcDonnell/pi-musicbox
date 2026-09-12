@@ -26,6 +26,7 @@ readonly CONFIG_TXT="${BOOT_DIR}/config.txt"
 readonly CMDLINE_TXT="${BOOT_DIR}/cmdline.txt"
 readonly FSTAB="/etc/fstab"
 readonly JOURNALD_DROPIN="/etc/systemd/journald.conf.d/musicbox.conf"
+readonly ONDEMAND_RULE="/etc/udev/rules.d/60-ondemand-governor.rules"
 readonly STATE_DIR="/var/lib/musicbox"
 readonly LOG_DIR="/var/log/musicbox-setup"
 readonly BOOTREPORT="/usr/local/bin/musicbox-bootreport"
@@ -203,6 +204,27 @@ cmdline_has_token() {
         [[ "$tok" == "$want" ]] && return 0
     done
     return 1
+}
+
+# Replace or append a `key=value` kernel parameter, printing the new line.
+#
+# Pure: takes the current line, returns the new one. The kernel honours the LAST
+# occurrence of a duplicated key, so appending blindly would "work" — but it
+# accumulates a new copy on every re-run and turns cmdline.txt into noise. An
+# existing key is therefore rewritten in place.
+cmdline_with_param() {
+    local line="$1" key="$2" value="$3" tok found=0
+    local -a out=()
+    for tok in $line; do
+        if [[ "$tok" == "${key}="* ]]; then
+            out+=("${key}=${value}")
+            found=1
+        else
+            out+=("$tok")
+        fi
+    done
+    (( found )) || out+=("${key}=${value}")
+    printf '%s' "${out[*]}"
 }
 
 purge_packages() {
@@ -457,10 +479,55 @@ disable_cloud_init() {
 }
 
 
+# The shadow file that neutralises Debian's ondemand udev rule. Pure generator,
+# so the tests can assert on it without root.
+gen_ondemand_shadow() {
+    cat <<'RULE'
+# musicbox: deliberately EMPTY, shadowing /usr/lib/udev/rules.d/60-ondemand-governor.rules
+#
+# Debian's rule is:
+#   KERNEL=="cpu*", SUBSYSTEM=="cpu", ATTR{cpufreq/scaling_governor}="ondemand"
+#
+# It fires for every CPU at boot and silently overrode
+# cpufreq.default_governor=performance on the kernel command line — measured on
+# this device: the parameter was present in /proc/cmdline and the governor was
+# still ondemand.
+#
+# That matters because `ondemand` asks the VideoCore firmware to change the ARM
+# clock on a timer. Those calls contend with the display stack over the same
+# firmware mailbox and the kernel's single global clock lock, and on 2026-09-12
+# they deadlocked: audio stopped, the panel froze, and MPD stopped answering
+# while systemd still reported it active (running). The box stayed wedged ~2h50m
+# until it was power cycled, which is the only recovery.
+# See .claude/docs/clock-deadlock.md.
+#
+# udev takes the highest-priority directory's copy of any given filename, so an
+# empty file here replaces Debian's. Delete this file to restore stock
+# behaviour; the packaged rule is never modified.
+RULE
+}
+
+# Shadow Debian's ondemand rule so the kernel's default_governor actually holds.
+# The matching cmdline parameter is written by phase_cmdline (Phase 4); this is
+# the half that stops it being overridden.
+mask_ondemand_rule() {
+    local tmp
+    tmp="$(mktemp)"
+    gen_ondemand_shadow > "$tmp"
+    if install_if_changed "$tmp" "$ONDEMAND_RULE" 0644; then
+        dry || CHANGED=$((CHANGED + 1))
+        ok "ondemand governor udev rule shadowed (${ONDEMAND_RULE})"
+        note "CPU governor is pinned to performance. This is a deadlock fix, not a tweak — see .claude/docs/clock-deadlock.md before reverting it."
+    else
+        skip "ondemand governor udev rule already shadowed"
+    fi
+}
+
 phase_services() {
     phase "Phase 2 — services and timers"
 
     disable_cloud_init
+    mask_ondemand_rule
 
     # The single biggest win on this image. Safe here only because the NFS/SMB
     # mount must be declared with x-systemd.automount (install.sh's job) so that
@@ -553,6 +620,55 @@ phase_cmdline() {
             ok "adding '${token}'"
         fi
     done
+
+    # ------------------------------------------------------------------
+    # cpufreq.default_governor=performance — this is a DEADLOCK FIX, not a
+    # performance tweak. Do not "restore ondemand to save power".
+    #
+    # Captured on this board, wedged ~2h50m with the network still up:
+    #
+    #   kworker/0:2  od_dbs_update            <- ondemand governor, on a timer
+    #     __cpufreq_driver_target
+    #       dev_pm_opp_set_rate
+    #         clk_set_rate
+    #           clk_core_set_rate_nolock      <- TAKES the global clk lock
+    #             raspberrypi_fw_set_rate
+    #               rpi_firmware_property     <- VideoCore mailbox never replied
+    #
+    # That call holds the one global clock lock (`clk_prepare_lock`) and never
+    # returns, so every other clock user piles up behind it in uninterruptible
+    # D state, unkillable:
+    #
+    #   output:HiFiBerry  bcm2835_i2s_start_clock -> clk_prepare  (audio stops)
+    #   vc4 commit_work   clk_set_min_rate               (the panel freezes)
+    #   v3d_power_suspend clk_unprepare     (chromium then blocks in rpm_resume)
+    #
+    # MPD's main thread waits on its output thread, so MPD stops answering on
+    # 6600 while still looking `active (running)` — presenting to the user as
+    # "MPD is not running". `vcgencmd` also hangs, which is the quickest
+    # one-command confirmation that it is the mailbox and not MPD.
+    #
+    # Only a power cycle recovers it. The underlying race is in the firmware
+    # mailbox path and is not ours to fix; what we can do is stop calling it
+    # thousands of times an hour. `ondemand` re-evaluates on a timer and
+    # switches rate constantly under the bursty load of streaming FLAC, which
+    # is why the failures correlated with playback. `performance` sets the rate
+    # once and then makes no further firmware calls.
+    #
+    # This narrows exposure rather than eliminating it: vc4 and v3d still reach
+    # the same mailbox for their own clocks, just orders of magnitude less
+    # often. Cost is idle power and heat, the CPU sitting at max instead of
+    # 600MHz — an acceptable trade on a mains-powered appliance that must not
+    # stop playing. See .claude/docs/clock-deadlock.md.
+    # ------------------------------------------------------------------
+    local governor="performance" next
+    next="$(cmdline_with_param "$updated" cpufreq.default_governor "$governor")"
+    if [[ "$next" == "$updated" ]]; then
+        skip "cmdline already sets cpufreq.default_governor=${governor}"
+    else
+        updated="$next"
+        ok "setting cpufreq.default_governor=${governor}"
+    fi
 
     # Left alone on purpose: fsck.repair=yes and console=serial0,115200.
     # Both are recovery paths and worth more than the milliseconds they cost.

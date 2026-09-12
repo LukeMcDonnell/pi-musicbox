@@ -22,7 +22,8 @@ for whoever is editing the code.
 | `.claude/docs/decisions.md` | **Before "fixing" something that looks wrong** — it usually isn't |
 | `.claude/docs/testing.md` | Writing or debugging tests |
 | `.claude/docs/roadmap.md` | Picking up the next piece of work |
-| `.claude/docs/wifi-instability.md` | **Any "the box stopped responding" report** — open issue, and there is temporary instrumentation on the device |
+| `.claude/docs/clock-deadlock.md` | **Any "the box stopped responding" report — start here.** Diagnosed: a firmware/clock deadlock. Has the triage commands and tells this fault apart from the wifi one |
+| `.claude/docs/wifi-instability.md` | The *other* "stopped responding" fault — network drops, kiosk keeps running. Open issue, and there is temporary instrumentation on the device |
 
 ## Non-negotiables
 
@@ -64,7 +65,7 @@ for whoever is editing the code.
 ## Commands
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 8 suites (451 asserts) + 44 node tests
+bash tests/run-all.sh          # shellcheck + 8 suites (466 asserts) + 49 node tests
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s

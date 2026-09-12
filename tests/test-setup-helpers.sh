@@ -13,7 +13,7 @@ trap 'rm -rf "$WORK"' EXIT
 # Load the helpers: drop the final `main "$@"`, and un-readonly the path
 # constants so we can point them at fixtures. Function bodies are untouched.
 sed -e '$ d' \
-    -e 's/^readonly \(BOOT_DIR\|CONFIG_TXT\|CMDLINE_TXT\|FSTAB\|JOURNALD_DROPIN\|STATE_DIR\|LOG_DIR\|BOOTREPORT\|CLOUD_INIT_DISABLED\)=/\1=/' \
+    -e 's/^readonly \(BOOT_DIR\|CONFIG_TXT\|CMDLINE_TXT\|FSTAB\|JOURNALD_DROPIN\|ONDEMAND_RULE\|STATE_DIR\|LOG_DIR\|BOOTREPORT\|CLOUD_INIT_DISABLED\)=/\1=/' \
     "$SRC" > "$WORK/harness.sh"
 # shellcheck source=/dev/null
 source "$WORK/harness.sh"
@@ -98,12 +98,36 @@ check "logo.nologo added" "0" "$(grep -qF 'logo.nologo' "$CMDLINE_TXT"; echo $?)
 check "root= preserved" "0" "$(grep -qF 'root=PARTUUID=abc123-02' "$CMDLINE_TXT"; echo $?)"
 check "fsck.repair left alone" "0" "$(grep -qF 'fsck.repair=yes' "$CMDLINE_TXT"; echo $?)"
 check "serial console left alone" "0" "$(grep -qF 'console=serial0,115200' "$CMDLINE_TXT"; echo $?)"
+# Not cosmetic: `ondemand` calls the VideoCore mailbox on a timer and deadlocked
+# the whole board for 1h57m. See .claude/docs/clock-deadlock.md.
+check "cpufreq governor pinned to performance" "0" \
+    "$(grep -qF 'cpufreq.default_governor=performance' "$CMDLINE_TXT"; echo $?)"
+check "governor is NOT left as ondemand" "1" \
+    "$(grep -qF 'cpufreq.default_governor=ondemand' "$CMDLINE_TXT"; echo $?)"
 
 before_second="$(cat "$CMDLINE_TXT")"
 phase_cmdline >/dev/null 2>&1
 check "second run is a no-op" "$before_second" "$(cat "$CMDLINE_TXT")"
 check "quiet appears exactly once" "1" "$(tr ' ' '\n' < "$CMDLINE_TXT" | grep -cx quiet)"
+check "governor appears exactly once after re-run" "1" \
+    "$(tr ' ' '\n' < "$CMDLINE_TXT" | grep -c '^cpufreq.default_governor=')"
 check "still one line after re-run" "1" "$(wc -l < "$CMDLINE_TXT")"
+
+# cmdline_with_param — pure, so tested directly.
+check "param appended when absent" "root=/dev/sda1 cpufreq.default_governor=performance" \
+    "$(cmdline_with_param 'root=/dev/sda1' cpufreq.default_governor performance)"
+check "existing value REPLACED, not duplicated" \
+    "a=1 cpufreq.default_governor=performance b=2" \
+    "$(cmdline_with_param 'a=1 cpufreq.default_governor=ondemand b=2' cpufreq.default_governor performance)"
+check "replacement keeps position, so the line stays readable" \
+    "cpufreq.default_governor=performance tail=1" \
+    "$(cmdline_with_param 'cpufreq.default_governor=powersave tail=1' cpufreq.default_governor performance)"
+check "a same-prefix key is not clobbered" \
+    "cpufreq.default_governor_x=keep cpufreq.default_governor=performance" \
+    "$(cmdline_with_param 'cpufreq.default_governor_x=keep' cpufreq.default_governor performance)"
+check "applying twice is idempotent" \
+    "$(cmdline_with_param 'root=/dev/sda1' cpufreq.default_governor performance)" \
+    "$(cmdline_with_param "$(cmdline_with_param 'root=/dev/sda1' cpufreq.default_governor performance)" cpufreq.default_governor performance)"
 
 # token matching must be exact, not substring
 printf 'root=/dev/sda1 quietly logo.nologo.bak\n' > "$CMDLINE_TXT"
@@ -111,6 +135,36 @@ check "cmdline_has_token: 'quietly' != 'quiet'" "1" "$(cmdline_has_token quiet; 
 check "cmdline_has_token: 'logo.nologo.bak' != 'logo.nologo'" "1" "$(cmdline_has_token logo.nologo; echo $?)"
 printf 'root=/dev/sda1 quiet\n' > "$CMDLINE_TXT"
 check "cmdline_has_token: exact match found" "0" "$(cmdline_has_token quiet; echo $?)"
+
+# ---------------------------------------------------------------------------
+banner "ondemand governor udev rule is shadowed"
+# ---------------------------------------------------------------------------
+# Debian's rule forces ondemand on every cpu and silently beat the kernel
+# cmdline parameter. ondemand deadlocked this board for 1h57m via the firmware
+# mailbox — see .claude/docs/clock-deadlock.md. Both halves are load-bearing.
+ONDEMAND_RULE="$WORK/60-ondemand-governor.rules"
+CHANGED=0
+
+mask_ondemand_rule >/dev/null 2>&1
+check "shadow file created" "0" "$(exists "$ONDEMAND_RULE")"
+# NB: the file QUOTES Debian's rule inside a comment, so a plain grep for
+# scaling_governor matches the explanation, not a violation. Both assertions
+# below therefore require the match to be on an UNCOMMENTED line. Expected "1"
+# means grep found none, which is the whole point of a shadow file.
+check "no active rule sets a governor (comments do not count)" "1" \
+    "$(grep -qE '^[^#]*scaling_governor' "$ONDEMAND_RULE"; echo $?)"
+check "the file is wholly inert — not one uncommented line" "1" \
+    "$(grep -qE '^[^#]*[^[:space:]#]' "$ONDEMAND_RULE"; echo $?)"
+check "it explains itself (names the packaged rule it shadows)" "0" \
+    "$(grep -qF '60-ondemand-governor.rules' "$ONDEMAND_RULE"; echo $?)"
+check "it points at the write-up" "0" \
+    "$(grep -qF 'clock-deadlock.md' "$ONDEMAND_RULE"; echo $?)"
+
+before_rule="$(cat "$ONDEMAND_RULE")"
+CHANGED=0
+mask_ondemand_rule >/dev/null 2>&1
+check "second run is a no-op" "$before_rule" "$(cat "$ONDEMAND_RULE")"
+check "and reports no change" "0" "$CHANGED"
 
 # ---------------------------------------------------------------------------
 banner "fstab — noatime and tmpfs"

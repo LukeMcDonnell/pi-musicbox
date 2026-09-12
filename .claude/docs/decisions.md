@@ -307,3 +307,56 @@ piecemeal. Sync whole directories and check `md5sum`.
 | `has -- 'pat' file` | the stray `--` was matched literally |
 | `<head` | also matches `<header` — anchor the pattern |
 | `/mnt/tests/*.sh` | globbed on the host, not in the container; glob first, then map paths |
+
+## `cpufreq.default_governor=performance` is a deadlock fix, not a tweak
+
+Do not "restore `ondemand` to save power". The `ondemand` governor calls the
+VideoCore firmware mailbox on a timer, and that path raced and wedged the whole
+board for 1h57m — holding the single global clock lock, which stopped audio,
+froze the panel and made MPD stop answering while still reporting `active
+(running)`. Full trace and evidence in `clock-deadlock.md`.
+
+## "MPD is not running" does not mean MPD is not running
+
+Three distinct causes have produced that exact message:
+
+1. MPD hung up on an idle command connection every ~62s (`connection_timeout`).
+   Fixed with a `ping` keepalive plus a 3s grace before reporting unavailable.
+2. MPD's main thread wedged behind a kernel clock deadlock — process alive,
+   `systemctl` happy, kernel accepting connections on its behalf
+   (`ss -ltn` showing `Recv-Q 1`). See `clock-deadlock.md`.
+3. The backend itself hanging, because `send()` had no reply timeout.
+
+Check `ss -ltn '( sport = :6600 )'` and `/proc/<pid>/stack` before believing
+`systemctl`.
+
+## A protocol reply timeout must be fatal to the connection
+
+`MpdConnection` matches replies to commands purely by **order**. Abandoning one
+command and keeping the socket means the next command receives the previous
+command's answer — a silent wrong-data bug, far worse than a reconnect. So a
+reply timeout destroys the socket and rejects everything queued. `idle` is
+exempt (`{ timeoutMs: null }`); it is supposed to block.
+
+## Every liveness probe must not go over the same link you are testing
+
+Recorded in `wifi-instability.md` and worth repeating: it cost hours there, and
+in the clock-deadlock investigation `vcgencmd` **hanging** was the single most
+diagnostic result — a local probe, no network involved. Reach for local probes
+first.
+
+## A kernel cmdline parameter can be present and still have no effect
+
+`cpufreq.default_governor=performance` was in `/proc/cmdline` and the governor
+was still `ondemand`. Debian ships
+`/usr/lib/udev/rules.d/60-ondemand-governor.rules`, which sets the governor on
+every cpu as udev settles, after the kernel has chosen. Nothing showed up in
+`systemctl list-units`, `dpkg -l` or `/etc/init.d` — it took
+`grep -rl scaling_governor /etc /usr/lib/systemd /lib/udev`.
+
+Lesson: **verify the effect, not the setting.** Reading back the file you wrote
+proves only that you wrote it.
+
+Shadowing beats editing: a same-named file in `/etc/udev/rules.d` replaces the
+one in `/usr/lib/udev/rules.d`, so the packaged file is never touched and
+`rm` restores stock behaviour.

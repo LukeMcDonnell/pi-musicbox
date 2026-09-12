@@ -14,8 +14,29 @@ network**. From outside: no ping, no ssh, no HTTP. But the box keeps running:
 - the web UI on the panel keeps talking to the backend over localhost
 - MPD starts erroring, because the library is on the NAS over that same wifi
 
-Observed twice at roughly 17–20 minutes of continuous playback. Recovery has
-required a power cycle each time.
+Observed twice at roughly 17–20 minutes of continuous playback. Recovery required
+a power cycle both times.
+
+**Both of those characterisations are now wrong (2026-09-12, third observation):**
+
+- **It recovered on its own.** The box was unreachable from ~20:03 to ~20:40 —
+  100% packet loss, no HTTP, no ssh — and then came back with `uptime` showing the
+  *same* boot. No power cycle. So a dropout is not necessarily terminal, and
+  "needed a power cycle" was an artifact of never having waited long enough.
+- **It is not gated on sustained playback.** MPD was **paused** for the entire
+  episode (same track, same position, before and after). The load at the time was
+  ssh, journald reads and a couple of build pushes — nothing like streaming FLAC.
+- **It flaps constantly rather than failing once.** `netwatch` logged **38** DOWN
+  samples in 53 minutes on that boot, at a steady **−72 dBm**, including samples
+  where the gateway was unreachable while the NAS was still up and NetworkManager
+  still reported `connected`.
+
+Taken together this looks less like a load-triggered driver fault and more like a
+plain weak-signal association problem, which raises the priority of "pin to
+2.4GHz" and "plug in ethernet" below. It also means **a dropout is not evidence of
+the clock deadlock** — during this episode the box was demonstrably healthy
+locally (no D-state tasks, `vcgencmd` answering). See
+[`clock-deadlock.md`](clock-deadlock.md).
 
 ## The methodological mistake that cost hours
 
@@ -39,6 +60,19 @@ cycle.
 | Same SSID on 2.4GHz | channel 3, **stronger** (NM quality 74 vs 59) |
 | Load | MPD streams FLAC over NFS continuously — ~430MB in 33 minutes |
 | Power save | **was enabled**; now disabled (see below) |
+
+## The kernel deadlock has since been fully diagnosed — see clock-deadlock.md
+
+**Superseded (2026-09-12).** The deadlock below was captured again, in full, with
+the network still up. The holder of the clock lock is the **`ondemand` cpufreq
+governor** calling the VideoCore firmware mailbox; `vc4` is a *victim* queued
+behind it, not the cause. The framing in this section — display driver at fault —
+is wrong in the direction of causation. Read
+[`clock-deadlock.md`](clock-deadlock.md) instead, including the table there for
+telling that fault apart from this one (there: network up, panel frozen,
+`vcgencmd` hangs; here: network down, panel still rendering).
+
+The original notes are kept below because the trace itself was accurate.
 
 ## One traced kernel deadlock — real, but NOT established as the recurring cause
 

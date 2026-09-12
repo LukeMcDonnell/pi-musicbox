@@ -53,6 +53,8 @@ export interface BridgeOptions {
     /** Overridable for tests, which cannot wait 20s. */
     keepaliveMs?: number;
     unavailableGraceMs?: number;
+    /** Reply deadline per command; see DEFAULT_REPLY_TIMEOUT_MS. */
+    replyTimeoutMs?: number;
 }
 
 function num(v: string | undefined): number | undefined {
@@ -139,8 +141,8 @@ export function buildSnapshot(status: Reply, currentSong: Reply, now: number): S
 type Listener = (snapshot: Snapshot) => void;
 
 export class MpdBridge {
-    private commands = new MpdConnection();
-    private idler = new MpdConnection();
+    private commands: MpdConnection;
+    private idler: MpdConnection;
     private listeners = new Set<Listener>();
     private snapshot: Snapshot;
     private stopped = false;
@@ -155,6 +157,8 @@ export class MpdBridge {
 
     constructor(opts: BridgeOptions) {
         this.opts = opts;
+        this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
+        this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
         this.snapshot = unavailableSnapshot(Date.now());
     }
 
@@ -269,7 +273,9 @@ export class MpdBridge {
                 this.opts.log('info', 'MPD idle connection up');
                 this.idleBackoff = BACKOFF_MIN_MS;
                 while (!this.stopped && this.idler.connected) {
-                    await this.idler.send(`idle ${IDLE_SUBSYSTEMS}`);
+                    // No reply deadline: idle is SUPPOSED to block until
+                    // something changes. Every other command has one.
+                    await this.idler.send(`idle ${IDLE_SUBSYSTEMS}`, { timeoutMs: null });
                     if (this.stopped) break;
                     await this.refresh();
                 }

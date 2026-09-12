@@ -36953,11 +36953,18 @@ function groupBy(reply, key) {
   }
   return groups;
 }
+var DEFAULT_REPLY_TIMEOUT_MS = 1e4;
 var MpdConnection = class {
   socket = null;
   buffer = "";
   queue = [];
   greeted = false;
+  replyTimeoutMs;
+  // Not a constructor parameter property: those emit code, and Node's
+  // type-stripping (used by `npm test`) rejects them.
+  constructor(opts = {}) {
+    this.replyTimeoutMs = opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS;
+  }
   /** MPD's advertised version, once the greeting has been read. */
   version = "";
   /** Resolves once the greeting has arrived and commands may be sent. */
@@ -37011,9 +37018,11 @@ var MpdConnection = class {
       if (!pending) continue;
       if (line === "OK") {
         this.queue.shift();
+        if (pending.timer) clearTimeout(pending.timer);
         pending.resolve({ pairs: pending.pairs });
       } else if (line.startsWith("ACK ")) {
         this.queue.shift();
+        if (pending.timer) clearTimeout(pending.timer);
         pending.reject(new MpdError(line));
       } else {
         const sep2 = line.indexOf(": ");
@@ -37026,15 +37035,43 @@ var MpdConnection = class {
   failAll(err) {
     const queued = this.queue;
     this.queue = [];
-    for (const p of queued) p.reject(err);
+    for (const p of queued) {
+      if (p.timer) clearTimeout(p.timer);
+      p.reject(err);
+    }
   }
-  send(command) {
+  /**
+   * Send a command and wait for its reply.
+   *
+   * `timeoutMs: null` opts out of the deadline, which `idle` REQUIRES — it is
+   * meant to block until something changes, possibly for hours, and MPD
+   * exempts it from its own connection_timeout. Nothing else should opt out.
+   *
+   * A timeout is fatal to the connection, not just to the one command. This is
+   * the important part: replies are matched to commands purely by order, so a
+   * reply that arrives after we have given up would be handed to whatever
+   * command came next, silently reporting one thing's answer as another's.
+   * There is no way to resynchronise a stream like that, so the socket is
+   * destroyed and the bridge reconnects — which it already knows how to do,
+   * behind the grace period that stops a blip reaching the UI.
+   */
+  send(command, opts = {}) {
+    const timeoutMs = opts.timeoutMs === void 0 ? this.replyTimeoutMs : opts.timeoutMs;
     return new Promise((resolve2, reject) => {
       if (!this.socket || this.socket.destroyed) {
         reject(new MpdError("not connected"));
         return;
       }
-      this.queue.push({ resolve: resolve2, reject, pairs: [] });
+      const pending = { resolve: resolve2, reject, pairs: [], timer: null };
+      if (timeoutMs !== null) {
+        pending.timer = setTimeout(() => {
+          this.socket?.destroy();
+          this.failAll(
+            new MpdError(`MPD did not answer '${command}' within ${timeoutMs}ms`)
+          );
+        }, timeoutMs);
+      }
+      this.queue.push(pending);
       this.socket.write(`${command}
 `);
     });
@@ -37135,8 +37172,8 @@ function buildSnapshot(status, currentSong, now) {
   };
 }
 var MpdBridge = class {
-  commands = new MpdConnection();
-  idler = new MpdConnection();
+  commands;
+  idler;
   listeners = /* @__PURE__ */ new Set();
   snapshot;
   stopped = false;
@@ -37149,6 +37186,8 @@ var MpdBridge = class {
   opts;
   constructor(opts) {
     this.opts = opts;
+    this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
+    this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
     this.snapshot = unavailableSnapshot(Date.now());
   }
   get current() {
@@ -37248,7 +37287,7 @@ var MpdBridge = class {
         this.opts.log("info", "MPD idle connection up");
         this.idleBackoff = BACKOFF_MIN_MS;
         while (!this.stopped && this.idler.connected) {
-          await this.idler.send(`idle ${IDLE_SUBSYSTEMS}`);
+          await this.idler.send(`idle ${IDLE_SUBSYSTEMS}`, { timeoutMs: null });
           if (this.stopped) break;
           await this.refresh();
         }
@@ -37481,7 +37520,7 @@ Deploy one with tools/dev-push.sh
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-12T06:21:16Z" : "dev";
+var BUILD = true ? "2026-09-12T10:06:47Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
