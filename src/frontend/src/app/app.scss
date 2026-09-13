@@ -15,7 +15,7 @@
   --warn: #c9603f;
 
   display: block;
-  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -174,8 +174,15 @@
   border: none;
   border-radius: 999px;
   background: var(--surface);
+  /* The icons are stroked with currentColor, so this is what colours them. */
   color: var(--text);
-  font-size: 1.35rem;
+  /* The content is an SVG, and Tailwind's preflight makes it display: block.
+     A glyph used to be centred by the line box; nothing does that for a block
+     child, so the button centres it explicitly. Icons are sized in the
+     template with size-*, not by font-size. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   /* Stops a long-press on the panel selecting text or firing a context menu. */
   user-select: none;
@@ -188,7 +195,6 @@
     min-height: 4.5rem;
     background: var(--accent);
     color: #1a1413;
-    font-size: 1.7rem;
   }
 }
 
@@ -230,8 +236,6 @@
   }
 
   &__placeholder {
-    font-size: 2.5rem;
-    line-height: 1;
     color: var(--muted);
   }
 }

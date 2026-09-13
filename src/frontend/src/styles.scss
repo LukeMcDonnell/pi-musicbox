@@ -2,7 +2,3 @@
    config surface — there is no tailwind.config.js. The Angular build picks the
    plugin up via .postcssrc.json. */
 @use 'tailwindcss';
-
-body {
-  margin: 0;
-}

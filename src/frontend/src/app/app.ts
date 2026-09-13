@@ -1,4 +1,14 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+// Lucide ships one standalone component per icon, so only these five reach the
+// bundle. They render inline SVG stroked with currentColor — no icon font, no
+// network request, which is what the kiosk needs when the NAS is off.
+import {
+    LucideMusic,
+    LucidePause,
+    LucidePlay,
+    LucideSkipBack,
+    LucideSkipForward,
+} from '@lucide/angular';
 import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from './musicbox-api';
 
@@ -12,7 +22,7 @@ function clock(seconds: number | null): string {
 
 @Component({
     selector: 'app-root',
-    imports: [],
+    imports: [LucideMusic, LucidePause, LucidePlay, LucideSkipBack, LucideSkipForward],
     templateUrl: './app.html',
     styleUrl: './app.scss',
 })

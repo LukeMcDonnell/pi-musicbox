@@ -18,7 +18,7 @@
       } @else if (!mpdAvailable()) {
         no mpd
       } @else {
-        live
+        mpd
       }
     </span>
   </header>
@@ -36,7 +36,7 @@
           @if (artUri(); as uri) {
             <img class="art__img" [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
           } @else {
-            <span class="art__placeholder" aria-hidden="true">♪</span>
+            <svg lucideMusic class="art__placeholder size-10" aria-hidden="true"></svg>
           }
         </div>
 
@@ -78,11 +78,19 @@
   }
 
   <section class="controls">
-    <button class="btn" (click)="command('previous')" aria-label="Previous track">⏮</button>
-    <button class="btn btn--primary" (click)="toggle()" [attr.aria-label]="playing() ? 'Pause' : 'Play'">
-      {{ playing() ? '⏸' : '▶' }}
+    <button class="btn" (click)="command('previous')" aria-label="Previous track">
+      <svg lucideSkipBack class="size-6" aria-hidden="true"></svg>
     </button>
-    <button class="btn" (click)="command('next')" aria-label="Next track">⏭</button>
+    <button class="btn btn--primary" (click)="toggle()" [attr.aria-label]="playing() ? 'Pause' : 'Play'">
+      @if (playing()) {
+        <svg lucidePause class="size-8" aria-hidden="true"></svg>
+      } @else {
+        <svg lucidePlay class="size-8" aria-hidden="true"></svg>
+      }
+    </button>
+    <button class="btn" (click)="command('next')" aria-label="Next track">
+      <svg lucideSkipForward class="size-6" aria-hidden="true"></svg>
+    </button>
   </section>
 
   @if (error(); as message) {
