@@ -64,7 +64,7 @@ export function clock(seconds: number | null): string {
     templateUrl: './now-playing.html',
     // No min-h-dvh: the content sets the height now — one viewport of
     // now-playing, then however much queue there is.
-    host: { class: 'relative block bg-bg' },
+    host: { class: 'block bg-bg h-dvh w-dvw' },
 })
 export class NowPlaying implements OnDestroy {
     private readonly api = inject(MusicboxApi);

@@ -1,1 +1,14 @@
-<app-now-playing />
+<app-now-playing [class.show]="showNowPlaying()" />
+
+<div class="main-container">
+  <div class="menu"></div>
+
+  <div class="main">
+    Routes go here
+  </div>
+</div>
+
+<div class="now-playing-mini" (click)="showNowPlaying.set(true)">
+
+</div>
+

@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { NowPlaying } from './components/now-playing/now-playing';
 
 /**
@@ -12,5 +12,8 @@ import { NowPlaying } from './components/now-playing/now-playing';
     selector: 'app-root',
     imports: [NowPlaying],
     templateUrl: './app.html',
+    styleUrl: './app.scss',
 })
-export class App {}
+export class App {
+  showNowPlaying = signal<boolean>(false)
+}

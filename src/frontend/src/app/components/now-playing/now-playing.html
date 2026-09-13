@@ -1,16 +1,17 @@
-@if (artUri(); as uri) {
-  <img class="pointer-events-none fixed inset-0 z-0 h-full w-full scale-[1.12] object-cover
-              blur-[52px] brightness-[0.22] saturate-[0.7] will-change-transform"
-       [src]="uri" alt="" aria-hidden="true" decoding="async">
-}
+<div class="wrapper w-full h-full z-1 overflow-scroll">
+  @if (artUri(); as uri) {
+    <img class="pointer-events-none absolute inset-0 z-0 h-full w-full scale-[1.12] object-cover
+              blur-[62px] brightness-[0.18] saturate-[1.3] will-change-transform"
+         [src]="uri" alt="" aria-hidden="true" decoding="async">
+  }
 
-<!-- EXACTLY one viewport, not min-h: the queue below is reached by scrolling,
-     and a first screen that grew past the fold would put the transport buttons
-     off it. -->
-<main class="relative z-[1] mx-auto flex h-dvh flex-col gap-4 px-4 pt-3 pb-5">
-  <header class="flex items-center justify-between">
-    <span class="font-semibold tracking-[0.02em] text-muted">musicbox</span>
-    <span class="rounded-full px-[0.55rem] py-[0.15rem] text-xs" [class]="pillClass()">
+    <!-- EXACTLY one viewport, not min-h: the queue below is reached by scrolling,
+       and a first screen that grew past the fold would put the transport buttons
+       off it. -->
+  <main class="relative z-[1] mx-auto flex h-dvh flex-col gap-4 px-4 pt-3 pb-5">
+    <header class="flex items-center justify-between">
+      <span class="font-semibold tracking-[0.02em] text-muted">musicbox</span>
+      <span class="rounded-full px-[0.55rem] py-[0.15rem] text-xs" [class]="pillClass()">
       @if (stream() !== 'live') {
         offline
       } @else if (onBluetooth()) {
@@ -21,115 +22,116 @@
         mpd
       }
     </span>
-  </header>
+    </header>
 
-  @if (statusLine(); as message) {
-    <section class="grid flex-1 place-items-center gap-3">
-      <p class="text-[1.1rem] text-muted">{{ message }}</p>
-      @if (onBluetooth()) {
-        <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent
+    @if (statusLine(); as message) {
+      <section class="grid flex-1 place-items-center gap-3">
+        <p class="text-[1.1rem] text-muted">{{ message }}</p>
+        @if (onBluetooth()) {
+          <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent
                      px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
-                (click)="disconnectBluetooth()">Disconnect</button>
-      }
-    </section>
-  } @else if (snapshot()?.track; as track) {
-    <section class="flex min-w-0 flex-1 flex-col justify-center gap-[0.2rem]">
-      <!-- Art beside the text. The panel is 800x480 landscape, so a column would
-           waste the width and push the progress bar off the bottom. Narrow
-           phones stack instead, and let the cover lead. -->
-      <div class="flex min-w-0 items-center gap-4
+                  (click)="disconnectBluetooth()">Disconnect</button>
+        }
+      </section>
+    } @else if (snapshot()?.track; as track) {
+      <section class="flex min-w-0 flex-1 flex-col justify-center gap-[0.2rem]">
+        <!-- Art beside the text. The panel is 800x480 landscape, so a column would
+             waste the width and push the progress bar off the bottom. Narrow
+             phones stack instead, and let the cover lead. -->
+        <div class="flex min-w-0 items-center gap-4
                   max-[26rem]:flex-col max-[26rem]:gap-[2rem]">
 
-        <div class="min-[68rem]:min-w-[40%] place-items-center">
-          <div class="grid aspect-square w-[clamp(7rem,40vw,16rem)] flex-none place-items-center relative
+          <div class="min-[68rem]:min-w-[40%] place-items-center">
+            <div class="grid aspect-square w-[clamp(7rem,40vw,16rem)] flex-none place-items-center relative
                     overflow-hidden rounded-md bg-surface max-[26rem]:w-[min(60vw,16rem)] ">
-            @if (artUri(); as uri) {
-              <img class="block h-full w-full object-cover"
-                   [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
-            } @else {
-              @if (onBluetooth()) {
-                <svg lucideBluetooth class="size-10 text-muted" aria-hidden="true"></svg>
+              @if (artUri(); as uri) {
+                <img class="block h-full w-full object-cover"
+                     [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
               } @else {
-                <svg lucideMusic class="size-10 text-muted" aria-hidden="true"></svg>
+                @if (onBluetooth()) {
+                  <svg lucideBluetooth class="size-10 text-muted" aria-hidden="true"></svg>
+                } @else {
+                  <svg lucideMusic class="size-10 text-muted" aria-hidden="true"></svg>
+                }
               }
-            }
-            @if (onBluetooth()) {
-              <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent absolute bottom-3
+              @if (onBluetooth()) {
+                <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent absolute bottom-3
                      px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
-                      (click)="disconnectBluetooth()">Disconnect</button>
+                        (click)="disconnectBluetooth()">Disconnect</button>
+              }
+            </div>
+          </div>
+
+
+          <div class="min-w-0 flex-grow text-center">
+            @if (onBluetooth()) {
+              <span class="text-[0.85rem] text-accent [overflow-wrap:anywhere]">{{ bluetoothLine() }}</span>
             }
+            <h1 class="text-[clamp(2.0rem,5.2vw,2.6rem)] leading-[1.2] font-bold
+                     [overflow-wrap:anywhere]">{{ trackTitle() }}</h1>
+            <p class="mt-1 text-[clamp(1.15rem,3.6vw,1.6rem)] text-accent font-bold
+                    [overflow-wrap:anywhere]">{{ track.artist || 'Unknown artist' }}</p>
+            <p class="text-[clamp(0.95rem,2.4vw,1.2rem)] text-muted
+                    [overflow-wrap:anywhere]">{{ track.album }}</p>
+            <p class="mt-[0.45rem] text-[clamp(0.95rem,2.4vw,1.2rem)] tabular-nums">
+              {{ elapsedLabel() }} / {{ durationLabel() }}
+            </p>
           </div>
         </div>
+      </section>
+    }
 
-
-        <div class="min-w-0 flex-grow text-center">
-          @if (onBluetooth()) {
-            <span class="text-[0.85rem] text-accent [overflow-wrap:anywhere]">{{ bluetoothLine() }}</span>
-          }
-          <h1 class="text-[clamp(2.0rem,5.2vw,2.6rem)] leading-[1.2] font-bold
-                     [overflow-wrap:anywhere]">{{ trackTitle() }}</h1>
-          <p class="mt-1 text-[clamp(1.15rem,3.6vw,1.6rem)] text-accent font-bold
-                    [overflow-wrap:anywhere]">{{ track.artist || 'Unknown artist' }}</p>
-          <p class="text-[clamp(0.95rem,2.4vw,1.2rem)] text-muted
-                    [overflow-wrap:anywhere]">{{ track.album }}</p>
-          <p class="mt-[0.45rem] text-[clamp(0.95rem,2.4vw,1.2rem)] tabular-nums">
-            {{ elapsedLabel() }} / {{ durationLabel() }}
-          </p>
-        </div>
-      </div>
-    </section>
-  }
-
-  <section class="flex items-center justify-center gap-5">
-    <button class="inline-flex min-h-[3.75rem] min-w-[3.75rem] cursor-pointer touch-manipulation
+    <section class="flex items-center justify-center gap-5">
+      <button class="inline-flex min-h-[3.75rem] min-w-[3.75rem] cursor-pointer touch-manipulation
                    items-center justify-center rounded-full bg-surface text-text select-none
                    active:bg-raised"
-            (click)="command('previous')" aria-label="Previous track">
-      <svg lucideSkipBack class="size-7 fill-current" [strokeWidth]="2.5" aria-hidden="true"></svg>
-    </button>
-    <button class="inline-flex min-h-[5.25rem] min-w-[5.25rem] cursor-pointer touch-manipulation
+              (click)="command('previous')" aria-label="Previous track">
+        <svg lucideSkipBack class="size-7 fill-current" [strokeWidth]="2.5" aria-hidden="true"></svg>
+      </button>
+      <button class="inline-flex min-h-[5.25rem] min-w-[5.25rem] cursor-pointer touch-manipulation
                    items-center justify-center rounded-full bg-accent text-on-accent select-none
                    active:bg-raised"
-            (click)="toggle()" [attr.aria-label]="playing() ? 'Pause' : 'Play'">
-      @if (playing()) {
-        <svg lucidePause class="size-11 fill-current" aria-hidden="true"></svg>
-      } @else {
-        <svg lucidePlay class="size-11 fill-current" aria-hidden="true"></svg>
-      }
-    </button>
-    <button class="inline-flex min-h-[3.75rem] min-w-[3.75rem] cursor-pointer touch-manipulation
+              (click)="toggle()" [attr.aria-label]="playing() ? 'Pause' : 'Play'">
+        @if (playing()) {
+          <svg lucidePause class="size-11 fill-current" aria-hidden="true"></svg>
+        } @else {
+          <svg lucidePlay class="size-11 fill-current" aria-hidden="true"></svg>
+        }
+      </button>
+      <button class="inline-flex min-h-[3.75rem] min-w-[3.75rem] cursor-pointer touch-manipulation
                    items-center justify-center rounded-full bg-surface text-text select-none
                    active:bg-raised"
-            (click)="command('next')" aria-label="Next track">
-      <svg lucideSkipForward class="size-7 fill-current" [strokeWidth]="2.5" aria-hidden="true"></svg>
-    </button>
-  </section>
+              (click)="command('next')" aria-label="Next track">
+        <svg lucideSkipForward class="size-7 fill-current" [strokeWidth]="2.5" aria-hidden="true"></svg>
+      </button>
+    </section>
 
-  @if (error(); as message) {
-    <p class="text-[0.9rem] text-warn" role="alert">{{ message }}</p>
-  }
+    @if (error(); as message) {
+      <p class="text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+    }
 
-  @if (hasQueue()) {
-    <!-- The only thing saying the page scrolls. Static: no bounce, no
-         transition — see the ticker comment in now-playing.ts.
+    @if (hasQueue()) {
+      <!-- The only thing saying the page scrolls. Static: no bounce, no
+           transition — see the ticker comment in now-playing.ts.
 
-         ABSOLUTE, deliberately: in the flow it added ~24px to a screen that is
-         now exactly one viewport, and on the 800x480 panel the art is already
-         within about 30px of filling what is left. It sits in the empty space
-         beside the centred transport buttons and costs the layout nothing. -->
-    <button class="absolute right-3 bottom-4 inline-flex size-11 cursor-pointer
+           ABSOLUTE, deliberately: in the flow it added ~24px to a screen that is
+           now exactly one viewport, and on the 800x480 panel the art is already
+           within about 30px of filling what is left. It sits in the empty space
+           beside the centred transport buttons and costs the layout nothing. -->
+      <button class="absolute right-3 bottom-4 inline-flex size-11 cursor-pointer
                    touch-manipulation items-center justify-center rounded-full text-muted
                    select-none active:bg-raised"
-            (click)="scrollToQueue()" aria-label="Show the queue">
-      <svg lucideChevronDown class="size-6" aria-hidden="true"></svg>
-    </button>
-  }
-</main>
+              (click)="scrollToQueue()" aria-label="Show the queue">
+        <svg lucideChevronDown class="size-6" aria-hidden="true"></svg>
+      </button>
+    }
+  </main>
 
-<app-queue #queue />
+  <app-queue #queue />
 
-<div class="fixed inset-x-0 bottom-0 z-[2] h-[7px] bg-raised"
-     role="progressbar" [attr.aria-valuenow]="progress()">
-  <div class="h-full w-full origin-left bg-accent will-change-transform"
-       [style.transform]="progressTransform()"></div>
+  <div class="fixed inset-x-0 bottom-0 z-[2] h-[7px] bg-raised"
+       role="progressbar" [attr.aria-valuenow]="progress()">
+    <div class="h-full w-full origin-left bg-accent will-change-transform"
+         [style.transform]="progressTransform()"></div>
+  </div>
 </div>
