@@ -12,6 +12,7 @@
 import { Injectable, computed, signal, DestroyRef, inject } from '@angular/core';
 import type { Snapshot, PlaybackCommand, QueueResponse } from '@musicbox/shared';
 import { SSE_SNAPSHOT_EVENT } from '@musicbox/shared';
+import { environment } from '../environments/environment';
 
 /** How the browser is getting on with the server (not with MPD — that is snapshot.status). */
 export type StreamState = 'connecting' | 'live' | 'offline';
@@ -50,7 +51,7 @@ export class MusicboxApi {
     }
 
     private connect(): void {
-        this.source = new EventSource('/api/events');
+        this.source = new EventSource(this.url('/api/events'));
 
         this.source.addEventListener(SSE_SNAPSHOT_EVENT, (event) => {
             const snapshot = JSON.parse((event as MessageEvent<string>).data) as Snapshot;
@@ -80,13 +81,26 @@ export class MusicboxApi {
     }
 
     async playback(command: PlaybackCommand): Promise<void> {
-        await this.post(`/api/playback/${command}`);
+        await this.post(this.url(`/api/playback/${command}`));
     }
 
     async queue(): Promise<QueueResponse> {
-        const response = await fetch('/api/queue');
+        const response = await fetch(this.url('/api/queue'));
         if (!response.ok) throw new Error(`queue: HTTP ${response.status}`);
         return (await response.json()) as QueueResponse;
+    }
+
+    /**
+     * Prefix an API path with the configured origin.
+     *
+     * Blank apiUrl — production, and dev by default — returns the path untouched,
+     * so the request stays root-relative and same-origin, exactly as the
+     * hardcoded literals this replaced did. A configured value makes the URL
+     * absolute, for pointing a dev frontend at a real box; the backend allows any
+     * origin on /api, so that needs no configuration there.
+     */
+    private url(path: string): string {
+        return environment.apiUrl.replace(/\/+$/, '') + path;
     }
 
     private async post(url: string, body?: unknown): Promise<void> {

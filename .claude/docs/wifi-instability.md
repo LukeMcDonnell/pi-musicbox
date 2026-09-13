@@ -33,7 +33,27 @@ a power cycle both times.
 
 Taken together this looks less like a load-triggered driver fault and more like a
 plain weak-signal association problem, which raises the priority of "pin to
-2.4GHz" and "plug in ethernet" below. It also means **a dropout is not evidence of
+2.4GHz" and "plug in ethernet" below.
+
+### An observation to watch: it got dramatically better when the governor changed
+
+Measured by `netwatch` itself, same box, same AP, same −72 dBm, one boot apart:
+
+| Boot | DOWN samples | Rate |
+|---|---|---|
+| Before the governor fix (53 min) | 38 | **~12%** |
+| After (4h soak, 1450 samples) | 4 | **0.28%** |
+
+A ~40× reduction. There is a mechanism that would explain it: brcmfmac sits on
+**SDIO**, whose clock is also managed through the VideoCore firmware mailbox, and
+`ondemand` was hammering that mailbox continuously. Fewer mailbox calls, fewer
+SDIO clock stalls. If that holds up, both faults in these two documents share one
+root cause.
+
+**Treat this as a lead, not a finding.** It is a single pair of boots, wifi
+conditions vary on their own, and the fault was always intermittent. It is
+recorded here so the next few days of data are read with it in mind — if drops
+stay near zero, this becomes the explanation; if they return, it was noise. It also means **a dropout is not evidence of
 the clock deadlock** — during this episode the box was demonstrably healthy
 locally (no D-state tasks, `vcgencmd` answering). See
 [`clock-deadlock.md`](clock-deadlock.md).

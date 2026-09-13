@@ -555,6 +555,35 @@ cd src/backend  && MUSICBOX_MPD_HOST=musicbox.local MUSICBOX_PORT=8099 \
 cd src/frontend && npx ng serve                           # proxies /api to :8099
 ```
 
+#### Pointing the frontend somewhere else
+
+By default the frontend calls `/api` on whatever origin served it — the dev
+server proxy above, or in production the one process that serves both halves. To
+aim it at a different origin instead, such as the real box while running
+`ng serve` locally, set `apiUrl` in
+`src/frontend/src/environments/environment.development.ts`:
+
+```ts
+apiUrl: 'http://musicbox.local',
+```
+
+That is Angular's standard environments mechanism: `angular.json` swaps that file
+in for `environment.ts` in the `development` configuration only, so a production
+build can never carry a dev origin. Blank means same-origin, which is why the
+file is committed blank.
+
+Nothing else to configure: the backend answers `/api` with
+`access-control-allow-origin: *`, so a cross-origin frontend on any host or port
+works without enumerating it — including the preflight that the playback `POST`
+provokes by sending JSON. Static files get no such header; they are served by the
+same process and are same-origin by nature.
+
+That is deliberately open, and the trade is worth stating plainly: any page loaded
+by any device on the LAN can read player state and issue transport commands. There
+is no authentication on this API either way. It is a music player on a home
+network and the worst case is a skipped track — but it is not a pattern to copy
+onto anything that matters.
+
 When you need the actual panel — touch, the DAC, 800×480 rendering:
 
 ```sh

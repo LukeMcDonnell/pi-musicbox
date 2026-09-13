@@ -1,7 +1,8 @@
 # The clock/firmware deadlock — diagnosed 2026-09-12
 
-**Status: root cause captured. Fix applied and verified on the device 2026-09-12;
-`performance` now survives a reboot. NOT yet confirmed by a soak — see the end.**
+**Status: root cause captured; fix applied, verified across a reboot, and soaked
+4 hours clean (56 track changes, zero hung tasks). Not called closed — the fault
+was intermittent, so keep the instrumentation until it has run for days.**
 
 This is **not** the wifi issue. It presents similarly ("the box stopped
 responding") and the two were conflated for a while, so read
@@ -306,16 +307,39 @@ cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor   # still performan
 With Debian's rule in force that re-trigger flips it straight back to `ondemand`.
 It stayed on `performance`.
 
-### Still outstanding
+### Soak result — 4 hours clean, 2026-09-12 20:51 to 2026-09-13 00:52
 
-**A soak is the only thing that can confirm the fix.** For reference, the captured
-incident deadlocked about 36 minutes after boot (booted 16:23, blocked by
-16:59:57). Play for several hours and watch for the panel freezing.
+| | |
+|---|---|
+| Duration | **240 min** of continuous playback |
+| Samples | 120/120 healthy, polled every 2 min |
+| **Track changes** | **56** |
+| Deadlock signatures | **0** |
+| Kernel hung-task reports (device-side) | **0** |
+| Governor | `performance` on every sample |
+| Temperature | 53.5–57.9°C, flat |
+| `throttled` | `0x0` |
 
-Keep `tools/instrument-wifi-debug.sh`'s persistent journald on until that soak has
-passed — without it a recurrence erases its own evidence, which is what happened
-every time before.
+The track-change count is the number that matters. The deadlock manifests when
+MPD reopens the audio device and calls `clk_prepare` — a **track boundary** — so
+56 of those are the relevant stress, not merely elapsed time. For comparison the
+captured incident wedged ~36 minutes after boot, and the kernel logged hung tasks
+within the hour; this run logged none in four.
 
-If it does recur with `performance` confirmed active, the governor is exonerated:
-go to the kernel/firmware versions (`6.18.34+rpt-rpi-v8`, tainted `G WC`) and to
-`tools/isolate-display.sh`, which soaks with zero vc4 commits.
+**This is strong evidence, not proof.** The failure was intermittent before
+(hours of normal use between incidents), so one clean run cannot exclude a race
+that needs a rarer coincidence. What it does do is move the burden: if this
+recurs with `performance` confirmed active, the governor is exonerated and the
+next suspects are the kernel and firmware versions (`6.18.34+rpt-rpi-v8`, tainted
+`G WC`) and `tools/isolate-display.sh`, which soaks with zero vc4 commits.
+
+Keep `tools/instrument-wifi-debug.sh`'s persistent journald on for now — without
+it a recurrence erases the evidence of its own cause, which is what happened every
+time before this.
+
+The soak harness lives in the session scratchpad, not the repo: a read-only probe
+piped over `ssh ... bash -s` (nothing written on the device), and a watcher that
+exits the moment it sees either signature. Its one important design rule is that
+**an unreachable box is not a failure** — this box drops off the network on its
+own, and the deadlock leaves the network *up*, so "reachable but `vcgencmd` hangs"
+is the decisive test.

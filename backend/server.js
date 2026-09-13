@@ -37342,6 +37342,22 @@ var MpdBridge = class {
   }
 };
 
+// src/cors.ts
+var ALLOWED_HEADERS = "content-type";
+var ALLOWED_METHODS = "GET, POST, OPTIONS";
+function isApi(url) {
+  return url.split("?")[0].startsWith("/api/");
+}
+function registerCors(app) {
+  app.addHook("onRequest", async (request, reply) => {
+    if (!isApi(request.url)) return;
+    reply.raw.setHeader("access-control-allow-origin", "*");
+  });
+  app.options("/api/*", async (_request, reply) => {
+    return reply.header("access-control-allow-methods", ALLOWED_METHODS).header("access-control-allow-headers", ALLOWED_HEADERS).header("access-control-max-age", "600").code(204).send();
+  });
+}
+
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
 var COMMAND_MAP = {
@@ -37520,7 +37536,7 @@ Deploy one with tools/dev-push.sh
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-12T10:06:47Z" : "dev";
+var BUILD = true ? "2026-09-12T23:48:03Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -37543,6 +37559,7 @@ async function main() {
     connectTimeoutMs: config.mpdConnectTimeoutMs,
     log: (level, msg) => app.log[level](msg)
   });
+  registerCors(app);
   const routes = registerRoutes(app, { bridge, build: BUILD, startedAt });
   registerStatic(app, config.webRoot);
   bridge.start();

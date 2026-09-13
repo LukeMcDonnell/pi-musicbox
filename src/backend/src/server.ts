@@ -10,6 +10,7 @@
 import Fastify from 'fastify';
 import { loadConfig, DEFAULT_CONF_PATH } from './config.ts';
 import { MpdBridge } from './mpd/bridge.ts';
+import { registerCors } from './cors.ts';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
 
@@ -42,6 +43,9 @@ async function main(): Promise<void> {
         log: (level, msg) => app.log[level](msg),
     });
 
+    // Before the routes: the onRequest hook must be in place for /api responses,
+    // and the preflight route must exist before static.ts claims unknown paths.
+    registerCors(app);
     const routes = registerRoutes(app, { bridge, build: BUILD, startedAt });
     registerStatic(app, config.webRoot);
 
