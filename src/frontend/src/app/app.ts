@@ -57,6 +57,45 @@ export class App implements OnDestroy {
 
     readonly error = signal<string | null>(null);
 
+    /**
+     * The one art URI that failed to load, if any.
+     *
+     * No explicit reset is needed: the URI is keyed by ALBUM, so moving to a
+     * different album produces a different string and the comparison below stops
+     * matching on its own. Within an album a failed cover stays hidden instead of
+     * being retried on every track.
+     */
+    private readonly artFailed = signal<string | null>(null);
+
+    /**
+     * Cover art URI, or null when there is none to show.
+     *
+     * About 7.5% of the library has no cover file, so the 404 path is normal
+     * rather than exceptional — hence a placeholder rather than an error.
+     *
+     * Because this value is identical for every track on an album, Angular does
+     * not touch the <img> when the track changes: no refetch, and no repaint of
+     * the image. That is deliberate — see the ticker comment below for why
+     * repaints on this panel are something to spend care avoiding.
+     */
+    readonly artUri = computed(() => {
+        const image = this.snapshot()?.track?.image ?? null;
+        if (!image) return null;
+        // Through the API resolver, not raw: the server sends a root-relative
+        // path, and an <img> would resolve it against the PAGE's origin. With
+        // environment.apiUrl pointed at the real box, raw binding fetches the art
+        // from the dev server instead, and 404s.
+        const resolved = this.api.resolve(image);
+        // Compare the RESOLVED url, because that is what onArtError() is handed
+        // by the template — comparing the raw path would never match and a failed
+        // cover would flicker back on every snapshot.
+        return resolved === this.artFailed() ? null : resolved;
+    });
+
+    onArtError(uri: string): void {
+        this.artFailed.set(uri);
+    }
+
     /*
      * 1Hz, and only while playing.
      *

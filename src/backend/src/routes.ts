@@ -9,12 +9,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
     PLAYBACK_COMMANDS,
     SSE_SNAPSHOT_EVENT,
+    SSE_BUILD_EVENT,
     API_VERSION,
     type HealthResponse,
     type PlaybackCommand,
     type Snapshot,
 } from '../../shared/api.ts';
 import type { MpdBridge } from './mpd/bridge.ts';
+import { createArtHandler, createArtResolver } from './art.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -23,6 +25,8 @@ export interface RouteOptions {
     bridge: MpdBridge;
     build: string;
     startedAt: number;
+    /** Music library root, for cover art lookups. See config.musicRoot. */
+    musicRoot: string;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -51,7 +55,7 @@ function sseFrame(event: string, data: unknown): string {
 }
 
 export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteHandle {
-    const { bridge, build, startedAt } = opts;
+    const { bridge, build, startedAt, musicRoot } = opts;
 
     /** Every live SSE stream, so shutdown can end them. */
     const streams = new Set<() => void>();
@@ -101,6 +105,13 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
     });
 
     /**
+     * Cover art. The resolver is created once so its cache — including its
+     * negative entries — lives for the life of the process rather than the
+     * request. Track.image points here; see src/backend/src/art.ts.
+     */
+    app.get('/api/art', createArtHandler(createArtResolver(musicRoot)));
+
+    /**
      * SSE stream. Sends the current snapshot immediately on connect, so a client
      * is correct from its first frame without a separate /api/status call, then
      * a fresh full snapshot on every change.
@@ -117,6 +128,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         const send = (snapshot: Snapshot) => {
             reply.raw.write(sseFrame(SSE_SNAPSHOT_EVENT, snapshot));
         };
+
+        // State the build before anything else. A client that has seen a
+        // different one reloads itself — without this the kiosk, which never
+        // navigates after boot, runs a stale bundle forever after a deploy.
+        // See SSE_BUILD_EVENT in src/shared/api.ts.
+        reply.raw.write(sseFrame(SSE_BUILD_EVENT, { build }));
 
         // The FIRST frame must be freshly queried, not bridge.current.
         //

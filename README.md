@@ -555,6 +555,38 @@ cd src/backend  && MUSICBOX_MPD_HOST=musicbox.local MUSICBOX_PORT=8099 \
 cd src/frontend && npx ng serve                           # proxies /api to :8099
 ```
 
+#### The panel reloads itself
+
+`tools/dev-push.sh` rsyncs the build and the device restarts the service on its
+own — `musicbox-server.path` watches **both** `backend/server.js` and
+`frontend/index.html`.
+
+Watching the frontend looks redundant until you know what it is for. The kiosk
+loads the page once at boot and never navigates again: it has no keyboard and
+nobody to press reload. So a frontend deploy used to land on disk, be served
+perfectly, and never reach the screen — the panel was found running a
+**14-hour-old bundle** while the correct files sat beside it.
+
+The chain that fixes it:
+
+```
+frontend/index.html changes
+  -> musicbox-server.path restarts the service
+    -> every SSE stream drops; EventSource reconnects by itself
+      -> the server states its build id on connect (SSE_BUILD_EVENT)
+        -> a client that sees a DIFFERENT build calls location.reload()
+```
+
+`index.html` is the right file to watch because Angular content-hashes its
+bundles and rewrites `index.html` to name them, so it changes whenever anything
+in the frontend does — and rsync only rewrites it when the content really
+differs, so an unchanged deploy still triggers nothing.
+
+This is not only a dev-loop concern: `git pull` in production hits exactly the
+same trap, and the same mechanism covers it. Reloading is safe because the UI
+holds no state worth keeping — everything arrives in the next snapshot. Phones
+get the same treatment, which is what you want after a deploy.
+
 #### Pointing the frontend somewhere else
 
 By default the frontend calls `/api` on whatever origin served it — the dev
@@ -566,6 +598,13 @@ aim it at a different origin instead, such as the real box while running
 ```ts
 apiUrl: 'http://musicbox.local',
 ```
+
+**Paths that arrive from the server go through the same resolver.** `Track.image`
+is a root-relative `/api/art?...`, and binding it straight into an `<img>` would
+make the browser resolve it against the *page's* origin — so with `apiUrl` set to
+the real box, the art would be fetched from the dev server and 404. `MusicboxApi.resolve()`
+is public for exactly this, and a test asserts nothing bypasses it. Images need no
+CORS, so it works cross-origin unchanged.
 
 That is Angular's standard environments mechanism: `angular.json` swaps that file
 in for `environment.ts` in the `development` configuration only, so a production
@@ -643,14 +682,17 @@ SSE carries state, REST carries commands.
 
 ```
 GET  /api/health     GET /api/status    GET /api/events (SSE)    GET /api/queue
-POST /api/playback/{play,pause,stop,next,previous}        POST /api/volume
+GET  /api/art?album=<url-encoded album directory>
+POST /api/playback/{play,pause,stop,next,previous}
 ```
+
+(`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
 
 **Every SSE event is a complete snapshot, never a delta.** A dropped, duplicated
 or out-of-order event costs nothing — the client replaces its state and can never
 drift out of sync. The one thing not embedded is the queue, referenced by
 `queueVersion` instead: with 37,289 songs, embedding it would mean megabytes of
-JSON on every volume nudge.
+JSON on every state change.
 
 The queue is described by three fields rather than carried: `queueVersion`,
 `queueLength` and `queuePosition` (0-based index of the current track). The last
@@ -666,6 +708,58 @@ queried** snapshot on SSE connect and on `GET /api/status` — MPD's `idle` does
 fire as elapsed time advances, so the cached snapshot's `elapsed` dates from the
 last real event. Sending that to a new client made a page reload show the elapsed
 time as at the last pause/resume.
+
+### Album art
+
+Every `Track` carries an `image` URI. It is **always present and may 404** — it is
+derived from the song's path alone, so building a snapshot or a 130-track queue
+listing touches the filesystem zero times. Resolution happens only when a browser
+actually asks for the bytes; about 7.5% of this library's albums have no cover and
+the client shows a placeholder.
+
+**Keyed by album directory, not by track.** Measured on the real queue: **130
+tracks resolve to 12 distinct art URIs.** So the browser fetches twelve images for
+a full queue rather than a hundred and thirty, and a track change within an album
+causes no refetch and no repaint — which matters here, because repaints on the DSI
+panel are the vc4 commit path implicated in the clock deadlock.
+
+A query parameter rather than a path segment, because album directories in this
+library contain `!`, `&`, `#`, `(` and spaces; carrying that in a path means
+encoding `/` as `%2F`, which proxies may normalise back.
+
+**The bytes come from the filesystem, not from MPD.** MPD 0.24 has an `albumart`
+command and it was the obvious first choice, but it only looks for `cover.*` —
+86 files in this library against 3201 `folder.jpg`, about 1.4% coverage. Reading
+the album directory directly gets **92.5%** (measured: 111 of 120 sampled dirs).
+The alternative, `readpicture` for embedded art, would mean teaching the MPD
+client to read binary replies, and that client matches replies to commands purely
+by queue order with a timeout that destroys the socket — not a change worth making
+for a 1.4% gain. Deferred deliberately.
+
+Candidate filenames, in order: `cover.{jpg,jpeg,png}`, `folder.{jpg,jpeg,png}`,
+`front.{jpg,png}`. **`discart`, `fanart`, `banner`, `logo` and `clearlogo` are
+never chosen** — a naive "first image in the directory" would pick a discart,
+which is a round disc image on a transparent background and looks broken as a
+cover. There are 3795 of them here against 86 `cover.jpg`, so this ordering is
+load-bearing and the tests assert it.
+
+Cached twice: album directory → filename in memory (**including negative
+results**, or the 7.5% with no cover would walk the candidate list over NFS on
+every request), and `Cache-Control: public, max-age=604800` plus a weak `ETag`
+from mtime and size, so a repeat visit revalidates with a `304` instead of
+re-sending ~540KB.
+
+No downscaling: covers here run 117KB–1.48MB against an 800×480 panel, but
+resizing needs either `sharp` (a native module, which breaks the single-file
+bundle and the one-dependency rule) or a slow pure-JS decoder. Measured cost of
+serving the original over wifi: **866KB in 0.106s (8.2 MB/s)** — an order of
+magnitude less painful than expected, so the per-album key plus a week of caching
+is enough.
+
+`MUSICBOX_MUSIC_ROOT` (default `/srv/music/Music`) **must match**
+`music_directory` in `setup-mpd.sh`. If they drift, every art request 404s and
+nothing else misbehaves — a miserable symptom to debug, so
+`tests/test-server-config.sh` asserts the two literals are identical.
 
 ## Volume, and why there isn't any
 

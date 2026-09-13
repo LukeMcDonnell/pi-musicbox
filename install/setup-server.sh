@@ -34,8 +34,14 @@
 #   video, which matters when Bluetooth and CD arrive.
 #
 # HOW A NEW BUILD IS PICKED UP
-#   musicbox-server.path watches the bundle and restarts the service when it
-#   changes, so a deploy is just an rsync — no sudo, no second round trip.
+#   musicbox-server.path watches the backend bundle AND frontend/index.html, and
+#   restarts the service when either changes, so a deploy is just an rsync — no
+#   sudo, no second round trip.
+#
+#   Watching the frontend looks odd until you see why: the restart drops every
+#   SSE stream, and each client then re-reads the server's build id and reloads
+#   itself if it changed. That is the only thing that updates the kiosk, which
+#   loads the page once at boot and has no keyboard to reload it.
 #
 # Usage:
 #   sudo ./setup-server.sh --dry-run
@@ -208,6 +214,18 @@ Description=Watch for a newly deployed musicbox-server build
 # rsync and install(1) write a temp file and rename it, so this fires once, on
 # the finished file — never on a half-written one.
 PathChanged=${DEPLOY_DIR}/backend/server.js
+# The FRONTEND is watched too, and the restart is the point rather than a side
+# effect: restarting drops every SSE stream, and each client then re-reads the
+# server's build id and reloads itself if it changed. Without this the kiosk —
+# which loads the page at boot and never navigates again, having no keyboard —
+# runs the old bundle forever after a frontend deploy. Observed: a 14-hour-old
+# page while the correct files sat on disk being served.
+#
+# index.html is the right file to watch because Angular content-hashes its
+# bundles and rewrites index.html to name them, so it changes whenever anything
+# in the frontend does. rsync only rewrites it when the content really differs,
+# so an unchanged deploy still triggers nothing.
+PathChanged=${DEPLOY_DIR}/frontend/index.html
 Unit=musicbox-server-restart.service
 
 [Install]
@@ -312,8 +330,10 @@ do_apply() {
     Deploy a build from the DEV MACHINE (never build on the Pi):
       tools/dev-push.sh
 
-    ${DEPLOY_DIR}/backend/server.js is watched, so a deploy restarts the
-    service by itself — no sudo needed in the loop.
+    backend/server.js and frontend/index.html are both watched, so a deploy
+    restarts the service by itself — no sudo needed in the loop. The restart is
+    also what updates the panel: it drops every SSE stream, and each client then
+    re-reads the build id and reloads itself if it changed.
 
       systemctl status musicbox-server
       journalctl -u musicbox-server -b -f

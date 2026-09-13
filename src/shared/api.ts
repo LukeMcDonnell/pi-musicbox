@@ -51,6 +51,21 @@ export interface Track {
     genre?: string;
     /** Seconds. Absent for streams. */
     duration?: number;
+
+    /**
+     * URI for this album's cover art, e.g. `/api/art?album=Radiohead%2FIn%20Rainbows`.
+     *
+     * ALWAYS PRESENT, AND MAY 404. It is derived purely from `file`, so building
+     * a snapshot or a 130-track queue listing touches the filesystem zero times —
+     * resolution happens only when a client actually requests the bytes. Clients
+     * must handle a 404 by showing a placeholder; about 7.5% of this library's
+     * albums have no cover file.
+     *
+     * Keyed by album DIRECTORY, not by track, so every track on an album shares
+     * one URL: the browser fetches it once and a track change within an album
+     * causes no refetch and no repaint. See src/backend/src/art.ts.
+     */
+    image: string;
 }
 
 export interface Snapshot {
@@ -145,3 +160,26 @@ export type PlaybackCommand = (typeof PLAYBACK_COMMANDS)[number];
 
 /** The SSE event name carrying a Snapshot. */
 export const SSE_SNAPSHOT_EVENT = 'snapshot';
+
+/**
+ * The SSE event name carrying the server's build id, sent once per connection.
+ *
+ * WHY THIS EXISTS
+ *   The kiosk browser loads the page at boot and never navigates again — it has
+ *   no keyboard and nobody to press reload. Deploying a new frontend therefore
+ *   left the panel running the old bundle indefinitely: observed running a
+ *   14-hour-old page while the correct files sat on disk being served. The same
+ *   trap applies to `git pull` in production, not just the dev loop.
+ *
+ *   So the server states its build on every connection, and a client that sees
+ *   it change reloads itself. Kept OUT of Snapshot deliberately: this is deploy
+ *   metadata, not playback state, and the snapshot contract should stay about
+ *   what the music is doing.
+ */
+export const SSE_BUILD_EVENT = 'build';
+
+/** Payload of SSE_BUILD_EVENT. */
+export interface BuildInfo {
+    /** Same value as HealthResponse.build. */
+    build: string;
+}

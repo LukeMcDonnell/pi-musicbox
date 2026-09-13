@@ -16,6 +16,7 @@
 import type { Snapshot, Track, PlaybackState, BackendStatus } from '../../../shared/api.ts';
 import { API_VERSION } from '../../../shared/api.ts';
 import { MpdConnection, firstValue, groupBy, quoteArg, type Reply } from './protocol.ts';
+import { artUriFor } from '../art.ts';
 
 /** Subsystems worth waking up for. */
 const IDLE_SUBSYSTEMS = 'player mixer playlist options update';
@@ -67,7 +68,10 @@ function num(v: string | undefined): number | undefined {
 export function trackFromTags(tags: Map<string, string>): Track | null {
     const file = tags.get('file');
     if (!file) return null;
-    const track: Track = { file };
+    // Derived from the path alone — no I/O here. This is the one chokepoint for
+    // every Track the backend produces (snapshot, queue and find all call it),
+    // so setting `image` here is what guarantees it is never missing.
+    const track: Track = { file, image: artUriFor(file) };
     const id = num(tags.get('Id'));
     const pos = num(tags.get('Pos'));
     if (id !== undefined) track.id = id;

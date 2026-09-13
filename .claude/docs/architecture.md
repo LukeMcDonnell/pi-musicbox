@@ -39,6 +39,28 @@ share a marker** — `strip_managed_block` removes everything between the
 delimiters, so a shared marker means one script silently deletes the other's
 work.
 
+## Album art reads the library directly
+
+`src/backend/src/art.ts` serves `GET /api/art`. Two things to know before
+touching it:
+
+1. **MPD's `albumart` was rejected on measured coverage, not taste.** It only
+   finds `cover.*` — 86 files here against 3201 `folder.jpg`, ~1.4%. Reading the
+   directory gets 92.5%. `readpicture` (embedded art) would need binary-reply
+   support in `MpdConnection`, whose queue is order-matched with a socket-fatal
+   timeout; not worth it for the remainder.
+2. **The filename priority list is load-bearing.** `discart` + `fanart` +
+   `banner` + `logo` + `clearlogo` total ~3795 files against 86 `cover.jpg`. A
+   discart is a round disc image on transparency and looks broken as a cover, so
+   those are never candidates. `tests/test-server-config.sh` and
+   `src/backend/src/art.test.ts` both assert it, and both were mutation-checked.
+
+The URI is keyed by **album directory**, so 130 queue tracks yield 12 URIs and a
+track change within an album triggers no refetch and no panel repaint. It gives
+the backend its first filesystem dependency on the NFS share — see the automount
+caveat in `device.md`. `MUSICBOX_MUSIC_ROOT` must equal `setup-mpd.sh`'s
+`music_directory`; a cross-file assertion enforces that.
+
 ## The managed-block pattern
 
 Every multi-line edit is written between delimiters, so the edit can be found,

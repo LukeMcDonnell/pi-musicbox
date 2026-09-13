@@ -10,8 +10,8 @@
  */
 
 import { Injectable, computed, signal, DestroyRef, inject } from '@angular/core';
-import type { Snapshot, PlaybackCommand, QueueResponse } from '@musicbox/shared';
-import { SSE_SNAPSHOT_EVENT } from '@musicbox/shared';
+import type { Snapshot, PlaybackCommand, QueueResponse, BuildInfo } from '@musicbox/shared';
+import { SSE_SNAPSHOT_EVENT, SSE_BUILD_EVENT } from '@musicbox/shared';
 import { environment } from '../environments/environment';
 
 /** How the browser is getting on with the server (not with MPD — that is snapshot.status). */
@@ -33,6 +33,15 @@ export class MusicboxApi {
     private source: EventSource | null = null;
 
     /**
+     * The server build this page was loaded against, learned from the first
+     * `build` event. A later, different value means a new version has been
+     * deployed and this page is stale.
+     */
+    private build: string | null = null;
+    /** Reload exactly once, however many events arrive. */
+    private reloading = false;
+
+    /**
      * Client-clock reference captured when the snapshot arrived, so elapsed time
      * can be advanced locally. MPD does not push progress continuously and
      * polling for a smooth progress bar is the wrong answer.
@@ -51,7 +60,7 @@ export class MusicboxApi {
     }
 
     private connect(): void {
-        this.source = new EventSource(this.url('/api/events'));
+        this.source = new EventSource(this.resolve('/api/events'));
 
         this.source.addEventListener(SSE_SNAPSHOT_EVENT, (event) => {
             const snapshot = JSON.parse((event as MessageEvent<string>).data) as Snapshot;
@@ -59,6 +68,34 @@ export class MusicboxApi {
             // Replace wholesale. Never merge — see the header.
             this._snapshot.set(snapshot);
             this._stream.set('live');
+        });
+
+        /*
+         * Self-update.
+         *
+         * The panel loads this page once at boot and never navigates again — no
+         * keyboard, nobody to press reload — so a deployed frontend would
+         * otherwise never reach it. It was observed running a 14-hour-old bundle
+         * while the new files sat on disk being served correctly.
+         *
+         * The server restarts on any deploy (musicbox-server.path watches both
+         * the backend bundle and frontend/index.html), which drops this stream;
+         * EventSource reconnects on its own and the build arrives again. A
+         * changed value means reload.
+         *
+         * Safe to do unconditionally: this UI holds no state worth keeping —
+         * everything comes from the next snapshot.
+         */
+        this.source.addEventListener(SSE_BUILD_EVENT, (event) => {
+            const { build } = JSON.parse((event as MessageEvent<string>).data) as BuildInfo;
+            if (this.build === null) {
+                this.build = build;
+                return;
+            }
+            if (build !== this.build && !this.reloading) {
+                this.reloading = true;
+                location.reload();
+            }
         });
 
         this.source.addEventListener('open', () => this._stream.set('live'));
@@ -81,11 +118,11 @@ export class MusicboxApi {
     }
 
     async playback(command: PlaybackCommand): Promise<void> {
-        await this.post(this.url(`/api/playback/${command}`));
+        await this.post(this.resolve(`/api/playback/${command}`));
     }
 
     async queue(): Promise<QueueResponse> {
-        const response = await fetch(this.url('/api/queue'));
+        const response = await fetch(this.resolve('/api/queue'));
         if (!response.ok) throw new Error(`queue: HTTP ${response.status}`);
         return (await response.json()) as QueueResponse;
     }
@@ -98,8 +135,15 @@ export class MusicboxApi {
      * hardcoded literals this replaced did. A configured value makes the URL
      * absolute, for pointing a dev frontend at a real box; the backend allows any
      * origin on /api, so that needs no configuration there.
+     *
+     * PUBLIC because paths also arrive FROM the server — `Track.image` is a
+     * root-relative `/api/art?...`. Anything binding one of those into the DOM
+     * must send it through here: the browser would otherwise resolve it against
+     * the page's own origin, so with apiUrl set to a real box the art would be
+     * fetched from the dev server and 404. Images need no CORS, so this works
+     * cross-origin as-is.
      */
-    private url(path: string): string {
+    resolve(path: string): string {
         return environment.apiUrl.replace(/\/+$/, '') + path;
     }
 

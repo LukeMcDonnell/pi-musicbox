@@ -23,9 +23,23 @@
     </section>
   } @else if (snapshot()?.track; as track) {
     <section class="now">
-      <h1 class="now__title">{{ track.title || track.file }}</h1>
-      <p class="now__artist">{{ track.artist || 'Unknown artist' }}</p>
-      <p class="now__album">{{ track.album }}@if (track.date) { <span class="now__year"> · {{ track.date }}</span> }</p>
+      <div class="now__head">
+        <!-- alt="" on purpose: the album is already announced as text below, so
+             the cover is decorative and should not be read out twice. -->
+        <div class="art">
+          @if (artUri(); as uri) {
+            <img class="art__img" [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
+          } @else {
+            <span class="art__placeholder" aria-hidden="true">♪</span>
+          }
+        </div>
+
+        <div class="now__meta">
+          <h1 class="now__title">{{ track.title || track.file }}</h1>
+          <p class="now__artist">{{ track.artist || 'Unknown artist' }}</p>
+          <p class="now__album">{{ track.album }}@if (track.date) { <span class="now__year"> · {{ track.date }}</span> }</p>
+        </div>
+      </div>
 
       <div class="progress" role="progressbar" [attr.aria-valuenow]="progress()">
         <div class="progress__fill" [style.transform]="progressTransform()"></div>

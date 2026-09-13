@@ -141,5 +141,84 @@ check "sudo is never invoked" "1" \
     "$(grep -qE '^[[:space:]]*sudo ' "$REPO/tools/dev-push.sh"; echo $?)"
 check "dev-push never builds on the device" "1" "$(has 'ssh.*npm' "$REPO/tools/dev-push.sh")"
 
+banner "album art: the music root must agree with MPD's music_directory"
+# If these two drift, EVERY art request 404s and nothing else misbehaves — a
+# miserable thing to debug from the symptom. So compare the literals directly.
+MPD_MUSIC_DIR="$(grep -oE '^readonly MUSIC_DIR="[^"]*"' "$REPO/install/setup-mpd.sh" | head -1 | sed 's/.*="//; s/"$//')"
+BACKEND_MUSIC_ROOT="$(grep -oE "musicRoot: '[^']*'" "$REPO/src/backend/src/config.ts" | head -1 | sed "s/.*: '//; s/'$//")"
+check "setup-mpd.sh MUSIC_DIR was found"        "0" "$(if [[ -n "$MPD_MUSIC_DIR" ]]; then echo 0; else echo 1; fi)"
+check "backend musicRoot default was found"     "0" "$(if [[ -n "$BACKEND_MUSIC_ROOT" ]]; then echo 0; else echo 1; fi)"
+check "the two paths are identical"             "$MPD_MUSIC_DIR" "$BACKEND_MUSIC_ROOT"
+
+banner "album art: the endpoint and its guards"
+ART="$REPO/src/backend/src/art.ts"
+check "art.ts exists"                    "0" "$(if [[ -f "$ART" ]]; then echo 0; else echo 1; fi)"
+check "reuses safeJoin for traversal"     "0" "$(has 'safeJoin' "$ART")"
+check "folder.jpg is a candidate"         "0" "$(has "'folder.jpg'" "$ART")"
+check "cover.jpg is a candidate"          "0" "$(has "'cover.jpg'" "$ART")"
+# The trap: discart outnumbers cover 44:1 in this library and is a round disc
+# image. It is named in the comments explaining the exclusion, so assert it is
+# never a QUOTED candidate string rather than merely absent from the file.
+check "discart is NEVER a candidate"      "1" "$(grep -qE "^\s+'discart\." "$ART"; echo $?)"
+check "fanart is NEVER a candidate"       "1" "$(grep -qE "^\s+'fanart\." "$ART"; echo $?)"
+check "clearlogo is NEVER a candidate"    "1" "$(grep -qE "^\s+'clearlogo\." "$ART"; echo $?)"
+check "Synology @eaDir is excluded"       "0" "$(has '@eaDir' "$ART")"
+check "the route is registered"           "0" "$(has "/api/art" "$REPO/src/backend/src/routes.ts")"
+check "Track carries image"               "0" "$(has 'image: string' "$REPO/src/shared/api.ts")"
+# No transition on the art element: repaints on this panel are the vc4 commit
+# path implicated in the clock deadlock.
+check "no CSS transition on the art"      "1" \
+    "$(awk '/^\.art \{/,/^\}/' "$REPO/src/frontend/src/app/app.scss" | grep -qE 'transition|animation'; echo $?)"
+
+banner "a frontend deploy must actually reach the kiosk"
+# The bug this guards: the panel loads the page once at boot and has no keyboard,
+# so a frontend deploy left it running a 14-hour-old bundle while the correct
+# files sat on disk being served. The chain is: index.html changes -> the .path
+# unit restarts the service -> SSE streams drop -> clients re-read the build id
+# and reload. Every link is asserted.
+EMIT_DIR="$(mktemp -d)"
+bash "$SCRIPT" --emit "$EMIT_DIR" >/dev/null 2>&1
+PATH_UNIT_FILE="$EMIT_DIR/musicbox-server.path"
+check "the path unit was emitted"              "0" "$(if [[ -f "$PATH_UNIT_FILE" ]]; then echo 0; else echo 1; fi)"
+# Must be actual directives, not the comment that explains them.
+check "it watches the backend bundle"          "0" \
+    "$(grep -qE '^PathChanged=.*/backend/server\.js$' "$PATH_UNIT_FILE"; echo $?)"
+check "it watches frontend/index.html"         "0" \
+    "$(grep -qE '^PathChanged=.*/frontend/index\.html$' "$PATH_UNIT_FILE"; echo $?)"
+check "exactly two watched paths"              "2" \
+    "$(grep -cE '^PathChanged=' "$PATH_UNIT_FILE")"
+rm -rf "$EMIT_DIR"
+
+check "the server announces its build over SSE" "0" \
+    "$(has 'SSE_BUILD_EVENT' "$REPO/src/backend/src/routes.ts")"
+check "the client reloads on a build change"    "0" \
+    "$(has 'location.reload()' "$REPO/src/frontend/src/app/musicbox-api.ts")"
+# dev-push used to tell the user to "just reload the page", which is impossible
+# on a panel with no keyboard. It must not say that again.
+check "dev-push does not tell you to reload by hand" "1" \
+    "$(grep -qE 'just reload the page.$' "$REPO/tools/dev-push.sh"; echo $?)"
+check "dev-push waits for health on every scope"  "1" \
+    "$(grep -qE 'SCOPE.*==.*frontend.*\]\]; then' "$REPO/tools/dev-push.sh"; echo $?)"
+
+banner "every API url goes through the configured origin"
+# environment.apiUrl lets a dev frontend talk to the real box. Anything that
+# bypasses the resolver is fetched from the PAGE's origin instead — which for
+# Track.image (a root-relative path the SERVER sends) meant art 404ing in that
+# setup. The <img> binding must resolve it like every other API call.
+API_TS="$REPO/src/frontend/src/app/musicbox-api.ts"
+APP_TS="$REPO/src/frontend/src/app/app.ts"
+check "the resolver exists and is public"   "0" "$(grep -qE '^\s+resolve\(path: string\)' "$API_TS"; echo $?)"
+check "no private url() helper remains"     "1" "$(grep -q 'this\.url(' "$API_TS"; echo $?)"
+check "the art is resolved, not bound raw"  "0" "$(has 'api.resolve(image)' "$APP_TS")"
+# The raw field must never reach the template directly.
+check "app.html does not bind track.image"  "1" \
+    "$(grep -q 'track\.image' "$REPO/src/frontend/src/app/app.html"; echo $?)"
+# Every literal /api path in the service must be wrapped. Comment lines are
+# excluded deliberately: the doc comment mentions /api/art, and matching THAT
+# would be asserting against the explanation rather than a violation — a mistake
+# this repo has already paid for once (see decisions.md).
+check "no unwrapped /api literal in the service" "0" \
+    "$(grep -n '/api/' "$API_TS" | grep -vE '^[0-9]+:[[:space:]]*(\*|//|/\*)' | grep -vc 'resolve(')"
+
 printf '\n===============================\n passed: %d   failed: %d\n===============================\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

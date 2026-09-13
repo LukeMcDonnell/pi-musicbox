@@ -36880,6 +36880,7 @@ var DEFAULTS = {
   mpdPort: 6600,
   mpdConnectTimeoutMs: 5e3,
   webRoot: "/home/musicbox/musicbox/frontend",
+  musicRoot: "/srv/music/Music",
   logLevel: "info"
 };
 function parseConf(text) {
@@ -36921,6 +36922,7 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
       DEFAULTS.mpdConnectTimeoutMs
     ),
     webRoot: pick("MUSICBOX_WEB_ROOT") ?? DEFAULTS.webRoot,
+    musicRoot: pick("MUSICBOX_MUSIC_ROOT") ?? DEFAULTS.musicRoot,
     logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
   };
 }
@@ -36929,6 +36931,7 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
 var API_VERSION = 1;
 var PLAYBACK_COMMANDS = ["play", "pause", "stop", "next", "previous"];
 var SSE_SNAPSHOT_EVENT = "snapshot";
+var SSE_BUILD_EVENT = "build";
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -37094,6 +37097,176 @@ var MpdConnection = class {
   }
 };
 
+// src/art.ts
+import { createReadStream as createReadStream2 } from "node:fs";
+import { stat as stat2 } from "node:fs/promises";
+import { posix } from "node:path";
+
+// src/static.ts
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { extname, join, normalize, resolve, sep } from "node:path";
+var MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".webmanifest": "application/manifest+json"
+};
+var HASHED = /-[A-Z0-9]{8,}\.[a-z0-9]+$/i;
+function contentTypeFor(path) {
+  return MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
+}
+function cacheControlFor(path) {
+  if (path.endsWith("index.html")) return "no-cache";
+  if (HASHED.test(path)) return "public, max-age=31536000, immutable";
+  return "public, max-age=3600";
+}
+function safeJoin(root, urlPath) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    return null;
+  }
+  if (decoded.includes("\0")) return null;
+  const rel = normalize(decoded).replace(/^(\.\.[/\\])+/, "");
+  const full = resolve(join(root, rel));
+  const rootResolved = resolve(root);
+  if (full !== rootResolved && !full.startsWith(rootResolved + sep)) return null;
+  return full;
+}
+async function sendFile(reply, path) {
+  try {
+    const info = await stat(path);
+    if (!info.isFile()) return false;
+    reply.header("content-type", contentTypeFor(path)).header("cache-control", cacheControlFor(path)).header("content-length", String(info.size));
+    await reply.send(createReadStream(path));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function registerStatic(app, webRoot) {
+  app.setNotFoundHandler(async (request, reply) => {
+    const urlPath = request.url.split("?")[0];
+    if (urlPath.startsWith("/api/")) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return reply.code(405).send({ error: "method not allowed" });
+    }
+    const candidate = safeJoin(webRoot, urlPath === "/" ? "/index.html" : urlPath);
+    if (candidate && await sendFile(reply, candidate)) return reply;
+    const index = safeJoin(webRoot, "/index.html");
+    if (index && await sendFile(reply, index)) return reply;
+    return reply.code(404).type("text/plain; charset=utf-8").send(
+      `musicbox: no frontend build found.
+Looked in ${webRoot}.
+Deploy one with tools/dev-push.sh
+`
+    );
+  });
+}
+
+// src/art.ts
+var ART_FILENAMES = [
+  "cover.jpg",
+  "cover.jpeg",
+  "cover.png",
+  "folder.jpg",
+  "folder.jpeg",
+  "folder.png",
+  "front.jpg",
+  "front.png"
+];
+var JUNK_SEGMENTS = ["@eaDir", "#recycle"];
+var ART_MAX_AGE_S = 604800;
+var CACHE_LIMIT = 512;
+function albumDirOf(file) {
+  const dir = posix.dirname(file);
+  return dir === "." || dir === "/" ? "" : dir;
+}
+function artUriFor(file) {
+  return `/api/art?album=${encodeURIComponent(albumDirOf(file))}`;
+}
+var realDeps = {
+  statFile: async (path) => {
+    try {
+      const info = await stat2(path);
+      return info.isFile() ? { size: info.size, mtimeMs: info.mtimeMs } : null;
+    } catch {
+      return null;
+    }
+  }
+};
+function createArtResolver(musicRoot, deps = realDeps) {
+  const cache = /* @__PURE__ */ new Map();
+  let statCount = 0;
+  return {
+    stats: () => statCount,
+    resolve: async (albumDir) => {
+      if (cache.has(albumDir)) return cache.get(albumDir) ?? null;
+      let found = null;
+      const dirPath = safeJoin(musicRoot, `/${albumDir}`);
+      const junk = JUNK_SEGMENTS.some((j) => albumDir.split("/").includes(j));
+      if (dirPath !== null && !junk) {
+        for (const name of ART_FILENAMES) {
+          const candidate = safeJoin(dirPath, `/${name}`);
+          if (candidate === null) continue;
+          statCount += 1;
+          const info = await deps.statFile(candidate);
+          if (info) {
+            found = { path: candidate, size: info.size, mtimeMs: info.mtimeMs };
+            break;
+          }
+        }
+      }
+      if (cache.size >= CACHE_LIMIT) {
+        const oldest = cache.keys().next();
+        if (!oldest.done) cache.delete(oldest.value);
+      }
+      cache.set(albumDir, found);
+      return found;
+    }
+  };
+}
+function etagFor(art) {
+  return `W/"${art.mtimeMs.toString(36)}-${art.size.toString(36)}"`;
+}
+function createArtHandler(resolver) {
+  return async function artHandler(request, reply) {
+    const { album } = request.query;
+    if (album === void 0) {
+      return reply.code(400).send({ error: "missing 'album' query parameter" });
+    }
+    const art = await resolver.resolve(album);
+    if (art === null) {
+      return reply.code(404).send({ error: "no art for that album" });
+    }
+    const etag = etagFor(art);
+    reply.header("etag", etag).header("cache-control", `public, max-age=${ART_MAX_AGE_S}`).header("content-type", contentTypeFor(art.path));
+    if (request.headers["if-none-match"] === etag) {
+      return reply.code(304).send();
+    }
+    reply.header("content-length", String(art.size));
+    return reply.send(createReadStream2(art.path));
+  };
+}
+
 // src/mpd/bridge.ts
 var IDLE_SUBSYSTEMS = "player mixer playlist options update";
 var BACKOFF_MIN_MS = 500;
@@ -37108,7 +37281,7 @@ function num(v) {
 function trackFromTags(tags) {
   const file = tags.get("file");
   if (!file) return null;
-  const track = { file };
+  const track = { file, image: artUriFor(file) };
   const id = num(tags.get("Id"));
   const pos = num(tags.get("Pos"));
   if (id !== void 0) track.id = id;
@@ -37374,7 +37547,7 @@ data: ${JSON.stringify(data)}
 `;
 }
 function registerRoutes(app, opts) {
-  const { bridge, build, startedAt } = opts;
+  const { bridge, build, startedAt, musicRoot } = opts;
   const streams = /* @__PURE__ */ new Set();
   app.get("/api/health", async () => {
     return {
@@ -37410,6 +37583,7 @@ function registerRoutes(app, opts) {
       return reply.code(503).send({ error: err.message });
     }
   });
+  app.get("/api/art", createArtHandler(createArtResolver(musicRoot)));
   app.get("/api/events", async (request, reply) => {
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -37421,6 +37595,7 @@ function registerRoutes(app, opts) {
     const send = (snapshot) => {
       reply.raw.write(sseFrame(SSE_SNAPSHOT_EVENT, snapshot));
     };
+    reply.raw.write(sseFrame(SSE_BUILD_EVENT, { build }));
     await bridge.refresh();
     send(bridge.current);
     const unsubscribe = bridge.onSnapshot(send);
@@ -37455,88 +37630,8 @@ function registerRoutes(app, opts) {
   };
 }
 
-// src/static.ts
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import { extname, join, normalize, resolve, sep } from "node:path";
-var MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".map": "application/json; charset=utf-8",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json"
-};
-var HASHED = /-[A-Z0-9]{8,}\.[a-z0-9]+$/i;
-function contentTypeFor(path) {
-  return MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
-}
-function cacheControlFor(path) {
-  if (path.endsWith("index.html")) return "no-cache";
-  if (HASHED.test(path)) return "public, max-age=31536000, immutable";
-  return "public, max-age=3600";
-}
-function safeJoin(root, urlPath) {
-  let decoded;
-  try {
-    decoded = decodeURIComponent(urlPath);
-  } catch {
-    return null;
-  }
-  if (decoded.includes("\0")) return null;
-  const rel = normalize(decoded).replace(/^(\.\.[/\\])+/, "");
-  const full = resolve(join(root, rel));
-  const rootResolved = resolve(root);
-  if (full !== rootResolved && !full.startsWith(rootResolved + sep)) return null;
-  return full;
-}
-async function sendFile(reply, path) {
-  try {
-    const info = await stat(path);
-    if (!info.isFile()) return false;
-    reply.header("content-type", contentTypeFor(path)).header("cache-control", cacheControlFor(path)).header("content-length", String(info.size));
-    await reply.send(createReadStream(path));
-    return true;
-  } catch {
-    return false;
-  }
-}
-function registerStatic(app, webRoot) {
-  app.setNotFoundHandler(async (request, reply) => {
-    const urlPath = request.url.split("?")[0];
-    if (urlPath.startsWith("/api/")) {
-      return reply.code(404).send({ error: "not found" });
-    }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return reply.code(405).send({ error: "method not allowed" });
-    }
-    const candidate = safeJoin(webRoot, urlPath === "/" ? "/index.html" : urlPath);
-    if (candidate && await sendFile(reply, candidate)) return reply;
-    const index = safeJoin(webRoot, "/index.html");
-    if (index && await sendFile(reply, index)) return reply;
-    return reply.code(404).type("text/plain; charset=utf-8").send(
-      `musicbox: no frontend build found.
-Looked in ${webRoot}.
-Deploy one with tools/dev-push.sh
-`
-    );
-  });
-}
-
 // src/server.ts
-var BUILD = true ? "2026-09-12T23:48:03Z" : "dev";
+var BUILD = true ? "2026-09-13T01:28:44Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -37560,7 +37655,12 @@ async function main() {
     log: (level, msg) => app.log[level](msg)
   });
   registerCors(app);
-  const routes = registerRoutes(app, { bridge, build: BUILD, startedAt });
+  const routes = registerRoutes(app, {
+    bridge,
+    build: BUILD,
+    startedAt,
+    musicRoot: config.musicRoot
+  });
   registerStatic(app, config.webRoot);
   bridge.start();
   const shutdown = async (signal) => {
@@ -37575,7 +37675,7 @@ async function main() {
   try {
     await app.listen({ port: config.port, host: config.host });
     app.log.info(
-      `musicbox build ${BUILD} \u2014 serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}`
+      `musicbox build ${BUILD} \u2014 serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}, art from ${config.musicRoot}`
     );
   } catch (err) {
     app.log.error(err);

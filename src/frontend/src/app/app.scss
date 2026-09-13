@@ -76,6 +76,20 @@
   gap: 0.2rem;
   min-width: 0;
 
+  /* Art beside the text. The panel is 800x480 landscape, so a column would
+     waste the width and push the progress bar off the bottom. */
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  &__meta {
+    /* Without this a long title refuses to shrink and overflows the flex row. */
+    min-width: 0;
+  }
+
   &__title {
     margin: 0;
     /* Explicit: Tailwind's preflight resets h1 to font-weight: inherit, so the
@@ -182,4 +196,51 @@
   margin: 0;
   color: var(--warn);
   font-size: 0.9rem;
+}
+
+/*
+ * Cover art.
+ *
+ * DELIBERATELY NO TRANSITION, no fade, no animation. Every repaint on the DSI
+ * panel becomes a vc4 atomic commit, which reaches the GPU firmware while
+ * holding the kernel clock mutex — the path that has hard-locked this box. The
+ * art URI is keyed by album, so a track change does not touch this element at
+ * all; an album change swaps it in one commit. See .claude/docs/clock-deadlock.md
+ * and the ticker comment in app.ts.
+ *
+ * The box has fixed dimensions so a slow cover over wifi cannot shift the
+ * layout when it finally arrives.
+ */
+.art {
+  flex: 0 0 auto;
+  width: clamp(5.5rem, 26vw, 11rem);
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+
+  &__img {
+    width: 100%;
+    height: 100%;
+    /* Covers are square, but a scan or a non-square file must not stretch. */
+    object-fit: cover;
+    display: block;
+  }
+
+  &__placeholder {
+    font-size: 2.5rem;
+    line-height: 1;
+    color: var(--muted);
+  }
+}
+
+/* Narrow phones: stack, and let the cover lead. */
+@media (max-width: 26rem) {
+  .now__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
 }

@@ -20,6 +20,14 @@ export interface Config {
     mpdPort: number;
     mpdConnectTimeoutMs: number;
     webRoot: string;
+    /**
+     * Root of the music library on disk, used ONLY to find cover art.
+     *
+     * MUST match `music_directory` in install/setup-mpd.sh — if the two drift,
+     * every art request 404s and nothing else misbehaves, which is a miserable
+     * thing to debug. tests/test-server-config.sh asserts they agree.
+     */
+    musicRoot: string;
     logLevel: string;
 }
 
@@ -32,6 +40,7 @@ export const DEFAULTS: Config = {
     mpdPort: 6600,
     mpdConnectTimeoutMs: 5000,
     webRoot: '/home/musicbox/musicbox/frontend',
+    musicRoot: '/srv/music/Music',
     logLevel: 'info',
 };
 
@@ -91,6 +100,7 @@ export function loadConfig(
             DEFAULTS.mpdConnectTimeoutMs,
         ),
         webRoot: pick('MUSICBOX_WEB_ROOT') ?? DEFAULTS.webRoot,
+        musicRoot: pick('MUSICBOX_MUSIC_ROOT') ?? DEFAULTS.musicRoot,
         logLevel: pick('MUSICBOX_LOG_LEVEL') ?? DEFAULTS.logLevel,
     };
 }

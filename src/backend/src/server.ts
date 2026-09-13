@@ -46,7 +46,12 @@ async function main(): Promise<void> {
     // Before the routes: the onRequest hook must be in place for /api responses,
     // and the preflight route must exist before static.ts claims unknown paths.
     registerCors(app);
-    const routes = registerRoutes(app, { bridge, build: BUILD, startedAt });
+    const routes = registerRoutes(app, {
+        bridge,
+        build: BUILD,
+        startedAt,
+        musicRoot: config.musicRoot,
+    });
     registerStatic(app, config.webRoot);
 
     bridge.start();
@@ -67,7 +72,7 @@ async function main(): Promise<void> {
     try {
         await app.listen({ port: config.port, host: config.host });
         app.log.info(
-            `musicbox build ${BUILD} — serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}`,
+            `musicbox build ${BUILD} — serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}, art from ${config.musicRoot}`,
         );
     } catch (err) {
         app.log.error(err);

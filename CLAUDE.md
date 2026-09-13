@@ -65,7 +65,7 @@ for whoever is editing the code.
 ## Commands
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 8 suites (466 asserts) + 49 node tests
+bash tests/run-all.sh          # shellcheck + 8 suites (493 asserts) + 78 node tests
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s

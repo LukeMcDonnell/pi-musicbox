@@ -13,6 +13,9 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { request as httpRequest } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
@@ -28,13 +31,18 @@ function deadBridge(): MpdBridge {
     });
 }
 
-async function startServer(opts: { forceCloseConnections?: boolean } = {}) {
+async function startServer(opts: { forceCloseConnections?: boolean; musicRoot?: string } = {}) {
     const app = Fastify({
         logger: false,
         forceCloseConnections: opts.forceCloseConnections ?? true,
     });
     const bridge = deadBridge();
-    const routes = registerRoutes(app, { bridge, build: 'test', startedAt: Date.now() });
+    const routes = registerRoutes(app, {
+        bridge,
+        build: 'test',
+        startedAt: Date.now(),
+        musicRoot: opts.musicRoot ?? '/nonexistent-music-root',
+    });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -188,4 +196,135 @@ test('/api/status refreshes rather than returning a cached snapshot', async () =
     const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
     const handler = src.slice(src.indexOf("app.get('/api/status'"), src.indexOf("app.get('/api/queue'"));
     assert.ok(handler.includes('bridge.refresh()'), '/api/status must refresh first');
+});
+
+/*
+ * GET /api/art — the route wiring, end to end over real HTTP.
+ *
+ * Resolution logic itself is covered in art.test.ts; these assert the HTTP
+ * contract, and in particular the 304 path, which is what stops a ~540KB cover
+ * being re-sent on every page load over an unreliable wifi link.
+ */
+
+test('/api/art without an album parameter is a 400, not a 500', async () => {
+    const { app, port } = await startServer();
+    const response = await fetch(`http://127.0.0.1:${port}/api/art`);
+    const body = (await response.json()) as { error?: string };
+    await app.close();
+
+    assert.equal(response.status, 400);
+    assert.match(body.error ?? '', /album/);
+});
+
+test('/api/art for an album with no art is a 404 with the standard error shape', async () => {
+    const { app, port } = await startServer();
+    const response = await fetch(`http://127.0.0.1:${port}/api/art?album=Nobody/Nothing`);
+    const body = (await response.json()) as { error?: string };
+    await app.close();
+
+    assert.equal(response.status, 404);
+    assert.equal(typeof body.error, 'string');
+});
+
+test('/api/art serves the cover, then answers 304 to a conditional request', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'musicbox-routes-art-'));
+    try {
+        const album = join(root, 'Artist', 'Album (1999)');
+        await mkdir(album, { recursive: true });
+        await writeFile(join(album, 'discart.jpg'), 'decoy disc image');
+        await writeFile(join(album, 'folder.jpg'), 'PRETEND JPEG BYTES');
+
+        const { app, port } = await startServer({ musicRoot: root });
+        const url = `http://127.0.0.1:${port}/api/art?album=${encodeURIComponent('Artist/Album (1999)')}`;
+
+        const first = await fetch(url);
+        const bytes = await first.text();
+        const etag = first.headers.get('etag');
+
+        // Same URL again, this time conditional — as a browser would.
+        const second = await fetch(url, { headers: { 'if-none-match': etag ?? '' } });
+        const secondBody = await second.text();
+        await app.close();
+
+        assert.equal(first.status, 200);
+        assert.equal(bytes, 'PRETEND JPEG BYTES', 'must serve folder.jpg, not the discart');
+        assert.equal(first.headers.get('content-type'), 'image/jpeg');
+        assert.equal(first.headers.get('content-length'), String('PRETEND JPEG BYTES'.length));
+        assert.match(first.headers.get('cache-control') ?? '', /max-age=\d{5,}/);
+        assert.ok(etag, 'an ETag is required for the 304 to be possible');
+
+        assert.equal(second.status, 304, 'a matching ETag must produce 304');
+        assert.equal(secondBody, '', '304 must carry no body');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('/api/art cannot be used to read files outside the music root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'musicbox-routes-esc-'));
+    try {
+        const root = join(base, 'library');
+        await mkdir(root, { recursive: true });
+        await mkdir(join(base, 'secrets'), { recursive: true });
+        await writeFile(join(base, 'secrets', 'folder.jpg'), 'MUST NOT BE SERVED');
+
+        const { app, port } = await startServer({ musicRoot: root });
+        const response = await fetch(
+            `http://127.0.0.1:${port}/api/art?album=${encodeURIComponent('../secrets')}`,
+        );
+        const body = await response.text();
+        await app.close();
+
+        assert.equal(response.status, 404);
+        assert.equal(body.includes('MUST NOT BE SERVED'), false);
+    } finally {
+        await rm(base, { recursive: true, force: true });
+    }
+});
+
+/*
+ * The SSE build announcement.
+ *
+ * This exists because of a real failure: the kiosk loads the page once at boot
+ * and never navigates again, so a deployed frontend never reached it. The panel
+ * was found running a 14-hour-old bundle while the correct files sat on disk
+ * being served perfectly. The server must state its build on every connection so
+ * a client can notice it changed and reload.
+ */
+
+test('/api/events announces the build BEFORE the first snapshot', async () => {
+    const { app, port } = await startServer();
+
+    const frames = await new Promise<string>((resolve, reject) => {
+        const req = httpRequest(
+            { host: '127.0.0.1', port, path: '/api/events', method: 'GET' },
+            (res) => {
+                let buf = '';
+                res.on('data', (chunk) => {
+                    buf += chunk.toString('utf8');
+                    // Both frames have arrived once we have two blank-line breaks.
+                    if (buf.split('\n\n').length > 2) {
+                        req.destroy();
+                        resolve(buf);
+                    }
+                });
+                res.on('error', () => {});
+                res.on('close', () => resolve(buf));
+            },
+        );
+        req.on('error', (err) => {
+            // destroy() after resolving surfaces here; ignore once we have data.
+            reject(err);
+        });
+        req.end();
+    }).catch(() => '');
+
+    await app.close();
+
+    assert.match(frames, /event: build/, 'a build event must be sent');
+    const buildAt = frames.indexOf('event: build');
+    const snapshotAt = frames.indexOf('event: snapshot');
+    assert.ok(buildAt !== -1 && snapshotAt !== -1, `got frames: ${JSON.stringify(frames)}`);
+    assert.ok(buildAt < snapshotAt, 'the build must be stated before the first snapshot');
+    assert.match(frames, /"build":"test"/, 'the build id itself must be in the payload');
 });

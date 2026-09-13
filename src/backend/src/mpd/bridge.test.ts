@@ -157,8 +157,21 @@ test('a stream without duration does not invent one', () => {
 });
 
 test('absent tags are omitted rather than set to undefined keys', () => {
+    // `image` is the one field that is always present: it is derived from `file`
+    // rather than from a tag, so there is no "absent" case for it.
     const t = trackFromTags(new Map([['file', 'a.flac']]));
-    assert.deepEqual(t, { file: 'a.flac' });
+    assert.deepEqual(t, { file: 'a.flac', image: '/api/art?album=' });
+});
+
+test('every track carries an art URI derived from its own directory', () => {
+    const t = trackFromTags(new Map([['file', 'Radiohead/In Rainbows/01 - 15 Step.flac']]));
+    assert.equal(t?.image, `/api/art?album=${encodeURIComponent('Radiohead/In Rainbows')}`);
+
+    // Two tracks on the SAME album must produce the SAME URI — that identity is
+    // what lets the browser cache one image per album and avoids a repaint on
+    // every track change. See src/backend/src/art.ts.
+    const other = trackFromTags(new Map([['file', 'Radiohead/In Rainbows/02 - Bodysnatchers.flac']]));
+    assert.equal(other?.image, t?.image);
 });
 
 test('a tag map with no file is not a track', () => {

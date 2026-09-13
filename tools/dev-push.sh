@@ -15,9 +15,15 @@
 #
 # Reach for dev-push.sh when you need to see it on the actual panel.
 #
-# NO SUDO IS REQUIRED. musicbox-server.path watches backend/server.js on the
-# device and restarts the service when it changes. rsync writes a temp file and
-# renames it, so the watch fires once, on a complete file.
+# NO SUDO IS REQUIRED. musicbox-server.path watches backend/server.js AND
+# frontend/index.html on the device and restarts the service when either changes.
+# rsync writes a temp file and renames it, so the watch fires once, on a complete
+# file.
+#
+# THE PANEL RELOADS ITSELF. The restart drops every SSE stream; each client then
+# re-reads the server's build id and reloads if it changed. That is what updates
+# the kiosk, which loads the page at boot and has no keyboard to reload it — so
+# "just reload the page" is not advice that can be followed there.
 #
 # Usage:
 #   tools/dev-push.sh                 # build both, push, wait for health
@@ -119,16 +125,12 @@ cycle() {
     local started=$SECONDS
     build
     push
-    if [[ "$SCOPE" == "frontend" ]]; then
-        # Only the bundle is watched, so a frontend-only push needs no restart —
-        # the files are served from disk on the next request.
-        phase "Done"
-        ok "frontend updated in $((SECONDS - started))s — just reload the page"
-    else
-        wait_for_health || true
-        printf '\n%sPushed in %ss.%s  http://%s/\n' \
-            "${C_BOLD}" "$((SECONDS - started))" "${C_RESET}" "$HOST"
-    fi
+    # Every scope waits for health, frontend included: index.html is watched too,
+    # so a frontend push also restarts the service — which is how connected
+    # clients learn there is a new build and reload themselves.
+    wait_for_health || true
+    printf '\n%sPushed in %ss.%s  http://%s/\n' \
+        "${C_BOLD}" "$((SECONDS - started))" "${C_RESET}" "$HOST"
 }
 
 preflight
