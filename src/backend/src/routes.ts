@@ -128,6 +128,43 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
     });
 
+    /**
+     * Jump playback to one track in the queue.
+     *
+     * BY SONG ID, NOT POSITION. A position is only valid until somebody reorders
+     * the queue, and the listing a phone is looking at may be seconds old by the
+     * time a finger lands on it; MPD's song id survives a reorder. See the
+     * `queuePosition` note in src/shared/api.ts.
+     *
+     * NOT a PLAYBACK_COMMANDS verb, deliberately — those are the ones both
+     * sources implement, and a phone has no addressable track list. 409 here for
+     * the same reason GET /api/queue is a 409.
+     */
+    app.post('/api/queue/play/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({
+                error: 'cannot play a queue track while a phone owns the DAC',
+            });
+        }
+        const { id } = request.params as { id: string };
+        /*
+         * Digits only, tested as a STRING before conversion. This value is
+         * interpolated into an MPD command line, so the check is load-bearing
+         * rather than defensive — and Number() is far too generous to be it:
+         * Number('') is 0, so an empty segment would have played song 0, and
+         * '1e2' and '0x10' are both integers to it too.
+         */
+        if (!/^\d+$/.test(id)) {
+            return reply.code(400).send({ error: `invalid song id '${id}'` });
+        }
+        try {
+            await bridge.command(`playid ${Number(id)}`);
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
     app.post('/api/playback/:command', async (request: FastifyRequest, reply: FastifyReply) => {
         const { command } = request.params as { command: string };
         if (!(PLAYBACK_COMMANDS as readonly string[]).includes(command)) {

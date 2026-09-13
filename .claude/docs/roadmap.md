@@ -40,8 +40,9 @@ repeating, and how to remove the instrumentation.**
 
 ## Next
 
-1. **Flesh out the UI** — the skeleton is now-playing plus transport and volume.
-   Queue, library browse and search are next, and the API is shaped for them.
+1. **Flesh out the UI** — now-playing plus transport, and the queue beneath it
+   (Back to / Up next, tap a row to play it — `POST /api/queue/play/:id`).
+   Library browse and search are next, and the API is shaped for them.
 2. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`). Note the
    DAC exclusion that Bluetooth ran into applies again: whatever plays a CD has
    to go through the same arbiter, not open `hw:0,0` for itself.

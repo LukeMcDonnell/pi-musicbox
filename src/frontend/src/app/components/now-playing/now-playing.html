@@ -4,7 +4,10 @@
        [src]="uri" alt="" aria-hidden="true" decoding="async">
 }
 
-<main class="relative z-[1] mx-auto flex min-h-dvh max-w-[50rem] flex-col gap-4 px-4 pt-3 pb-5">
+<!-- EXACTLY one viewport, not min-h: the queue below is reached by scrolling,
+     and a first screen that grew past the fold would put the transport buttons
+     off it. -->
+<main class="relative z-[1] mx-auto flex h-dvh flex-col gap-4 px-4 pt-3 pb-5">
   <header class="flex items-center justify-between">
     <span class="font-semibold tracking-[0.02em] text-muted">musicbox</span>
     <span class="rounded-full px-[0.55rem] py-[0.15rem] text-xs" [class]="pillClass()">
@@ -35,26 +38,29 @@
            waste the width and push the progress bar off the bottom. Narrow
            phones stack instead, and let the cover lead. -->
       <div class="flex min-w-0 items-center gap-4
-                  max-[26rem]:flex-col max-[26rem]:items-start max-[26rem]:gap-[0.6rem]">
+                  max-[26rem]:flex-col max-[26rem]:gap-[2rem]">
 
-        <div class="grid aspect-square w-[clamp(7rem,40vw,16rem)] flex-none place-items-center relative
-                    overflow-hidden rounded-md bg-surface max-[26rem]:w-[min(60vw,16rem)]">
-          @if (artUri(); as uri) {
-            <img class="block h-full w-full object-cover"
-                 [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
-          } @else {
-            @if (onBluetooth()) {
-              <svg lucideBluetooth class="size-10 text-muted" aria-hidden="true"></svg>
+        <div class="min-[68rem]:min-w-[40%] place-items-center">
+          <div class="grid aspect-square w-[clamp(7rem,40vw,16rem)] flex-none place-items-center relative
+                    overflow-hidden rounded-md bg-surface max-[26rem]:w-[min(60vw,16rem)] ">
+            @if (artUri(); as uri) {
+              <img class="block h-full w-full object-cover"
+                   [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
             } @else {
-              <svg lucideMusic class="size-10 text-muted" aria-hidden="true"></svg>
+              @if (onBluetooth()) {
+                <svg lucideBluetooth class="size-10 text-muted" aria-hidden="true"></svg>
+              } @else {
+                <svg lucideMusic class="size-10 text-muted" aria-hidden="true"></svg>
+              }
             }
-          }
-          @if (onBluetooth()) {
+            @if (onBluetooth()) {
               <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent absolute bottom-3
                      px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
                       (click)="disconnectBluetooth()">Disconnect</button>
-          }
+            }
+          </div>
         </div>
+
 
         <div class="min-w-0 flex-grow text-center">
           @if (onBluetooth()) {
@@ -102,7 +108,25 @@
   @if (error(); as message) {
     <p class="text-[0.9rem] text-warn" role="alert">{{ message }}</p>
   }
+
+  @if (hasQueue()) {
+    <!-- The only thing saying the page scrolls. Static: no bounce, no
+         transition — see the ticker comment in now-playing.ts.
+
+         ABSOLUTE, deliberately: in the flow it added ~24px to a screen that is
+         now exactly one viewport, and on the 800x480 panel the art is already
+         within about 30px of filling what is left. It sits in the empty space
+         beside the centred transport buttons and costs the layout nothing. -->
+    <button class="absolute right-3 bottom-4 inline-flex size-11 cursor-pointer
+                   touch-manipulation items-center justify-center rounded-full text-muted
+                   select-none active:bg-raised"
+            (click)="scrollToQueue()" aria-label="Show the queue">
+      <svg lucideChevronDown class="size-6" aria-hidden="true"></svg>
+    </button>
+  }
 </main>
+
+<app-queue #queue />
 
 <div class="fixed inset-x-0 bottom-0 z-[2] h-[7px] bg-raised"
      role="progressbar" [attr.aria-valuenow]="progress()">

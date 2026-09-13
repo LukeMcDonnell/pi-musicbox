@@ -37837,6 +37837,23 @@ function registerRoutes(app, opts) {
       return reply.code(503).send({ error: err.message });
     }
   });
+  app.post("/api/queue/play/:id", async (request, reply) => {
+    if (bridge.current.source === "bluetooth") {
+      return reply.code(409).send({
+        error: "cannot play a queue track while a phone owns the DAC"
+      });
+    }
+    const { id } = request.params;
+    if (!/^\d+$/.test(id)) {
+      return reply.code(400).send({ error: `invalid song id '${id}'` });
+    }
+    try {
+      await bridge.command(`playid ${Number(id)}`);
+      return bridge.current;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
   app.post("/api/playback/:command", async (request, reply) => {
     const { command } = request.params;
     if (!PLAYBACK_COMMANDS.includes(command)) {
@@ -37924,7 +37941,7 @@ function registerRoutes(app, opts) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-13T09:28:22Z" : "dev";
+var BUILD = true ? "2026-09-13T11:25:46Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

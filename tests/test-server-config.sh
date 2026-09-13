@@ -206,13 +206,23 @@ banner "every API url goes through the configured origin"
 # Track.image (a root-relative path the SERVER sends) meant art 404ing in that
 # setup. The <img> binding must resolve it like every other API call.
 API_TS="$REPO/src/frontend/src/app/musicbox-api.ts"
-APP_TS="$REPO/src/frontend/src/app/app.ts"
+# The components, not app.ts: this used to look in app.ts, which stopped holding
+# any of it when now-playing was extracted — so the check silently passed against
+# a file that could never contain a violation. There is more than one art binding
+# now (now-playing and the queue), so it is asked of the whole directory.
+COMPONENTS="$REPO/src/frontend/src/app/components"
 check "the resolver exists and is public"   "0" "$(grep -qE '^\s+resolve\(path: string\)' "$API_TS"; echo $?)"
 check "no private url() helper remains"     "1" "$(grep -q 'this\.url(' "$API_TS"; echo $?)"
-check "the art is resolved, not bound raw"  "0" "$(has 'api.resolve(image)' "$APP_TS")"
-# The raw field must never reach the template directly.
-check "app.html does not bind track.image"  "1" \
-    "$(grep -q 'track\.image' "$REPO/src/frontend/src/app/app.html"; echo $?)"
+check "the art is resolved, not bound raw"  "0" \
+    "$(grep -rq 'api\.resolve(' "$COMPONENTS"; echo $?)"
+# The raw field must never reach a template directly — that is the bug this
+# whole block exists for.
+check "no template binds .image"            "1" \
+    "$(grep -rq '\.image' "$COMPONENTS" --include='*.html'; echo $?)"
+# A Bluetooth source answers 409 to GET /api/queue. The snapshot already said so
+# with queueVersion -1, so the client must not ask.
+check "the queue is not fetched without a version" "0" \
+    "$(has 'queueVersion() < 0' "$API_TS")"
 # Every literal /api path in the service must be wrapped. Comment lines are
 # excluded deliberately: the doc comment mentions /api/art, and matching THAT
 # would be asserting against the explanation rather than a violation — a mistake

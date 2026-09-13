@@ -9,8 +9,8 @@
  * on connect, so recovery from a dropped connection needs no code here.
  */
 
-import { Injectable, computed, signal, DestroyRef, inject } from '@angular/core';
-import type { Snapshot, PlaybackCommand, QueueResponse, BuildInfo } from '@musicbox/shared';
+import { Injectable, computed, effect, signal, DestroyRef, inject } from '@angular/core';
+import type { Snapshot, PlaybackCommand, QueueResponse, Track, BuildInfo } from '@musicbox/shared';
 import { SSE_SNAPSHOT_EVENT, SSE_BUILD_EVENT } from '@musicbox/shared';
 import { environment } from '../environments/environment';
 
@@ -23,12 +23,49 @@ export class MusicboxApi {
 
     private readonly _snapshot = signal<Snapshot | null>(null);
     private readonly _stream = signal<StreamState>('connecting');
+    private readonly _queue = signal<Track[]>([]);
 
     /** Latest complete state, or null before the first frame arrives. */
     readonly snapshot = this._snapshot.asReadonly();
     readonly stream = this._stream.asReadonly();
 
+    /**
+     * The current queue listing, refetched when `queueVersion` changes.
+     *
+     * The one piece of state that does NOT arrive on the snapshot — see the
+     * contract header in src/shared/api.ts for why 37,000 songs' worth of queue
+     * is referenced by version instead of embedded. It lives on the service
+     * rather than in a component so that the fetch happens once however many
+     * views show it, and so it survives a component being destroyed.
+     */
+    readonly queue = this._queue.asReadonly();
+
+    /**
+     * The queue version, as a computed so it changes by VALUE.
+     *
+     * The effect below must not read `_snapshot` directly: that signal is
+     * replaced on every SSE frame — including one per second of elapsed time —
+     * and a new object is never equal to the old one, so the effect would rerun
+     * and refetch constantly. A computed only notifies when its result actually
+     * differs, which is the whole point of the version field.
+     */
+    private readonly queueVersion = computed(() => this._snapshot()?.queueVersion ?? -1);
+
     readonly mpdAvailable = computed(() => this._snapshot()?.status === 'ok');
+
+    /**
+     * Whether there is a queue listing worth showing.
+     *
+     * Here rather than in the queue component because two views need the same
+     * answer: the queue decides whether to render itself, and the now-playing
+     * screen decides whether to offer the scroll hint. They must never disagree
+     * — a hint pointing at nothing is worse than no hint.
+     */
+    readonly hasQueue = computed(() => {
+        const snap = this._snapshot();
+        if (!snap || snap.status !== 'ok' || snap.queueVersion < 0) return false;
+        return this._queue().length > 0;
+    });
 
     /**
      * The connected Bluetooth device, or null.
@@ -66,6 +103,47 @@ export class MusicboxApi {
     constructor() {
         this.connect();
         this.destroyRef.onDestroy(() => this.source?.close());
+
+        /*
+         * Watch the version, not the snapshot: a snapshot arrives on every
+         * elapsed-time change and refetching the queue for each of those is
+         * exactly what the version field exists to avoid.
+         *
+         * -1 means there is no listing to fetch and is the signal not to try —
+         * a Bluetooth source, where GET /api/queue answers 409. Clearing rather
+         * than keeping the last MPD queue is deliberate: while a phone is
+         * playing, MPD's queue is not what anyone is looking at.
+         */
+        effect(() => {
+            if (this.queueVersion() < 0) {
+                this.queueRequest += 1; // cancel any listing still in flight
+                this._queue.set([]);
+                return;
+            }
+            void this.loadQueue();
+        });
+    }
+
+    /**
+     * Sequence number of the most recent queue fetch.
+     *
+     * Two versions in quick succession — adding an album queues one track at a
+     * time — mean two overlapping fetches, and the responses can land in either
+     * order. Rendering the older one would leave the list disagreeing with
+     * `queuePosition`, which is what splits it into Back to and Up next.
+     */
+    private queueRequest = 0;
+
+    private async loadQueue(): Promise<void> {
+        const request = ++this.queueRequest;
+        try {
+            const { tracks } = await this.fetchQueue();
+            if (request === this.queueRequest) this._queue.set(tracks);
+        } catch {
+            // Nothing to report and nothing to do: the queue is one snapshot
+            // away from being asked for again, and a transport error here is
+            // already visible as the stream going offline.
+        }
     }
 
     private connect(): void {
@@ -140,10 +218,22 @@ export class MusicboxApi {
         await this.post(this.resolve('/api/bluetooth/disconnect'));
     }
 
-    async queue(): Promise<QueueResponse> {
+    /** One-shot GET. Prefer the `queue` signal, which keeps itself current. */
+    async fetchQueue(): Promise<QueueResponse> {
         const response = await fetch(this.resolve('/api/queue'));
         if (!response.ok) throw new Error(`queue: HTTP ${response.status}`);
         return (await response.json()) as QueueResponse;
+    }
+
+    /**
+     * Start playing one track from the queue.
+     *
+     * Addressed by MPD's song id, which survives a reorder — a position does
+     * not, and the listing under a finger may be seconds old. See
+     * src/shared/api.ts.
+     */
+    async playQueueId(id: number): Promise<void> {
+        await this.post(this.resolve(`/api/queue/play/${id}`));
     }
 
     /**

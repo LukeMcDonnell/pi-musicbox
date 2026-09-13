@@ -1,4 +1,12 @@
-import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import {
+    Component,
+    ElementRef,
+    OnDestroy,
+    computed,
+    inject,
+    signal,
+    viewChild,
+} from '@angular/core';
 // Lucide ships one standalone component per icon, so only these five reach the
 // bundle. They render inline SVG stroked with currentColor — no icon font, no
 // network request, which is what the kiosk needs when the NAS is off.
@@ -9,12 +17,14 @@ import {
     LucideSkipBack,
     LucideSkipForward,
     LucideBluetooth,
+    LucideChevronDown,
 } from '@lucide/angular';
 import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from '../../musicbox-api';
+import { Queue } from '../queue/queue';
 
 /** Seconds as m:ss, or a dash when there is nothing to show. */
-function clock(seconds: number | null): string {
+export function clock(seconds: number | null): string {
     if (seconds === null || !Number.isFinite(seconds)) return '–:––';
     const total = Math.max(0, Math.floor(seconds));
     const mins = Math.floor(total / 60);
@@ -41,9 +51,20 @@ function clock(seconds: number | null): string {
 */
 @Component({
     selector: 'app-now-playing',
-    imports: [LucideMusic, LucidePause, LucidePlay, LucideSkipBack, LucideSkipForward, LucideBluetooth],
+    imports: [
+        LucideMusic,
+        LucidePause,
+        LucidePlay,
+        LucideSkipBack,
+        LucideSkipForward,
+        LucideBluetooth,
+        LucideChevronDown,
+        Queue,
+    ],
     templateUrl: './now-playing.html',
-    host: { class: 'relative block min-h-dvh bg-bg' },
+    // No min-h-dvh: the content sets the height now — one viewport of
+    // now-playing, then however much queue there is.
+    host: { class: 'relative block bg-bg' },
 })
 export class NowPlaying implements OnDestroy {
     private readonly api = inject(MusicboxApi);
@@ -51,6 +72,22 @@ export class NowPlaying implements OnDestroy {
     readonly snapshot = this.api.snapshot;
     readonly stream = this.api.stream;
     readonly mpdAvailable = this.api.mpdAvailable;
+    readonly hasQueue = this.api.hasQueue;
+
+    private readonly queueEl = viewChild('queue', { read: ElementRef });
+
+    /**
+     * Bring the queue on screen.
+     *
+     * INSTANT, not smooth. A smooth scroll is a repaint per frame for the best
+     * part of a second, and on the DSI panel every one of those is a vc4 atomic
+     * commit — the path implicated in the clock deadlock. Touch scrolling costs
+     * the same thing and is unavoidable; a button that does it need not.
+     */
+    scrollToQueue(): void {
+        const el = this.queueEl()?.nativeElement as HTMLElement | undefined;
+        el?.scrollIntoView({ block: 'start' });
+    }
 
     /** Advanced locally between snapshots so the progress bar moves smoothly. */
     private readonly tick = signal(0);

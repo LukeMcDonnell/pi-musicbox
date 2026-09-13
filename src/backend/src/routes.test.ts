@@ -491,6 +491,79 @@ test('the queue is refused, not emptied, during a Bluetooth session', async () =
     }
 });
 
+test('playing a queue track by id goes to MPD', async () => {
+    /*
+     * Same dead-bridge trick as the transport commands above: MPD's own error
+     * proves the request reached the MPD path rather than being rejected by the
+     * validation or swallowed somewhere else.
+     */
+    const { app, routes, port } = await startServer();
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/queue/play/42`, { method: 'POST' });
+        assert.equal(res.status, 503);
+        const body = (await res.json()) as { error: string };
+        assert.match(body.error, /MPD is not connected/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing a queue track is refused during a Bluetooth session', async () => {
+    // A phone exposes no addressable track list, so there is no id to honour —
+    // the same reason GET /api/queue is a 409 rather than an empty listing.
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        const res = await fetch(`http://127.0.0.1:${port}/api/queue/play/42`, { method: 'POST' });
+        assert.equal(res.status, 409);
+        const body = (await res.json()) as { error: string };
+        assert.match(body.error, /phone owns the DAC/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('a song id that is not a non-negative integer never reaches MPD', async () => {
+    /*
+     * 400, not 503. The distinction is the whole point: 503 would mean the id was
+     * accepted and MPD was asked, and this value is interpolated into an MPD
+     * command line.
+     */
+    const { app, routes, port } = await startServer();
+    try {
+        // '' is in the list because Number('') is 0: before the check was a
+        // string test, POST /api/queue/play/ played song id 0.
+        for (const id of ['abc', '-1', '1.5', '1e2', '0x10', 'a%20b', '']) {
+            const res = await fetch(`http://127.0.0.1:${port}/api/queue/play/${id}`, {
+                method: 'POST',
+            });
+            // An empty segment is not this route at all; anything else must be a
+            // rejection, and never MPD's.
+            assert.notEqual(res.status, 503, id);
+            if (res.status === 400) {
+                const body = (await res.json()) as { error: string };
+                assert.match(body.error, /invalid song id/, id);
+            }
+        }
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('the queue jump is sent as playid, not play', async () => {
+    // `play <n>` addresses a POSITION, which shifts under a reorder. Asserted on
+    // the source because a dead bridge cannot show what was sent on the wire.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const handler = src.slice(
+        src.indexOf("app.post('/api/queue/play/:id'"),
+        src.indexOf("app.post('/api/playback/:command'"),
+    );
+    assert.match(handler, /bridge\.command\(`playid \$\{Number\(id\)\}`\)/);
+});
+
 test('disconnect is refused when there is nothing connected', async () => {
     const { app, routes, port } = await startServer();
     try {

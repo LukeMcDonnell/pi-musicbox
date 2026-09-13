@@ -791,6 +791,7 @@ SSE carries state, REST carries commands.
 GET  /api/health     GET /api/status    GET /api/events (SSE)    GET /api/queue
 GET  /api/art?album=<url-encoded album directory>
 POST /api/playback/{play,pause,stop,next,previous}
+POST /api/queue/play/<song id>
 ```
 
 (`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
@@ -804,7 +805,14 @@ JSON on every state change.
 The queue is described by three fields rather than carried: `queueVersion`,
 `queueLength` and `queuePosition` (0-based index of the current track). The last
 comes from MPD's `status`, not the track, so it stays correct even when
-`currentsong` returns nothing — it is what you highlight a row with.
+`currentsong` returns nothing — it is where the screen splits the list.
+
+`POST /api/queue/play/<song id>` starts one track from the queue. **By MPD's song
+id, not by position**: a position is only valid until somebody reorders the queue,
+and the listing under a finger may be seconds old. It is not one of the playback
+commands, deliberately — those are the verbs both sources implement, and a phone
+exposes no addressable track list, so it answers `409` during a Bluetooth session
+exactly as `GET /api/queue` does.
 
 Elapsed time is **interpolated client-side**. MPD does not push progress
 continuously, and polling for a smooth progress bar is the obvious wrong answer.
@@ -815,6 +823,31 @@ queried** snapshot on SSE connect and on `GET /api/status` — MPD's `idle` does
 fire as elapsed time advances, so the cached snapshot's `elapsed` dates from the
 last real event. Sending that to a new client made a page reload show the elapsed
 time as at the last pause/resume.
+
+### The queue on screen
+
+The now-playing screen is exactly one viewport tall; the queue lives underneath
+it and you scroll to reach it. A chevron at the foot of the first screen says so,
+and appears only when there is a queue.
+
+It is **two lists, not one**, split at `queuePosition` — **Back to** and **Up
+next**, with Up next selected. The playing track is in neither: it is already the
+whole screen above, and a highlighted row would be the third place the same thing
+is said. Back to runs backwards, most recent first, because the point of it is to
+get back to something you heard a moment ago.
+
+Tapping a row plays that track. Nothing is updated locally when you do — the new
+position arrives on the next snapshot and re-splits both lists, the same rule as
+every other command.
+
+The section is **absent, not empty**, when there is nothing to list: a Bluetooth
+source (`queueVersion` is -1 and there is no listing to be had), MPD down, or an
+empty queue. The page is then one viewport and does not scroll at all.
+
+Rows are lazy-loaded and animate nothing, for the reason the rest of this UI does
+not either: scrolling a long list is the most repaint-heavy thing here, and every
+repaint on the panel is a vc4 atomic commit. The per-album art key does most of
+the work — see below.
 
 ### Album art
 

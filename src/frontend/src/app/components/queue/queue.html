@@ -1,0 +1,64 @@
+@if (visible()) {
+  <section class="relative z-[1] mx-auto px-4 pb-8" aria-label="Queue">
+    <div class="z-[1] flex gap-2 py-3" role="tablist">
+      <button class="min-h-[2.75rem] flex-1 cursor-pointer touch-manipulation rounded-full
+                     px-4 text-[0.95rem] font-semibold select-none"
+              [class]="tab() === 'back' ? 'bg-raised text-text' : 'text-muted'"
+              role="tab" [attr.aria-selected]="tab() === 'back'"
+              (click)="tab.set('back')">
+        Back to <span class="tabular-nums text-muted ms-2">({{ backTo().length }})</span>
+      </button>
+      <button class="min-h-[2.75rem] flex-1 cursor-pointer touch-manipulation rounded-full
+                     px-4 text-[0.95rem] font-semibold select-none"
+              [class]="tab() === 'next' ? 'bg-raised text-text' : 'text-muted'"
+              role="tab" [attr.aria-selected]="tab() === 'next'"
+              (click)="tab.set('next')">
+        Up next <span class="tabular-nums text-muted ms-2">({{ upNext().length }})</span>
+      </button>
+    </div>
+
+    @if (error(); as message) {
+      <p class="pb-2 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+    }
+
+    <ul class="flex flex-col">
+      @for (row of rows(); track row.id ?? $index) {
+        <li>
+          <button class="flex min-h-[3.5rem] w-full cursor-pointer touch-manipulation items-center
+                         gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
+                  (click)="play(row)">
+            <span class="grid size-12 flex-none place-items-center overflow-hidden rounded
+                         bg-surface">
+              @if (artOf(row); as uri) {
+                <!-- Lazy, with the box fixed by width/height: a long queue is
+                     mostly off screen, and an undecoded cover costs nothing. -->
+                <img class="h-full w-full object-cover" [src]="uri" alt=""
+                     width="48" height="48" loading="lazy" decoding="async"
+                     (error)="onArtError(uri)">
+              } @else {
+                <svg lucideMusic class="size-5 text-muted" aria-hidden="true"></svg>
+              }
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate">{{ titleOf(row) }}</span>
+              <span class="block truncate text-[0.85rem] text-muted">
+                {{ row.artist || 'Unknown artist' }}
+              </span>
+            </span>
+            <span class="flex-none text-[0.85rem] text-muted tabular-nums">
+              {{ durationOf(row) }}
+            </span>
+          </button>
+        </li>
+      } @empty {
+        <li class="px-2 py-6 text-[0.95rem] text-muted">
+          @if (tab() === 'next') {
+            Nothing up next — this is the last track.
+          } @else {
+            Nothing played yet.
+          }
+        </li>
+      }
+    </ul>
+  </section>
+}

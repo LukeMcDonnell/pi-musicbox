@@ -245,6 +245,23 @@ export interface QueueResponse {
     tracks: Track[];
 }
 
+/*
+ * PLAYING A TRACK FROM THE QUEUE: POST /api/queue/play/:id
+ *
+ * `:id` is `Track.id` — MPD's song id, not the position. Position shifts when
+ * the queue is reordered; the id does not. See the `queuePosition` note above.
+ *
+ * It answers with a Snapshot, 400 for an id that is not a non-negative integer,
+ * 409 while a phone owns the DAC, and 503 when MPD is unreachable.
+ *
+ * WHY IT IS NOT A PlaybackCommand
+ *   PLAYBACK_COMMANDS is deliberately a set that BOTH sources implement — the
+ *   backend keeps an exhaustive Record for each, so a new verb fails to compile
+ *   until MPD and Bluetooth both handle it. A phone exposes no addressable track
+ *   list at all (the same reason GET /api/queue is a 409 during a session), so
+ *   putting this there would force a mapping that could only ever be a lie.
+ */
+
 export interface HealthResponse {
     ok: true;
     /** Set at build time so a deploy can be confirmed from the outside. */
