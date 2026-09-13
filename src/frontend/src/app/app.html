@@ -1,14 +1,23 @@
-<app-now-playing [class.show]="showNowPlaying()" />
+<!-- Off screen until the mini bar is tapped. `translate`, not `transform`, but
+     the effect on this host is the same: it becomes the containing block for
+     now-playing's position: fixed children. That is harmless only because the
+     host is itself fixed to the full viewport — keep the inset-0. inert while
+     hidden, so nothing off screen can take focus. -->
+<app-now-playing class="fixed inset-0 z-40 transition-transform duration-200 ease-linear"
+                 [class.translate-y-full]="!showNowPlaying()"
+                 [attr.inert]="showNowPlaying() ? null : ''"
+                 (close)="showNowPlaying.set(false)" />
 
-<div class="main-container">
-  <div class="menu"></div>
+<div class="flex flex-row max-[46rem]:flex-col">
+  <app-menu class="sticky top-0 z-20 h-[calc(100dvh-var(--spacing-bar))] w-bar flex-none bg-surface
+                   max-[46rem]:h-bar max-[46rem]:w-dvw" />
 
-  <div class="main">
-    Routes go here
-  </div>
+  <!-- pb-bar: the mini bar is fixed over the bottom of the page, and the last
+       row of a route would otherwise sit underneath it. -->
+  <main class="z-10 min-w-0 flex-1 pb-bar">
+    <router-outlet />
+  </main>
 </div>
 
-<div class="now-playing-mini" (click)="showNowPlaying.set(true)">
-
-</div>
-
+<app-now-playing-mini class="fixed inset-x-0 bottom-0 z-30 h-bar"
+                      (open)="showNowPlaying.set(true)" />

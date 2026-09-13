@@ -4,10 +4,11 @@ import {
     OnDestroy,
     computed,
     inject,
+    output,
     signal,
     viewChild,
 } from '@angular/core';
-// Lucide ships one standalone component per icon, so only these five reach the
+// Lucide ships one standalone component per icon, so only those imported reach the
 // bundle. They render inline SVG stroked with currentColor — no icon font, no
 // network request, which is what the kiosk needs when the NAS is off.
 import {
@@ -18,6 +19,7 @@ import {
     LucideSkipForward,
     LucideBluetooth,
     LucideChevronDown,
+    LucideX,
 } from '@lucide/angular';
 import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from '../../musicbox-api';
@@ -59,6 +61,7 @@ export function clock(seconds: number | null): string {
         LucideSkipForward,
         LucideBluetooth,
         LucideChevronDown,
+        LucideX,
         Queue,
     ],
     templateUrl: './now-playing.html',
@@ -73,6 +76,12 @@ export class NowPlaying implements OnDestroy {
     readonly stream = this.api.stream;
     readonly mpdAvailable = this.api.mpdAvailable;
     readonly hasQueue = this.api.hasQueue;
+
+    /**
+     * The user wants this view dismissed. The parent owns whether it is shown —
+     * see app.html — so this only asks.
+     */
+    readonly close = output<void>();
 
     private readonly queueEl = viewChild('queue', { read: ElementRef });
 

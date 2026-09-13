@@ -26,6 +26,12 @@
      Bluetooth pill, which were #1a1413 and #16110f before and are now one value;
      they differ by about 1% of a channel. */
   --color-on-accent: #1a1413;
+
+  /* The thickness of the app chrome: the menu rail (a column when wide, a row
+     when narrow) and the mini now-playing bar. One value because the menu's
+     height is computed from the bar's, and they should read as one frame.
+     Generates `h-bar`, `w-bar`, `pb-bar` and so on. */
+  --spacing-bar: 70px;
 }
 
 body {

@@ -1,0 +1,24 @@
+<nav class="flex h-full flex-col items-stretch gap-1 py-2
+            max-[46rem]:flex-row max-[46rem]:justify-around max-[46rem]:px-2 max-[46rem]:py-0"
+     aria-label="Main menu">
+  <a class="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 py-2 text-muted
+            select-none touch-manipulation max-[46rem]:flex-1 active:bg-raised aria-[current=page]:text-accent"
+     routerLink="/library" routerLinkActive ariaCurrentWhenActive="page">
+    <svg lucideLibraryBig class="size-6" aria-hidden="true"></svg>
+    <span class="text-[0.7rem] font-semibold">Library</span>
+  </a>
+  <a class="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 py-2 text-muted
+            select-none touch-manipulation max-[46rem]:flex-1 active:bg-raised aria-[current=page]:text-accent"
+     routerLink="/favourites" routerLinkActive ariaCurrentWhenActive="page">
+    <svg lucideHeart class="size-6" aria-hidden="true"></svg>
+    <span class="text-[0.7rem] font-semibold">Favourites</span>
+  </a>
+  <!-- Pushed to the far end of the rail: it is not somewhere music is chosen. -->
+  <a class="mt-auto flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 py-2
+            text-muted select-none touch-manipulation max-[46rem]:mt-0 max-[46rem]:flex-1
+            active:bg-raised aria-[current=page]:text-accent"
+     routerLink="/settings" routerLinkActive ariaCurrentWhenActive="page">
+    <svg lucideSettings class="size-6" aria-hidden="true"></svg>
+    <span class="text-[0.7rem] font-semibold">Settings</span>
+  </a>
+</nav>
