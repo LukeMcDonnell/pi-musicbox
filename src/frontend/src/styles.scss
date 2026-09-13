@@ -1,4 +1,35 @@
-/* Global styles. Tailwind v4 is configured CSS-first: this import is the whole
+/* Global styles. Tailwind v4 is configured CSS-first: this file is the whole
    config surface — there is no tailwind.config.js. The Angular build picks the
    plugin up via .postcssrc.json. */
 @use 'tailwindcss';
+
+/*
+  The palette, as theme tokens rather than plain custom properties: @theme is
+  what makes Tailwind generate `bg-surface`, `text-muted`, `border-accent` and
+  the rest, so the components can stay utility-only. Tailwind also emits each one
+  as a :root custom property, so `var(--color-accent)` still works where a raw
+  value is needed.
+
+  `raised` is the one name that is not from the original palette — it is the
+  #2a2523 that was repeated for the pill background, the progress track and the
+  pressed state of a button.
+*/
+@theme {
+  --color-bg: #12100f;
+  --color-surface: #1d1a19;
+  --color-raised: #2a2523;
+  --color-text: #f4f1ee;
+  --color-muted: #9b938d;
+  --color-accent: #e8825a;
+  --color-warn: #c9603f;
+  /* Dark ink for text sitting ON the accent — the primary button and the
+     Bluetooth pill, which were #1a1413 and #16110f before and are now one value;
+     they differ by about 1% of a channel. */
+  --color-on-accent: #1a1413;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
