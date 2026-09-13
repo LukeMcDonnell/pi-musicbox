@@ -27,11 +27,33 @@
      they differ by about 1% of a channel. */
   --color-on-accent: #1a1413;
 
-  /* The thickness of the app chrome: the menu rail (a column when wide, a row
-     when narrow) and the mini now-playing bar. One value because the menu's
-     height is computed from the bar's, and they should read as one frame.
-     Generates `h-bar`, `w-bar`, `pb-bar` and so on. */
+  /* The thickness of the app chrome. Each generates `h-*`, `w-*`, `pb-*` and so
+     on.
+       bar   the mini now-playing bar along the bottom, at every width
+       rail  the menu as a column down the left, when there is width for it
+       tabs  the menu as a row along the bottom, beneath the bar, when there is
+             not — thinner than the rail because on a phone it is taken out of
+             the height, which is the dimension already in short supply */
   --spacing-bar: 70px;
+  --spacing-rail: 85px;
+  --spacing-tabs: 55px;
+}
+
+/*
+  The blurred, darkened cover behind now-playing and behind the mini bar.
+
+  One definition so the two cannot drift apart — tune it here. The blur radius
+  and the scale go together: a blur fades the image to transparent at its
+  edges, and the scale pushes those faded edges outside the clipped box.
+
+  Both views size the image to the full viewport, the mini bar included, and
+  let their own box clip it. That is what makes them match: a 172px blur
+  applied to a 70px-tall image would be nearly all faded edge, and would read
+  as a smudge rather than as the same backdrop.
+*/
+@utility art-backdrop {
+  filter: blur(172px) brightness(0.68) saturate(1);
+  scale: 1.12;
 }
 
 body {

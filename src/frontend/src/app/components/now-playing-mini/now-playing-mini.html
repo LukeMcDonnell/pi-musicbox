@@ -1,4 +1,16 @@
-<div class="flex h-full items-center gap-1 border-t border-raised pr-2">
+@if (artUri(); as uri) {
+  <!-- The same backdrop as now-playing, at the same size: viewport-sized and
+       anchored to the bottom, with the host clipping it to a strip. So the bar
+       shows the bottom edge of the very image the full view shows — see
+       art-backdrop in styles.scss for why it cannot simply be bar-sized.
+       Failure is handled by the thumbnail's (error): it clears artUri, which
+       removes both. -->
+  <img class="art-backdrop pointer-events-none absolute inset-x-0 bottom-0 h-dvh w-full object-cover
+              will-change-transform"
+       [src]="uri" alt="" aria-hidden="true" decoding="async">
+}
+
+<div class="relative flex h-full items-center gap-1 border-t border-raised pr-2">
   <button class="flex h-full min-w-0 flex-1 cursor-pointer touch-manipulation items-center gap-3
                  px-2 text-left select-none active:bg-raised"
           (click)="open.emit()" aria-label="Open now playing">

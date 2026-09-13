@@ -8,16 +8,25 @@
                  [attr.inert]="showNowPlaying() ? null : ''"
                  (close)="showNowPlaying.set(false)" />
 
-<div class="flex flex-row max-[46rem]:flex-col">
-  <app-menu class="sticky top-0 z-20 h-[calc(100dvh-var(--spacing-bar))] w-bar flex-none bg-surface
-                   max-[46rem]:h-bar max-[46rem]:w-dvw" />
+<!-- Wide: the menu is a sticky rail beside the page, and the mini bar runs along
+     the bottom under both.
+     Narrow: the menu is fixed to the very bottom, with the mini bar stacked
+     directly above it — the tabs stay where a thumb is, and now-playing sits
+     next to the controls that lead to it. Out of the flow, so the page takes
+     the full width. -->
+<div class="flex flex-row">
+  <app-menu class="sticky top-0 z-20 h-[calc(100dvh-var(--spacing-bar))] w-rail flex-none bg-surface
+                   max-[46rem]:fixed max-[46rem]:inset-x-0 max-[46rem]:top-auto
+                   max-[46rem]:bottom-0 max-[46rem]:h-tabs max-[46rem]:w-auto
+                   max-[46rem]:border-t max-[46rem]:border-raised" />
 
-  <!-- pb-bar: the mini bar is fixed over the bottom of the page, and the last
-       row of a route would otherwise sit underneath it. -->
-  <main class="z-10 min-w-0 flex-1 pb-bar">
+  <!-- Bottom padding: the fixed chrome sits over the bottom of the page, and the
+       last row of a route would otherwise be underneath it. -->
+  <main class="z-10 min-w-0 flex-1 pb-bar
+               max-[46rem]:pb-[calc(var(--spacing-bar)+var(--spacing-tabs))]">
     <router-outlet />
   </main>
 </div>
 
-<app-now-playing-mini class="fixed inset-x-0 bottom-0 z-30 h-bar"
+<app-now-playing-mini class="fixed inset-x-0 bottom-0 z-30 h-bar max-[46rem]:bottom-tabs"
                       (open)="showNowPlaying.set(true)" />

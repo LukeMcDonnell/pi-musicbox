@@ -37941,7 +37941,7 @@ function registerRoutes(app, opts) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-13T12:54:26Z" : "dev";
+var BUILD = true ? "2026-09-13T16:00:16Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

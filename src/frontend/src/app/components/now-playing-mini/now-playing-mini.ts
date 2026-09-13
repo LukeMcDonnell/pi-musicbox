@@ -30,7 +30,8 @@ import { MusicboxApi } from '../../musicbox-api';
     selector: 'app-now-playing-mini',
     imports: [LucideBluetooth, LucideMusic, LucidePause, LucidePlay, LucideSkipForward],
     templateUrl: './now-playing-mini.html',
-    host: { class: 'block bg-surface' },
+    // overflow-hidden clips the viewport-sized backdrop to the bar.
+    host: { class: 'block overflow-hidden bg-surface' },
 })
 export class NowPlayingMini {
     private readonly api = inject(MusicboxApi);

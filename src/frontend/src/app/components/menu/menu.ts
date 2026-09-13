@@ -3,11 +3,11 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { LucideHeart, LucideLibraryBig, LucideSettings } from '@lucide/angular';
 
 /*
-  The main menu: a rail down the left when there is width for it, a row across
-  the top when there is not. The breakpoint is the one app.html uses to switch
+  The main menu: a rail down the left when there is width for it, a row along
+  the bottom, beneath the mini now-playing bar, when there is not. The breakpoint is the one app.html uses to switch
   the frame between the two, and the two must move together.
 
-  Placement — sticky, size, background — belongs to the parent and is set on the
+  Placement — sticky or fixed, size, background — belongs to the parent and is set on the
   host in app.html. This component only lays out its own links, filling
   whatever box it is given.
 
