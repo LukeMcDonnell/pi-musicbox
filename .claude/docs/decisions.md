@@ -33,7 +33,7 @@ updates. Appliance trade-off; `MASK_APT_TIMERS=0` restores them.
 
 **Half the standard Pi boot-optimisation advice is actively harmful here**,
 because this box is neither headless nor network-optional:
-`dtoverlay=disable-bt` (Bluetooth audio is planned), `disable-wifi` (the library
+`dtoverlay=disable-bt` (Bluetooth audio now works), `disable-wifi` (the library
 is on the network), removing `avahi-daemon` (the web UI is served at
 `<hostname>.local`), `max_framebuffers=0` (a DSI panel is attached), stripping
 USB/`sr_mod` (a USB CD drive is planned), removing DRM (a kiosk browser is
@@ -54,6 +54,66 @@ OpenAL, JACK, PipeWire, PulseAudio, sndio, libupnp. This sits badly next to
 `setup.sh` stripping the OS, and it was taken deliberately: they are shared
 libraries, not services, so the cost is disk (23G free) and not boot time (the
 scarce resource). A source build would mean owning the rebuild forever.
+
+**The snapshot describes the active source, reversing a decision made hours
+earlier.** When the sink first landed, the top-level `state`/`track`/`elapsed`
+meant MPD even while a phone played, and four separate comments told clients to
+branch on `source`. That was the honest shape when a phone offered no metadata.
+AVRCP turned out to offer title, artist, album, duration, position and track
+numbers, so the fields now mean "what is playing" and clients need no branching.
+The superseded reasoning is revised in place, not deleted — it explains why the
+first shape was right at the time.
+
+**No cover art for Bluetooth, and no guessing one.** The phone advertises AVRCP
+1.6, which specifies Cover Art, and it is still unavailable: the target offers no
+OBEX channel for it and `bluetoothd` contains no cover-art code at all. Borrowing
+a cover by matching the phone's artist and album against the local library works
+on the first try and was still rejected — that metadata is free text, and a
+near-miss shows a confidently wrong cover. A missing cover is obvious; a wrong one
+is misinformation.
+
+**Playback control reaches Bluetooth through a FIFO, not a subprocess.** The
+backend's own user is allowed to call `org.bluez` methods, so `busctl` would have
+worked. It writes a word to `/run/musicbox/control` instead: keeping the backend
+free of `child_process` is what makes "a bug in the server cannot make the audio
+wrong" true, and `disconnect` has to be the arbiter's decision regardless.
+
+**`RuntimeDirectory` is not stable across a restart.** systemd deletes and
+recreates it, which silently killed the server's inotify watch on `/run/musicbox`
+after every arbiter restart — the arbiter published perfectly and the API showed
+nothing, rescued only by a slow poll. `RuntimeDirectoryPreserve=yes` plus an
+inode check on the watcher. The same class of bug as watching a file that gets
+replaced by rename, one directory up.
+
+**BlueALSA rather than PipeWire for the Bluetooth sink, on measured grounds.**
+Neither Debian build links `fdk-aac` (it is non-free), so both offer *exactly the
+same* sink codecs — aptX HD, aptX, SBC-XQ, SBC, and no AAC. Given identical
+codecs, BlueALSA is one daemon where PipeWire is a session bus plus wireplumber
+plus a user session, and it leaves MPD holding `hw:0,0` raw. PipeWire would want
+to own the DAC and would reopen the `mixer_type "none"` decision.
+
+**No AAC, and an iPhone therefore gets SBC-XQ.** Getting it would mean rebuilding
+`bluez-alsa` against `libfdk-aac2t64` from trixie/non-free: a cross or emulated
+arm64 build, producing a pinned local `.deb` that apt will never update, for a
+codec library with a security history. Declined; revisit only if an iPhone
+actually sounds bad. Installing the library alone changes nothing, which is worth
+knowing before someone "fixes" it that way.
+
+**The Bluetooth handoff lives in a root bash service, not in the backend.** The
+backend owns MPD and publishes the snapshot, so it looked like the natural home.
+It has to keep working while the server is being redeployed and when someone uses
+`mpc` directly, and starting units and disconnecting BlueZ devices need privilege
+the server should not have. So the arbiter decides and the server only reads
+`/run/musicbox/bluetooth.json`. A bug on the server side can make the UI wrong; it
+cannot make the audio wrong.
+
+**The Bluetooth radio was rfkill soft-blocked, and nothing in this repo did it.**
+`bluetoothctl show` reported `PowerState: off-blocked` and `bluetoothd` logged
+`Failed to set mode: Failed (0x03)` at every boot, with the hardware otherwise
+fine. Another instance of **verify the effect, not the setting**: `AutoEnable` in
+`main.conf` is necessary and not sufficient. `rfkill` the command is not
+installed, so the block is cleared through sysfs — scanned by `type`, because
+rfkill indices are not stable.
 
 **`auto_update "no"` is not a preference.** MPD's auto-update watches the
 library with inotify, and inotify cannot see changes made on the far side of an

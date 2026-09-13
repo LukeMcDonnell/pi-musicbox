@@ -46,6 +46,9 @@ bash tests/test-mpd-config.sh || rc=1
 step "web server config tests"
 bash tests/test-server-config.sh || rc=1
 
+step "bluetooth config tests"
+bash tests/test-bluetooth-config.sh || rc=1
+
 step "backend unit tests (node)"
 if command -v node >/dev/null 2>&1 && [[ -d src/backend/node_modules ]]; then
     ( cd src/backend && node --test --experimental-strip-types "src/**/*.test.ts" 2>&1 \

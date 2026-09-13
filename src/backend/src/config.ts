@@ -28,6 +28,18 @@ export interface Config {
      * thing to debug. tests/test-server-config.sh asserts they agree.
      */
     musicRoot: string;
+    /**
+     * The file install/setup-bluetooth.sh's arbiter publishes the connected
+     * device to. Absent is the normal state on a dev machine and on a box where
+     * setup-bluetooth.sh has not been run; see src/backend/src/bluetooth.ts.
+     */
+    bluetoothState: string;
+    /**
+     * The FIFO the arbiter reads playback commands from. Writing to it is the
+     * only way this service reaches Bluetooth; see src/backend/src/bluetooth.ts
+     * for why it is a FIFO and not a subprocess.
+     */
+    bluetoothControl: string;
     logLevel: string;
 }
 
@@ -41,6 +53,8 @@ export const DEFAULTS: Config = {
     mpdConnectTimeoutMs: 5000,
     webRoot: '/home/musicbox/musicbox/frontend',
     musicRoot: '/srv/music/Music',
+    bluetoothState: '/run/musicbox/bluetooth.json',
+    bluetoothControl: '/run/musicbox/control',
     logLevel: 'info',
 };
 
@@ -101,6 +115,8 @@ export function loadConfig(
         ),
         webRoot: pick('MUSICBOX_WEB_ROOT') ?? DEFAULTS.webRoot,
         musicRoot: pick('MUSICBOX_MUSIC_ROOT') ?? DEFAULTS.musicRoot,
+        bluetoothState: pick('MUSICBOX_BLUETOOTH_STATE') ?? DEFAULTS.bluetoothState,
+        bluetoothControl: pick('MUSICBOX_BLUETOOTH_CONTROL') ?? DEFAULTS.bluetoothControl,
         logLevel: pick('MUSICBOX_LOG_LEVEL') ?? DEFAULTS.logLevel,
     };
 }

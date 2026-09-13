@@ -30,6 +30,15 @@ export class MusicboxApi {
 
     readonly mpdAvailable = computed(() => this._snapshot()?.status === 'ok');
 
+    /**
+     * The connected Bluetooth device, or null.
+     *
+     * Nothing else is needed here: the service replaces the whole Snapshot on
+     * every frame, so a new backend field is readable the moment it exists. This
+     * is a convenience, not plumbing.
+     */
+    readonly bluetooth = computed(() => this._snapshot()?.bluetooth ?? null);
+
     private source: EventSource | null = null;
 
     /**
@@ -121,6 +130,16 @@ export class MusicboxApi {
         await this.post(this.resolve(`/api/playback/${command}`));
     }
 
+    /**
+     * End the Bluetooth session and hand the DAC back to MPD.
+     *
+     * MPD stays paused at its position — this gives the speaker back, it does not
+     * start playing. See .claude/docs/bluetooth.md.
+     */
+    async disconnectBluetooth(): Promise<void> {
+        await this.post(this.resolve('/api/bluetooth/disconnect'));
+    }
+
     async queue(): Promise<QueueResponse> {
         const response = await fetch(this.resolve('/api/queue'));
         if (!response.ok) throw new Error(`queue: HTTP ${response.status}`);
@@ -163,7 +182,13 @@ export class MusicboxApi {
             }
             throw new Error(detail);
         }
-        // No state update here: the command changes MPD, MPD's idle fires, and the
-        // snapshot arrives over SSE. One source of truth.
+        // No state update here. For MPD the command lands, MPD's idle fires, and
+        // the snapshot arrives over SSE. For Bluetooth the arbiter acts and its
+        // next published state does the same. One source of truth either way.
+        //
+        // Deliberately no optimistic local update, even though AVRCP takes a few
+        // seconds to report a new status: guessing would show the wrong state
+        // confidently whenever a command is genuinely ignored, and phones do
+        // ignore them.
     }
 }

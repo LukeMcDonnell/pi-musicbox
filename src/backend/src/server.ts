@@ -13,6 +13,7 @@ import { MpdBridge } from './mpd/bridge.ts';
 import { registerCors } from './cors.ts';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
+import { createBluetoothWatcher } from './bluetooth.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -51,14 +52,36 @@ async function main(): Promise<void> {
         build: BUILD,
         startedAt,
         musicRoot: config.musicRoot,
+        bluetoothControl: config.bluetoothControl,
     });
     registerStatic(app, config.webRoot);
+
+    // Started AFTER the bridge is constructed and BEFORE it connects, so the very
+    // first snapshot already knows whether a phone is connected. The arbiter owns
+    // the audio handoff; this only observes it. See src/backend/src/bluetooth.ts.
+    const bluetooth = createBluetoothWatcher({
+        path: config.bluetoothState,
+        log: (level, msg) => app.log[level](msg),
+        onChange: (state) => {
+            app.log.info(
+                state
+                    ? `bluetooth: ${state.device.name} (${state.device.codec ?? 'codec pending'}) ${state.state ?? 'state unknown'}` +
+                      (state.title ? ` — ${state.artist ?? '?'} / ${state.title}` : '')
+                    : 'bluetooth: disconnected',
+            );
+            void bridge.setBluetooth(state);
+        },
+    });
+    void bluetooth.poll();
 
     bridge.start();
 
     const shutdown = async (signal: string) => {
         app.log.info(`${signal} received, shutting down`);
         bridge.stop();
+        // Also before close(): the inotify watch and its poll timer both hold the
+        // event loop open, the same way the SSE streams below do.
+        bluetooth.stop();
         // MUST come before close(): Fastify waits for connections to finish and
         // an SSE stream never finishes, so a single connected client — the kiosk
         // always has one — would wedge shutdown until systemd's stop timeout.

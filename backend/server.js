@@ -6916,10 +6916,10 @@ var require_redaction = __commonJS({
     var strict = false;
     function redaction(opts, serialize) {
       const { paths, censor, remove } = handle(opts);
-      const shape = paths.reduce((o, str) => {
+      const shape = paths.reduce((o, str2) => {
         rx.lastIndex = 0;
-        const first = rx.exec(str);
-        const next = rx.exec(str);
+        const first = rx.exec(str2);
+        const next = rx.exec(str2);
         let ns = first[1] !== void 0 ? first[1].replace(/^(?:"|'|`)(.*)(?:"|'|`)$/, "$1") : first[0];
         if (ns === "*") {
           ns = wildcardFirstSym;
@@ -6932,7 +6932,7 @@ var require_redaction = __commonJS({
           return o;
         }
         const { index } = next;
-        const nextPath = `${str.substr(index, str.length - 1)}`;
+        const nextPath = `${str2.substr(index, str2.length - 1)}`;
         o[ns] = o[ns] || [];
         if (ns !== wildcardFirstSym && o[ns].length === 0) {
           o[ns].push(...o[wildcardFirstSym] || []);
@@ -7048,7 +7048,7 @@ var require_quick_format_unescaped = __commonJS({
       }
       var argLen = args.length;
       if (argLen === 0) return f;
-      var str = "";
+      var str2 = "";
       var a = 1 - offset;
       var lastPos = -1;
       var flen = f && f.length || 0;
@@ -7063,8 +7063,8 @@ var require_quick_format_unescaped = __commonJS({
                 break;
               if (args[a] == null) break;
               if (lastPos < i)
-                str += f.slice(lastPos, i);
-              str += Number(args[a]);
+                str2 += f.slice(lastPos, i);
+              str2 += Number(args[a]);
               lastPos = i + 2;
               i++;
               break;
@@ -7073,8 +7073,8 @@ var require_quick_format_unescaped = __commonJS({
                 break;
               if (args[a] == null) break;
               if (lastPos < i)
-                str += f.slice(lastPos, i);
-              str += Math.floor(Number(args[a]));
+                str2 += f.slice(lastPos, i);
+              str2 += Math.floor(Number(args[a]));
               lastPos = i + 2;
               i++;
               break;
@@ -7087,21 +7087,21 @@ var require_quick_format_unescaped = __commonJS({
                 break;
               if (args[a] === void 0) break;
               if (lastPos < i)
-                str += f.slice(lastPos, i);
+                str2 += f.slice(lastPos, i);
               var type = typeof args[a];
               if (type === "string") {
-                str += "'" + args[a] + "'";
+                str2 += "'" + args[a] + "'";
                 lastPos = i + 2;
                 i++;
                 break;
               }
               if (type === "function") {
-                str += args[a].name || "<anonymous>";
+                str2 += args[a].name || "<anonymous>";
                 lastPos = i + 2;
                 i++;
                 break;
               }
-              str += ss(args[a]);
+              str2 += ss(args[a]);
               lastPos = i + 2;
               i++;
               break;
@@ -7109,15 +7109,15 @@ var require_quick_format_unescaped = __commonJS({
               if (a >= argLen)
                 break;
               if (lastPos < i)
-                str += f.slice(lastPos, i);
-              str += String(args[a]);
+                str2 += f.slice(lastPos, i);
+              str2 += String(args[a]);
               lastPos = i + 2;
               i++;
               break;
             case 37:
               if (lastPos < i)
-                str += f.slice(lastPos, i);
-              str += "%";
+                str2 += f.slice(lastPos, i);
+              str2 += "%";
               lastPos = i + 2;
               i++;
               a--;
@@ -7130,9 +7130,9 @@ var require_quick_format_unescaped = __commonJS({
       if (lastPos === -1)
         return f;
       else if (lastPos < flen) {
-        str += f.slice(lastPos);
+        str2 += f.slice(lastPos);
       }
-      return str;
+      return str2;
     }
   }
 });
@@ -7189,7 +7189,7 @@ var require_sonic_boom = __commonJS({
     var kContentModeUtf8 = "utf8";
     var [major, minor] = (process.versions.node || "0.0").split(".").map(Number);
     var kCopyBuffer = major >= 22 && minor >= 7;
-    function openFile(file, sonic) {
+    function openFile2(file, sonic) {
       sonic._opening = true;
       sonic._writing = true;
       sonic._asyncDrainScheduled = false;
@@ -7314,7 +7314,7 @@ var require_sonic_boom = __commonJS({
         this.fd = fd;
         process.nextTick(() => this.emit("ready"));
       } else if (typeof fd === "string") {
-        openFile(fd, this);
+        openFile2(fd, this);
       } else {
         throw new Error("SonicBoom supports only file descriptors and files");
       }
@@ -7585,7 +7585,7 @@ var require_sonic_boom = __commonJS({
           });
         }
       });
-      openFile(this.file, this);
+      openFile2(this.file, this);
     };
     SonicBoom.prototype.end = function() {
       if (this.destroyed) {
@@ -8756,7 +8756,7 @@ var require_tools = __commonJS({
     var transport = require_transport();
     var [nodeMajor] = process.versions.node.split(".").map((v) => Number(v));
     var asJsonChan = diagChan.tracingChannel("pino_asJson");
-    var asString = nodeMajor >= 25 ? (str) => JSON.stringify(str) : _asString;
+    var asString = nodeMajor >= 25 ? (str2) => JSON.stringify(str2) : _asString;
     function noop() {
     }
     function genLog(level, hook) {
@@ -8794,29 +8794,29 @@ var require_tools = __commonJS({
         }
       }
     }
-    function _asString(str) {
+    function _asString(str2) {
       let result = "";
       let last = 0;
       let found = false;
       let point = 255;
-      const l = str.length;
+      const l = str2.length;
       if (l > 100) {
-        return JSON.stringify(str);
+        return JSON.stringify(str2);
       }
       for (var i = 0; i < l && point >= 32; i++) {
-        point = str.charCodeAt(i);
+        point = str2.charCodeAt(i);
         if (point === 34 || point === 92) {
-          result += str.slice(last, i) + "\\";
+          result += str2.slice(last, i) + "\\";
           last = i;
           found = true;
         }
       }
       if (!found) {
-        result = str;
+        result = str2;
       } else {
-        result += str.slice(last);
+        result += str2.slice(last);
       }
-      return point < 32 ? JSON.stringify(str) : '"' + result + '"';
+      return point < 32 ? JSON.stringify(str2) : '"' + result + '"';
     }
     function asJson(obj, msg, num2, time) {
       if (asJsonChan.hasSubscribers === false) {
@@ -9520,11 +9520,11 @@ var require_safe_stable_stringify = __commonJS({
     exports.configure = configure;
     module.exports = stringify;
     var strEscapeSequencesRegExp = /[\u0000-\u001f\u0022\u005c\ud800-\udfff]/;
-    function strEscape(str) {
-      if (str.length < 5e3 && !strEscapeSequencesRegExp.test(str)) {
-        return `"${str}"`;
+    function strEscape(str2) {
+      if (str2.length < 5e3 && !strEscapeSequencesRegExp.test(str2)) {
+        return `"${str2}"`;
       }
-      return JSON.stringify(str);
+      return JSON.stringify(str2);
     }
     function sort(array, comparator) {
       if (array.length > 200 || comparator) {
@@ -10891,8 +10891,8 @@ var require_serializer = __commonJS({
         }
         throw new Error(`The value "${date}" cannot be converted to a time.`);
       }
-      asString(str) {
-        const len = str.length;
+      asString(str2) {
+        const len = str2.length;
         if (len === 0) {
           return '""';
         } else if (len < 42) {
@@ -10900,25 +10900,25 @@ var require_serializer = __commonJS({
           let last = -1;
           let point = 255;
           for (let i = 0; i < len; i++) {
-            point = str.charCodeAt(i);
+            point = str2.charCodeAt(i);
             if (point === 34 || // '"'
             point === 92) {
               last === -1 && (last = 0);
-              result += str.slice(last, i) + "\\";
+              result += str2.slice(last, i) + "\\";
               last = i;
             } else if (point < 32 || point >= 55296 && point <= 57343) {
-              return JSON.stringify(str);
+              return JSON.stringify(str2);
             }
           }
-          return last === -1 && '"' + str + '"' || '"' + result + str.slice(last) + '"';
-        } else if (len < 5e3 && STR_ESCAPE.test(str) === false) {
-          return '"' + str + '"';
+          return last === -1 && '"' + str2 + '"' || '"' + result + str2.slice(last) + '"';
+        } else if (len < 5e3 && STR_ESCAPE.test(str2) === false) {
+          return '"' + str2 + '"';
         } else {
-          return JSON.stringify(str);
+          return JSON.stringify(str2);
         }
       }
-      asUnsafeString(str) {
-        return '"' + str + '"';
+      asUnsafeString(str2) {
+        return '"' + str2 + '"';
       }
       getState() {
         return this._options;
@@ -13088,11 +13088,11 @@ var require_proxy_addr = __commonJS({
     }
     function parseipNotation(note) {
       const pos = note.lastIndexOf("/");
-      const str = pos !== -1 ? note.substring(0, pos) : note;
-      if (!isip(str)) {
-        throw new TypeError("invalid IP address: " + str);
+      const str2 = pos !== -1 ? note.substring(0, pos) : note;
+      if (!isip(str2)) {
+        throw new TypeError("invalid IP address: " + str2);
       }
-      let ip = parseip(str);
+      let ip = parseip(str2);
       if (pos === -1 && ip.kind() === "ipv6" && ip.isIPv4MappedAddress()) {
         ip = ip.toIPv4Address();
       }
@@ -14129,7 +14129,7 @@ var require_code = __commonJS({
     }
     exports._ = _;
     var plus = new _Code("+");
-    function str(strs, ...args) {
+    function str2(strs, ...args) {
       const expr = [safeStringify(strs[0])];
       let i = 0;
       while (i < args.length) {
@@ -14140,7 +14140,7 @@ var require_code = __commonJS({
       optimize(expr);
       return new _Code(expr);
     }
-    exports.str = str;
+    exports.str = str2;
     function addCodeArg(code, arg) {
       if (arg instanceof _Code)
         code.push(...arg._items);
@@ -14183,7 +14183,7 @@ var require_code = __commonJS({
       return;
     }
     function strConcat(c1, c2) {
-      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str`${c1}${c2}`;
+      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str2`${c1}${c2}`;
     }
     exports.strConcat = strConcat;
     function interpolate(x) {
@@ -15145,22 +15145,22 @@ var require_util = __commonJS({
       return (0, codegen_1._)`${topSchemaRef}${schemaPath}${(0, codegen_1.getProperty)(keyword)}`;
     }
     exports.schemaRefOrVal = schemaRefOrVal;
-    function unescapeFragment(str) {
-      return unescapeJsonPointer(decodeURIComponent(str));
+    function unescapeFragment(str2) {
+      return unescapeJsonPointer(decodeURIComponent(str2));
     }
     exports.unescapeFragment = unescapeFragment;
-    function escapeFragment(str) {
-      return encodeURIComponent(escapeJsonPointer(str));
+    function escapeFragment(str2) {
+      return encodeURIComponent(escapeJsonPointer(str2));
     }
     exports.escapeFragment = escapeFragment;
-    function escapeJsonPointer(str) {
-      if (typeof str == "number")
-        return `${str}`;
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPointer(str2) {
+      if (typeof str2 == "number")
+        return `${str2}`;
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
     exports.escapeJsonPointer = escapeJsonPointer;
-    function unescapeJsonPointer(str) {
-      return str.replace(/~1/g, "/").replace(/~0/g, "~");
+    function unescapeJsonPointer(str2) {
+      return str2.replace(/~1/g, "/").replace(/~0/g, "~");
     }
     exports.unescapeJsonPointer = unescapeJsonPointer;
     function eachItem(xs, f) {
@@ -16185,8 +16185,8 @@ var require_json_schema_traverse = __commonJS({
         post(schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema, keyIndex);
       }
     }
-    function escapeJsonPtr(str) {
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPtr(str2) {
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
   }
 });
@@ -17283,10 +17283,10 @@ var require_utils = __commonJS({
         isIPV6: true
       };
     }
-    function findToken(str, token) {
+    function findToken(str2, token) {
       let ind = 0;
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] === token) ind++;
+      for (let i = 0; i < str2.length; i++) {
+        if (str2[i] === token) ind++;
       }
       return ind;
     }
@@ -18299,7 +18299,7 @@ var require_core = __commonJS({
     var util_1 = require_util();
     var $dataRefSchema = require_data();
     var uri_1 = require_uri();
-    var defaultRegExp = (str, flags) => new RegExp(str, flags);
+    var defaultRegExp = (str2, flags) => new RegExp(str2, flags);
     defaultRegExp.code = "new RegExp";
     var META_IGNORE_OPTIONS = ["removeAdditional", "useDefaults", "coerceTypes"];
     var EXT_SCOPE_NAMES = /* @__PURE__ */ new Set([
@@ -19094,16 +19094,16 @@ var require_ucs2length = __commonJS({
   "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    function ucs2length(str) {
-      const len = str.length;
+    function ucs2length(str2) {
+      const len = str2.length;
       let length = 0;
       let pos = 0;
       let value;
       while (pos < len) {
         length++;
-        value = str.charCodeAt(pos++);
+        value = str2.charCodeAt(pos++);
         if (value >= 55296 && value <= 56319 && pos < len) {
-          value = str.charCodeAt(pos);
+          value = str2.charCodeAt(pos);
           if ((value & 64512) === 56320)
             pos++;
         }
@@ -21019,13 +21019,13 @@ var require_timestamp = __commonJS({
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var TIME = /^(\d\d):(\d\d):(\d\d)(?:\.\d+)?(?:z|([+-]\d\d)(?::?(\d\d))?)$/i;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function validTimestamp(str, allowDate) {
-      const dt = str.split(DT_SEPARATOR);
+    function validTimestamp(str2, allowDate) {
+      const dt = str2.split(DT_SEPARATOR);
       return dt.length === 2 && validDate(dt[0]) && validTime(dt[1]) || allowDate && dt.length === 1 && validDate(dt[0]);
     }
     exports.default = validTimestamp;
-    function validDate(str) {
-      const matches = DATE.exec(str);
+    function validDate(str2) {
+      const matches = DATE.exec(str2);
       if (!matches)
         return false;
       const y = +matches[1];
@@ -21034,8 +21034,8 @@ var require_timestamp = __commonJS({
       return m >= 1 && m <= 12 && d >= 1 && (d <= DAYS[m] || // leap year: https://tools.ietf.org/html/rfc3339#appendix-C
       m === 2 && d === 29 && (y % 100 === 0 ? y % 400 === 0 : y % 4 === 0));
     }
-    function validTime(str) {
-      const matches = TIME.exec(str);
+    function validTime(str2) {
+      const matches = TIME.exec(str2);
       if (!matches)
         return false;
       const hr = +matches[1];
@@ -22098,7 +22098,7 @@ var require_parseJson = __commonJS({
     var CODE_A = "a".charCodeAt(0);
     var CODE_0 = "0".charCodeAt(0);
     function parseJsonString(s, pos) {
-      let str = "";
+      let str2 = "";
       let c;
       parseJsonString.message = void 0;
       while (true) {
@@ -22108,7 +22108,7 @@ var require_parseJson = __commonJS({
         if (c === "\\") {
           c = s[pos];
           if (c in escapedChars) {
-            str += escapedChars[c];
+            str2 += escapedChars[c];
             pos++;
           } else if (c === "u") {
             pos++;
@@ -22132,7 +22132,7 @@ var require_parseJson = __commonJS({
               }
               pos++;
             }
-            str += String.fromCharCode(code);
+            str2 += String.fromCharCode(code);
           } else {
             errorMessage(`unexpected token ${c}`);
             return void 0;
@@ -22142,7 +22142,7 @@ var require_parseJson = __commonJS({
           return void 0;
         } else {
           if (c.charCodeAt(0) >= 32) {
-            str += c;
+            str2 += c;
           } else {
             errorMessage(`unexpected token ${c}`);
             return void 0;
@@ -22150,7 +22150,7 @@ var require_parseJson = __commonJS({
         }
       }
       parseJsonString.position = pos;
-      return str;
+      return str2;
       function errorMessage(msg) {
         parseJsonString.position = pos;
         parseJsonString.message = msg;
@@ -22745,10 +22745,10 @@ var require_utils2 = __commonJS({
         isIPV6: true
       };
     }
-    function findToken(str, token) {
+    function findToken(str2, token) {
       let ind = 0;
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] === token) ind++;
+      for (let i = 0; i < str2.length; i++) {
+        if (str2[i] === token) ind++;
       }
       return ind;
     }
@@ -23332,14 +23332,14 @@ var require_schemes2 = __commonJS({
     var MAILTO_DOMAIN_LITERAL = /^\[[\x21-\x5A\x5E-\x7E]*\]$/u;
     var MAILTO_DOMAIN_ERROR = "URI mailto has an invalid recipient domain.";
     var HAS_SURROGATE = /[\uD800-\uDFFF]/u;
-    function decodeHex(str) {
-      if (typeof str !== "string" || str.indexOf("%") === -1) {
-        return str;
+    function decodeHex(str2) {
+      if (typeof str2 !== "string" || str2.indexOf("%") === -1) {
+        return str2;
       }
       try {
-        return decodeURIComponent(str);
+        return decodeURIComponent(str2);
       } catch {
-        return str;
+        return str2;
       }
     }
     function replaceLoneSurrogates(input) {
@@ -24068,8 +24068,8 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date(str) {
-      const matches = DATE.exec(str);
+    function date(str2) {
+      const matches = DATE.exec(str2);
       if (!matches)
         return false;
       const year = +matches[1];
@@ -24088,8 +24088,8 @@ var require_formats = __commonJS({
     }
     var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
     function getTime(strictTimeZone) {
-      return function time(str) {
-        const matches = TIME.exec(str);
+      return function time(str2) {
+        const matches = TIME.exec(str2);
         if (!matches)
           return false;
         const hr = +matches[1];
@@ -24135,8 +24135,8 @@ var require_formats = __commonJS({
     var DATE_TIME_SEPARATOR = /t|\s/i;
     function getDateTime(strictTimeZone) {
       const time = getTime(strictTimeZone);
-      return function date_time(str) {
-        const dateTime = str.split(DATE_TIME_SEPARATOR);
+      return function date_time(str2) {
+        const dateTime = str2.split(DATE_TIME_SEPARATOR);
         return dateTime.length === 2 && date(dateTime[0]) && time(dateTime[1]);
       };
     }
@@ -24161,13 +24161,13 @@ var require_formats = __commonJS({
     }
     var NOT_URI_FRAGMENT = /\/|:/;
     var URI = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
-    function uri(str) {
-      return NOT_URI_FRAGMENT.test(str) && URI.test(str);
+    function uri(str2) {
+      return NOT_URI_FRAGMENT.test(str2) && URI.test(str2);
     }
     var BYTE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/gm;
-    function byte(str) {
+    function byte(str2) {
       BYTE.lastIndex = 0;
-      return BYTE.test(str);
+      return BYTE.test(str2);
     }
     var MIN_INT32 = -(2 ** 31);
     var MAX_INT32 = 2 ** 31 - 1;
@@ -24181,11 +24181,11 @@ var require_formats = __commonJS({
       return true;
     }
     var Z_ANCHOR = /[^\\]\\Z/;
-    function regex(str) {
-      if (Z_ANCHOR.test(str))
+    function regex(str2) {
+      if (Z_ANCHOR.test(str2))
         return false;
       try {
-        new RegExp(str);
+        new RegExp(str2);
         return true;
       } catch (e) {
         return false;
@@ -30681,24 +30681,24 @@ var require_querystring = __commonJS({
       0
       // 112 - 127
     ]);
-    function encodeString(str) {
-      const len = str.length;
+    function encodeString(str2) {
+      const len = str2.length;
       if (len === 0) return "";
       let out = "";
       let lastPos = 0;
       let i = 0;
       outer: for (; i < len; i++) {
-        let c = str.charCodeAt(i);
+        let c = str2.charCodeAt(i);
         while (c < 128) {
           if (noEscape[c] !== 1) {
-            if (lastPos < i) out += str.slice(lastPos, i);
+            if (lastPos < i) out += str2.slice(lastPos, i);
             lastPos = i + 1;
             out += hexTable[c];
           }
           if (++i === len) break outer;
-          c = str.charCodeAt(i);
+          c = str2.charCodeAt(i);
         }
-        if (lastPos < i) out += str.slice(lastPos, i);
+        if (lastPos < i) out += str2.slice(lastPos, i);
         if (c < 2048) {
           lastPos = i + 1;
           out += hexTable[192 | c >> 6] + hexTable[128 | c & 63];
@@ -30713,13 +30713,13 @@ var require_querystring = __commonJS({
         if (i >= len) {
           throw new Error("URI malformed");
         }
-        const c2 = str.charCodeAt(i) & 1023;
+        const c2 = str2.charCodeAt(i) & 1023;
         lastPos = i + 1;
         c = 65536 + ((c & 1023) << 10 | c2);
         out += hexTable[240 | c >> 18] + hexTable[128 | c >> 12 & 63] + hexTable[128 | c >> 6 & 63] + hexTable[128 | c & 63];
       }
-      if (lastPos === 0) return str;
-      if (lastPos < len) return out + str.slice(lastPos);
+      if (lastPos === 0) return str2;
+      if (lastPos < len) return out + str2.slice(lastPos);
       return out;
     }
     module.exports = { encodeString };
@@ -30935,9 +30935,9 @@ var require_util2 = __commonJS({
     var types_1 = require_types4();
     var sets = __importStar(require_sets());
     var CTRL = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^ ?";
-    exports.strToChars = (str) => {
+    exports.strToChars = (str2) => {
       const charsRegex = /(\[\\b\])|(\\)?\\(?:u([A-F0-9]{4})|x([A-F0-9]{2})|c([@A-Z[\\\]^?])|([0tnvfr]))/g;
-      return str.replace(charsRegex, (s, b, lbs, a16, b16, dctrl, eslsh) => {
+      return str2.replace(charsRegex, (s, b, lbs, a16, b16, dctrl, eslsh) => {
         if (lbs) {
           return s;
         }
@@ -30953,11 +30953,11 @@ var require_util2 = __commonJS({
         return /[[\]{}^$.|?*+()]/.test(c) ? `\\${c}` : c;
       });
     };
-    exports.tokenizeClass = (str, regexpStr) => {
+    exports.tokenizeClass = (str2, regexpStr) => {
       var _a, _b, _c, _d, _e, _f, _g;
       let tokens = [], rs, c;
       const regexp = /\\(?:(w)|(d)|(s)|(W)|(D)|(S))|((?:(?:\\)(.)|([^\]\\]))-(((?:\\)])|(((?:\\)?([^\]])))))|(\])|(?:\\)?([^])/g;
-      while ((rs = regexp.exec(str)) !== null) {
+      while ((rs = regexp.exec(str2)) !== null) {
         const p = (_g = (_f = (_e = (_d = (_c = (_b = (_a = rs[1] && sets.words()) !== null && _a !== void 0 ? _a : rs[2] && sets.ints()) !== null && _b !== void 0 ? _b : rs[3] && sets.whitespace()) !== null && _c !== void 0 ? _c : rs[4] && sets.notWords()) !== null && _d !== void 0 ? _d : rs[5] && sets.notInts()) !== null && _e !== void 0 ? _e : rs[6] && sets.notWhitespace()) !== null && _f !== void 0 ? _f : rs[7] && {
           type: types_1.types.RANGE,
           from: (rs[8] || rs[9]).charCodeAt(0),
@@ -31020,15 +31020,15 @@ var require_tokenizer = __commonJS({
       const repeatErr = (col) => {
         throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Nothing to repeat at column ${col - 1}`);
       };
-      let str = util.strToChars(regexpStr);
-      while (i < str.length) {
-        switch (c = str[i++]) {
+      let str2 = util.strToChars(regexpStr);
+      while (i < str2.length) {
+        switch (c = str2[i++]) {
           // Handle escaped characters, inclues a few sets.
           case "\\":
-            if (i === str.length) {
+            if (i === str2.length) {
               throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: \\ at end of pattern`);
             }
-            switch (c = str[i++]) {
+            switch (c = str2[i++]) {
               case "b":
                 last.push({ type: types_1.types.POSITION, value: "b" });
                 break;
@@ -31056,8 +31056,8 @@ var require_tokenizer = __commonJS({
               default:
                 if (digit.test(c)) {
                   let digits = c;
-                  while (i < str.length && digit.test(str[i])) {
-                    digits += str[i++];
+                  while (i < str2.length && digit.test(str2[i])) {
+                    digits += str2[i++];
                   }
                   let value = parseInt(digits, 10);
                   const reference = { type: types_1.types.REFERENCE, value };
@@ -31078,13 +31078,13 @@ var require_tokenizer = __commonJS({
           // Handle custom sets.
           case "[": {
             let not;
-            if (str[i] === "^") {
+            if (str2[i] === "^") {
               not = true;
               i++;
             } else {
               not = false;
             }
-            let classTokens = util.tokenizeClass(str.slice(i), regexpStr);
+            let classTokens = util.tokenizeClass(str2.slice(i), regexpStr);
             i += classTokens[1];
             last.push({
               type: types_1.types.SET,
@@ -31104,8 +31104,8 @@ var require_tokenizer = __commonJS({
               stack: [],
               remember: true
             };
-            if (str[i] === "?") {
-              c = str[i + 1];
+            if (str2[i] === "?") {
+              c = str2[i + 1];
               i += 2;
               if (c === "=") {
                 group.followedBy = true;
@@ -31115,21 +31115,21 @@ var require_tokenizer = __commonJS({
                 group.remember = false;
               } else if (c === "<") {
                 let name = "";
-                if (captureGroupFirstChar.test(str[i])) {
-                  name += str[i];
+                if (captureGroupFirstChar.test(str2[i])) {
+                  name += str2[i];
                   i++;
                 } else {
-                  throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid capture group name, character '${str[i]}' after '<' at column ${i + 1}`);
+                  throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid capture group name, character '${str2[i]}' after '<' at column ${i + 1}`);
                 }
-                while (i < str.length && captureGroupChars.test(str[i])) {
-                  name += str[i];
+                while (i < str2.length && captureGroupChars.test(str2[i])) {
+                  name += str2[i];
                   i++;
                 }
                 if (!name) {
-                  throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid capture group name, character '${str[i]}' after '<' at column ${i + 1}`);
+                  throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Invalid capture group name, character '${str2[i]}' after '<' at column ${i + 1}`);
                 }
-                if (str[i] !== ">") {
-                  throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Unclosed capture group name, expected '>', found '${str[i]}' at column ${i + 1}`);
+                if (str2[i] !== ">") {
+                  throw new SyntaxError(`Invalid regular expression: /${regexpStr}/: Unclosed capture group name, expected '>', found '${str2[i]}' at column ${i + 1}`);
                 }
                 group.name = name;
                 i++;
@@ -31172,7 +31172,7 @@ var require_tokenizer = __commonJS({
           // This design is chosen because there could be more than
           // one repetition symbols in a regex i.e. `a?+{2,3}`.
           case "{": {
-            let rs = /^(\d+)(,(\d+)?)?\}/.exec(str.slice(i)), min, max;
+            let rs = /^(\d+)(,(\d+)?)?\}/.exec(str2.slice(i)), min, max;
             if (rs !== null) {
               if (last.length === 0) {
                 repeatErr(i);
@@ -34102,25 +34102,25 @@ var require_dist4 = __commonJS({
       C.prototype = /* @__PURE__ */ Object.create(null);
       return C;
     })();
-    function parseCookie(str, options) {
+    function parseCookie(str2, options) {
       const obj = new NullObject();
-      const len = str.length;
+      const len = str2.length;
       if (len < 2)
         return obj;
       const dec = options?.decode || decode;
       let index = 0;
       do {
-        const eqIdx = eqIndex(str, index, len);
+        const eqIdx = eqIndex(str2, index, len);
         if (eqIdx === -1)
           break;
-        const endIdx = endIndex(str, index, len);
+        const endIdx = endIndex(str2, index, len);
         if (eqIdx > endIdx) {
-          index = str.lastIndexOf(";", eqIdx - 1) + 1;
+          index = str2.lastIndexOf(";", eqIdx - 1) + 1;
           continue;
         }
-        const key = valueSlice(str, index, eqIdx);
+        const key = valueSlice(str2, index, eqIdx);
         if (obj[key] === void 0) {
-          obj[key] = dec(valueSlice(str, eqIdx + 1, endIdx));
+          obj[key] = dec(valueSlice(str2, eqIdx + 1, endIdx));
         }
         index = endIdx + 1;
       } while (index < len);
@@ -34155,51 +34155,51 @@ var require_dist4 = __commonJS({
       if (!cookieValueRegExp.test(value)) {
         throw new TypeError(`argument val is invalid: ${cookie.value}`);
       }
-      let str = cookie.name + "=" + value;
+      let str2 = cookie.name + "=" + value;
       if (cookie.maxAge !== void 0) {
         if (!Number.isInteger(cookie.maxAge)) {
           throw new TypeError(`option maxAge is invalid: ${cookie.maxAge}`);
         }
-        str += "; Max-Age=" + cookie.maxAge;
+        str2 += "; Max-Age=" + cookie.maxAge;
       }
       if (cookie.domain) {
         if (!domainValueRegExp.test(cookie.domain)) {
           throw new TypeError(`option domain is invalid: ${cookie.domain}`);
         }
-        str += "; Domain=" + cookie.domain;
+        str2 += "; Domain=" + cookie.domain;
       }
       if (cookie.path) {
         if (!pathValueRegExp.test(cookie.path)) {
           throw new TypeError(`option path is invalid: ${cookie.path}`);
         }
-        str += "; Path=" + cookie.path;
+        str2 += "; Path=" + cookie.path;
       }
       if (cookie.expires) {
         if (!isDate(cookie.expires) || !Number.isFinite(cookie.expires.valueOf())) {
           throw new TypeError(`option expires is invalid: ${cookie.expires}`);
         }
-        str += "; Expires=" + cookie.expires.toUTCString();
+        str2 += "; Expires=" + cookie.expires.toUTCString();
       }
       if (cookie.httpOnly) {
-        str += "; HttpOnly";
+        str2 += "; HttpOnly";
       }
       if (cookie.secure) {
-        str += "; Secure";
+        str2 += "; Secure";
       }
       if (cookie.partitioned) {
-        str += "; Partitioned";
+        str2 += "; Partitioned";
       }
       if (cookie.priority) {
         const priority = typeof cookie.priority === "string" ? cookie.priority.toLowerCase() : void 0;
         switch (priority) {
           case "low":
-            str += "; Priority=Low";
+            str2 += "; Priority=Low";
             break;
           case "medium":
-            str += "; Priority=Medium";
+            str2 += "; Priority=Medium";
             break;
           case "high":
-            str += "; Priority=High";
+            str2 += "; Priority=High";
             break;
           default:
             throw new TypeError(`option priority is invalid: ${cookie.priority}`);
@@ -34210,35 +34210,35 @@ var require_dist4 = __commonJS({
         switch (sameSite) {
           case true:
           case "strict":
-            str += "; SameSite=Strict";
+            str2 += "; SameSite=Strict";
             break;
           case "lax":
-            str += "; SameSite=Lax";
+            str2 += "; SameSite=Lax";
             break;
           case "none":
-            str += "; SameSite=None";
+            str2 += "; SameSite=None";
             break;
           default:
             throw new TypeError(`option sameSite is invalid: ${cookie.sameSite}`);
         }
       }
-      return str;
+      return str2;
     }
-    function parseSetCookie(str, options) {
+    function parseSetCookie(str2, options) {
       const dec = options?.decode || decode;
-      const len = str.length;
-      const endIdx = endIndex(str, 0, len);
-      const eqIdx = eqIndex(str, 0, endIdx);
-      const setCookie = eqIdx === -1 ? { name: "", value: dec(valueSlice(str, 0, endIdx)) } : {
-        name: valueSlice(str, 0, eqIdx),
-        value: dec(valueSlice(str, eqIdx + 1, endIdx))
+      const len = str2.length;
+      const endIdx = endIndex(str2, 0, len);
+      const eqIdx = eqIndex(str2, 0, endIdx);
+      const setCookie = eqIdx === -1 ? { name: "", value: dec(valueSlice(str2, 0, endIdx)) } : {
+        name: valueSlice(str2, 0, eqIdx),
+        value: dec(valueSlice(str2, eqIdx + 1, endIdx))
       };
       let index = endIdx + 1;
       while (index < len) {
-        const endIdx2 = endIndex(str, index, len);
-        const eqIdx2 = eqIndex(str, index, endIdx2);
-        const attr = eqIdx2 === -1 ? valueSlice(str, index, endIdx2) : valueSlice(str, index, eqIdx2);
-        const val = eqIdx2 === -1 ? void 0 : valueSlice(str, eqIdx2 + 1, endIdx2);
+        const endIdx2 = endIndex(str2, index, len);
+        const eqIdx2 = eqIndex(str2, index, endIdx2);
+        const attr = eqIdx2 === -1 ? valueSlice(str2, index, endIdx2) : valueSlice(str2, index, eqIdx2);
+        const val = eqIdx2 === -1 ? void 0 : valueSlice(str2, eqIdx2 + 1, endIdx2);
         switch (attr.toLowerCase()) {
           case "httponly":
             setCookie.httpOnly = true;
@@ -34287,37 +34287,37 @@ var require_dist4 = __commonJS({
       }
       return setCookie;
     }
-    function endIndex(str, min, len) {
-      const index = str.indexOf(";", min);
+    function endIndex(str2, min, len) {
+      const index = str2.indexOf(";", min);
       return index === -1 ? len : index;
     }
-    function eqIndex(str, min, max) {
-      const index = str.indexOf("=", min);
+    function eqIndex(str2, min, max) {
+      const index = str2.indexOf("=", min);
       return index < max ? index : -1;
     }
-    function valueSlice(str, min, max) {
+    function valueSlice(str2, min, max) {
       let start = min;
       let end = max;
       do {
-        const code = str.charCodeAt(start);
+        const code = str2.charCodeAt(start);
         if (code !== 32 && code !== 9)
           break;
       } while (++start < end);
       while (end > start) {
-        const code = str.charCodeAt(end - 1);
+        const code = str2.charCodeAt(end - 1);
         if (code !== 32 && code !== 9)
           break;
         end--;
       }
-      return str.slice(start, end);
+      return str2.slice(start, end);
     }
-    function decode(str) {
-      if (str.indexOf("%") === -1)
-        return str;
+    function decode(str2) {
+      if (str2.indexOf("%") === -1)
+        return str2;
       try {
-        return decodeURIComponent(str);
+        return decodeURIComponent(str2);
       } catch (e) {
-        return str;
+        return str2;
       }
     }
     function isDate(val) {
@@ -34437,7 +34437,7 @@ var require_form_data = __commonJS({
       const boundary = `----formdata-${randomUUID()}`;
       const prefix = `--${boundary}\r
 Content-Disposition: form-data`;
-      const escape2 = (str) => str.replace(/\n/g, "%0A").replace(/\r/g, "%0D").replace(/"/g, "%22");
+      const escape2 = (str2) => str2.replace(/\n/g, "%0A").replace(/\r/g, "%0D").replace(/"/g, "%22");
       const normalizeLinefeeds = (value) => value.replace(/\r?\n|\r/g, "\r\n");
       const linebreak = new Uint8Array([13, 10]);
       async function* asyncIterator() {
@@ -34683,8 +34683,8 @@ var require_set_cookie = __commonJS({
     function createNullObj() {
       return /* @__PURE__ */ Object.create(null);
     }
-    function isNonEmptyString(str) {
-      return typeof str === "string" && !!str.trim();
+    function isNonEmptyString(str2) {
+      return typeof str2 === "string" && !!str2.trim();
     }
     function parseString(setCookieValue, options) {
       var parts = setCookieValue.split(";").filter(isNonEmptyString);
@@ -34775,13 +34775,13 @@ var require_set_cookie = __commonJS({
         input = [input];
       }
       if (!options.map) {
-        return input.filter(isNonEmptyString).map(function(str) {
-          return parseString(str, options);
+        return input.filter(isNonEmptyString).map(function(str2) {
+          return parseString(str2, options);
         }).filter(Boolean);
       } else {
         var cookies = createNullObj();
-        return input.filter(isNonEmptyString).reduce(function(cookies2, str) {
-          var cookie = parseString(str, options);
+        return input.filter(isNonEmptyString).reduce(function(cookies2, str2) {
+          var cookie = parseString(str2, options);
           if (cookie && !isForbiddenKey(cookie.name)) {
             cookies2[cookie.name] = cookie;
           }
@@ -36881,6 +36881,8 @@ var DEFAULTS = {
   mpdConnectTimeoutMs: 5e3,
   webRoot: "/home/musicbox/musicbox/frontend",
   musicRoot: "/srv/music/Music",
+  bluetoothState: "/run/musicbox/bluetooth.json",
+  bluetoothControl: "/run/musicbox/control",
   logLevel: "info"
 };
 function parseConf(text) {
@@ -36923,6 +36925,8 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
     ),
     webRoot: pick("MUSICBOX_WEB_ROOT") ?? DEFAULTS.webRoot,
     musicRoot: pick("MUSICBOX_MUSIC_ROOT") ?? DEFAULTS.musicRoot,
+    bluetoothState: pick("MUSICBOX_BLUETOOTH_STATE") ?? DEFAULTS.bluetoothState,
+    bluetoothControl: pick("MUSICBOX_BLUETOOTH_CONTROL") ?? DEFAULTS.bluetoothControl,
     logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
   };
 }
@@ -37297,12 +37301,29 @@ function trackFromTags(tags) {
   if (dur !== void 0) track.duration = dur;
   return track;
 }
-function unavailableSnapshot(now) {
+function trackFromBluetooth(bt) {
+  if (bt.title === null && bt.artist === null && bt.album === null) return null;
+  const track = { image: null };
+  if (bt.title !== null) track.title = bt.title;
+  if (bt.artist !== null) track.artist = bt.artist;
+  if (bt.album !== null) track.album = bt.album;
+  if (bt.duration !== null) track.duration = bt.duration;
+  if (bt.queuePosition !== null) track.position = bt.queuePosition;
+  return track;
+}
+function unavailableSnapshot(now, bt = null) {
+  if (bt !== null) {
+    return {
+      ...bluetoothSnapshot(bt, now),
+      status: "unavailable"
+    };
+  }
   return {
     apiVersion: API_VERSION,
     status: "unavailable",
     source: "mpd",
     state: "stop",
+    bluetooth: null,
     repeat: false,
     random: false,
     single: false,
@@ -37316,7 +37337,29 @@ function unavailableSnapshot(now) {
     serverTime: now
   };
 }
-function buildSnapshot(status, currentSong, now) {
+function bluetoothSnapshot(bt, now) {
+  return {
+    apiVersion: API_VERSION,
+    status: "ok",
+    source: "bluetooth",
+    state: bt.state ?? "stop",
+    bluetooth: bt.device,
+    repeat: bt.repeat,
+    random: bt.random,
+    single: bt.single,
+    // MPD's consume mode has no AVRCP equivalent.
+    consume: false,
+    track: trackFromBluetooth(bt),
+    elapsed: bt.elapsed,
+    duration: bt.duration,
+    queueVersion: -1,
+    queueLength: bt.queueLength ?? 0,
+    queuePosition: bt.queuePosition,
+    serverTime: now
+  };
+}
+function buildSnapshot(status, currentSong, now, bt = null) {
+  if (bt !== null) return bluetoothSnapshot(bt, now);
   const get = (k) => firstValue(status, k);
   const rawState = get("state");
   const state = rawState === "play" || rawState === "pause" ? rawState : "stop";
@@ -37327,6 +37370,7 @@ function buildSnapshot(status, currentSong, now) {
     status: "ok",
     source: "mpd",
     state,
+    bluetooth: null,
     // No volume: MPD runs mixer_type "none" and reports -1. See shared/api.ts.
     repeat: get("repeat") === "1",
     random: get("random") === "1",
@@ -37354,6 +37398,14 @@ var MpdBridge = class {
   idleBackoff = BACKOFF_MIN_MS;
   timers = /* @__PURE__ */ new Set();
   unavailableTimer = null;
+  /**
+   * The connected Bluetooth device, as last reported by the arbiter.
+   *
+   * Held here rather than read per-snapshot because snapshots are built on
+   * MPD's timeline (every idle wake) and this changes on its own. See
+   * src/backend/src/bluetooth.ts for why this side only observes.
+   */
+  bluetooth = null;
   // Declared explicitly rather than as a constructor parameter property:
   // those emit code, so Node's type-stripping (used by `npm test`) rejects them.
   opts;
@@ -37361,7 +37413,7 @@ var MpdBridge = class {
     this.opts = opts;
     this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
     this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
-    this.snapshot = unavailableSnapshot(Date.now());
+    this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth);
   }
   get current() {
     return this.snapshot;
@@ -37398,7 +37450,7 @@ var MpdBridge = class {
       this.unavailableTimer = null;
       if (!this.commands.connected && !this.stopped) {
         this.opts.log("warn", "MPD still unreachable \u2014 reporting unavailable");
-        this.publish(unavailableSnapshot(Date.now()));
+        this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
       }
     }, grace);
     this.timers.add(timer);
@@ -37481,9 +37533,28 @@ var MpdBridge = class {
     try {
       const status = await this.commands.send("status");
       const song = await this.commands.send("currentsong");
-      this.publish(buildSnapshot(status, song, Date.now()));
+      this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth));
     } catch (err) {
       this.opts.log("warn", `refresh failed: ${err.message}`);
+    }
+  }
+  /**
+   * Record the connected Bluetooth device and republish.
+   *
+   * Republishing is the point: a phone connecting is not an MPD event, so
+   * nothing would otherwise wake the idle loop and the panel would keep showing
+   * the old source until MPD happened to change something. It goes through
+   * refresh() when MPD is reachable so the MPD half of the snapshot is fresh
+   * too — the arbiter has just paused MPD, and a snapshot claiming `play`
+   * alongside a connected phone would be wrong in a way a user would notice.
+   */
+  async setBluetooth(info) {
+    this.bluetooth = info;
+    if (this.stopped) return;
+    if (this.commands.connected) {
+      await this.refresh();
+    } else {
+      this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
     }
   }
   publish(snapshot) {
@@ -37531,11 +37602,202 @@ function registerCors(app) {
   });
 }
 
+// src/bluetooth.ts
+import { readFile, open as openFile, stat as stat3 } from "node:fs/promises";
+import { watch, statSync, constants as fsConstants } from "node:fs";
+import { dirname } from "node:path";
+var DEFAULT_STATE_PATH = "/run/musicbox/bluetooth.json";
+var DEFAULT_CONTROL_PATH = "/run/musicbox/control";
+var DEFAULT_POLL_MS = 1e4;
+function playbackState(value) {
+  switch (value) {
+    case "playing":
+      return "play";
+    case "paused":
+      return "pause";
+    case "stopped":
+      return "stop";
+    // AVRCP also defines forward-seek, reverse-seek and error. Seeking is
+    // still playing as far as a listener is concerned; error is not.
+    case "forward-seek":
+    case "reverse-seek":
+      return "play";
+    case "error":
+      return "stop";
+    default:
+      return null;
+  }
+}
+function str(value) {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+function positive(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+function parseBluetoothState(text) {
+  if (text === null) return null;
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const raw = parsed;
+  const name = str(raw.name);
+  const address = str(raw.address);
+  if (name === null || address === null) return null;
+  const durationMs = positive(raw.durationMs);
+  const positionMs = positive(raw.positionMs);
+  const trackNumber = positive(raw.trackNumber);
+  const repeat = str(raw.repeat);
+  const shuffle = str(raw.shuffle);
+  return {
+    device: { name, address, codec: str(raw.codec) },
+    state: playbackState(raw.status),
+    // "Not Provided" is what a phone with nothing loaded actually sends, and
+    // showing it on the panel would look like a bug rather than like silence.
+    title: str(raw.title) === "Not Provided" ? null : str(raw.title),
+    artist: str(raw.artist),
+    album: str(raw.album),
+    duration: durationMs === null ? null : durationMs / 1e3,
+    // positionMs of 0 is legitimate — the start of a track — but `positive`
+    // rejects it, so read it directly and only reject a non-number.
+    elapsed: typeof raw.positionMs === "number" && Number.isFinite(raw.positionMs) && raw.positionMs >= 0 ? raw.positionMs / 1e3 : positionMs === null ? null : positionMs / 1e3,
+    // AVRCP counts from 1; the snapshot counts from 0, like MPD's `song`.
+    queuePosition: trackNumber === null ? null : trackNumber - 1,
+    queueLength: positive(raw.numberOfTracks),
+    // AVRCP's Repeat is off | singletrack | alltracks | group, and Shuffle is
+    // off | alltracks | group. Read-only for now; see roadmap.md.
+    repeat: repeat !== null && repeat !== "off",
+    random: shuffle !== null && shuffle !== "off",
+    single: repeat === "singletrack"
+  };
+}
+var realDeps2 = {
+  readText: async (path) => {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      return null;
+    }
+  }
+};
+function same(a, b) {
+  if (a === null || b === null) return a === b;
+  return a.device.name === b.device.name && a.device.address === b.device.address && a.device.codec === b.device.codec && a.state === b.state && a.title === b.title && a.artist === b.artist && a.album === b.album && a.duration === b.duration && a.queuePosition === b.queuePosition && a.queueLength === b.queueLength && a.repeat === b.repeat && a.random === b.random && a.single === b.single;
+}
+function createBluetoothWatcher(opts) {
+  const path = opts.path ?? DEFAULT_STATE_PATH;
+  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
+  const deps = opts.deps ?? realDeps2;
+  const log = opts.log ?? (() => {
+  });
+  let value = null;
+  let stopped = false;
+  let watcher = null;
+  let armWarned = false;
+  let watchedIno = null;
+  const arm = () => {
+    if (stopped || watcher !== null) return watcher !== null;
+    try {
+      const w = watch(dirname(path), () => void poll());
+      w.on("error", (err) => {
+        log("warn", `bluetooth state watch dropped, falling back to polling: ${err.message}`);
+        w.close();
+        if (watcher === w) watcher = null;
+      });
+      watcher = w;
+      try {
+        watchedIno = statSync(dirname(path)).ino;
+      } catch {
+        watchedIno = null;
+      }
+      if (armWarned) log("info", `bluetooth state watch established on ${dirname(path)}`);
+      return true;
+    } catch {
+      if (!armWarned) {
+        armWarned = true;
+        log("info", `${dirname(path)} does not exist yet \u2014 polling until it does`);
+      }
+      return false;
+    }
+  };
+  const dropStaleWatch = async () => {
+    if (watcher === null) return;
+    let ino = null;
+    try {
+      ino = (await stat3(dirname(path))).ino;
+    } catch {
+      ino = null;
+    }
+    if (ino === watchedIno) return;
+    log("info", `bluetooth state directory was replaced \u2014 re-arming the watch`);
+    watcher.close();
+    watcher = null;
+    watchedIno = null;
+  };
+  const poll = async () => {
+    if (stopped) return;
+    await dropStaleWatch();
+    if (stopped) return;
+    arm();
+    const next = parseBluetoothState(await deps.readText(path));
+    if (stopped || same(value, next)) return;
+    value = next;
+    opts.onChange(next);
+  };
+  arm();
+  const timer = setInterval(() => void poll(), pollMs);
+  return {
+    poll,
+    current: () => value,
+    watching: () => watcher !== null,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+      watcher?.close();
+      watcher = null;
+    }
+  };
+}
+var BluetoothUnavailableError = class extends Error {
+};
+async function sendControl(verb, path = DEFAULT_CONTROL_PATH) {
+  let handle;
+  try {
+    handle = await openFile(path, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+  } catch (err) {
+    const code = err.code;
+    if (code === "ENXIO" || code === "ENOENT") {
+      throw new BluetoothUnavailableError(
+        "the Bluetooth arbiter is not running (musicbox-bt-monitor)"
+      );
+    }
+    throw err;
+  }
+  try {
+    await handle.write(`${verb}
+`);
+  } finally {
+    await handle.close();
+  }
+}
+
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
 var COMMAND_MAP = {
   play: "play",
   pause: "pause 1",
+  stop: "stop",
+  next: "next",
+  previous: "previous"
+};
+var BLUETOOTH_COMMAND_MAP = {
+  play: "play",
+  pause: "pause",
   stop: "stop",
   next: "next",
   previous: "previous"
@@ -37548,6 +37810,7 @@ data: ${JSON.stringify(data)}
 }
 function registerRoutes(app, opts) {
   const { bridge, build, startedAt, musicRoot } = opts;
+  const controlPath = opts.bluetoothControl ?? DEFAULT_CONTROL_PATH;
   const streams = /* @__PURE__ */ new Set();
   app.get("/api/health", async () => {
     return {
@@ -37563,6 +37826,11 @@ function registerRoutes(app, opts) {
     return bridge.current;
   });
   app.get("/api/queue", async (_req, reply) => {
+    if (bridge.current.source === "bluetooth") {
+      return reply.code(409).send({
+        error: "no queue for the bluetooth source \u2014 a phone exposes no track list"
+      });
+    }
     try {
       return await bridge.queue();
     } catch (err) {
@@ -37576,11 +37844,36 @@ function registerRoutes(app, opts) {
         error: `unknown command '${command}', expected one of ${PLAYBACK_COMMANDS.join(", ")}`
       });
     }
+    if (bridge.current.source === "bluetooth") {
+      try {
+        await sendControl(BLUETOOTH_COMMAND_MAP[command], controlPath);
+        return reply.code(202).send({ accepted: command });
+      } catch (err) {
+        if (err instanceof BluetoothUnavailableError) {
+          return reply.code(503).send({ error: err.message });
+        }
+        throw err;
+      }
+    }
     try {
       await bridge.command(COMMAND_MAP[command]);
       return bridge.current;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.post("/api/bluetooth/disconnect", async (_req, reply) => {
+    if (bridge.current.source !== "bluetooth") {
+      return reply.code(409).send({ error: "no bluetooth device is connected" });
+    }
+    try {
+      await sendControl("disconnect", controlPath);
+      return reply.code(202).send({ accepted: "disconnect" });
+    } catch (err) {
+      if (err instanceof BluetoothUnavailableError) {
+        return reply.code(503).send({ error: err.message });
+      }
+      throw err;
     }
   });
   app.get("/api/art", createArtHandler(createArtResolver(musicRoot)));
@@ -37631,7 +37924,7 @@ function registerRoutes(app, opts) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-13T01:28:44Z" : "dev";
+var BUILD = true ? "2026-09-13T04:16:41Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -37659,13 +37952,26 @@ async function main() {
     bridge,
     build: BUILD,
     startedAt,
-    musicRoot: config.musicRoot
+    musicRoot: config.musicRoot,
+    bluetoothControl: config.bluetoothControl
   });
   registerStatic(app, config.webRoot);
+  const bluetooth = createBluetoothWatcher({
+    path: config.bluetoothState,
+    log: (level, msg) => app.log[level](msg),
+    onChange: (state) => {
+      app.log.info(
+        state ? `bluetooth: ${state.device.name} (${state.device.codec ?? "codec pending"}) ${state.state ?? "state unknown"}` + (state.title ? ` \u2014 ${state.artist ?? "?"} / ${state.title}` : "") : "bluetooth: disconnected"
+      );
+      void bridge.setBluetooth(state);
+    }
+  });
+  void bluetooth.poll();
   bridge.start();
   const shutdown = async (signal) => {
     app.log.info(`${signal} received, shutting down`);
     bridge.stop();
+    bluetooth.stop();
     routes.closeStreams();
     await app.close();
     process.exit(0);

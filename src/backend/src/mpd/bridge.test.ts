@@ -6,7 +6,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSnapshot, trackFromTags, unavailableSnapshot } from './bridge.ts';
+import { buildSnapshot, trackFromBluetooth, trackFromTags, unavailableSnapshot } from './bridge.ts';
+import type { BluetoothState } from '../bluetooth.ts';
 import type { Reply } from './protocol.ts';
 
 /** Build a Reply the way MpdConnection would, from raw "key: value" lines. */
@@ -175,5 +176,205 @@ test('every track carries an art URI derived from its own directory', () => {
 });
 
 test('a tag map with no file is not a track', () => {
+    assert.equal(trackFromTags(new Map([['Title', 'orphan']])), null);
+});
+
+/*
+ * ---------------------------------------------------------------------------
+ * Bluetooth. The DAC is opened raw as hw:0,0, so MPD and the Bluetooth sink can
+ * never both hold it — `source` is a hard statement about who owns the hardware,
+ * not a hint. install/setup-bluetooth.sh enforces the exclusion on the device;
+ * these guard the half of it that reaches the UI.
+ * ---------------------------------------------------------------------------
+ */
+
+/** What the arbiter publishes for a phone that is playing. See bluetooth.ts. */
+const PHONE: BluetoothState = {
+    device: { name: "Luke's iPhone", address: 'AA:BB:CC:DD:EE:FF', codec: 'aptX-HD' },
+    state: 'play',
+    title: 'A National Acrobat',
+    artist: 'Black Sabbath',
+    album: 'Sabbath Bloody Sabbath',
+    duration: 375.107,
+    elapsed: 76.472,
+    queuePosition: 1,
+    queueLength: 8,
+    repeat: false,
+    random: false,
+    single: false,
+};
+
+/** A phone that has connected but told us nothing yet. */
+const SILENT: BluetoothState = {
+    device: { name: 'Pixel', address: 'D4:3A:2C:65:B5:D6', codec: null },
+    state: null,
+    title: null,
+    artist: null,
+    album: null,
+    duration: null,
+    elapsed: null,
+    queuePosition: null,
+    queueLength: null,
+    repeat: false,
+    random: false,
+    single: false,
+};
+
+test('a connected device flips source to bluetooth and names itself', () => {
+    const s = buildSnapshot(STATUS, CURRENT, 0, PHONE);
+    assert.equal(s.source, 'bluetooth');
+    assert.deepEqual(s.bluetooth, PHONE.device);
+});
+
+test('no connected device leaves source as mpd', () => {
+    // The default must be the MPD case: every existing three-argument call site
+    // in this file depends on it, and so does the whole pre-Bluetooth codebase.
+    assert.equal(buildSnapshot(STATUS, CURRENT, 0).source, 'mpd');
+    assert.equal(buildSnapshot(STATUS, CURRENT, 0).bluetooth, null);
+    assert.equal(buildSnapshot(STATUS, CURRENT, 0, null).source, 'mpd');
+});
+
+test('THE ACTIVE SOURCE: a Bluetooth snapshot describes the phone, not MPD', () => {
+    /*
+     * This replaces a test that asserted the exact opposite — that MPD's fields
+     * survived a Bluetooth connection so the play button could resume in place.
+     * That was right while a phone had no readable metadata: the top-level fields
+     * meant MPD and clients were told to branch on `source`.
+     *
+     * AVRCP changed what is possible, so it changed what is right. `state`,
+     * `track`, `elapsed` and `duration` now answer "what is playing". MPD's
+     * position is not lost — it is paused, not stopped, so disconnecting brings
+     * it back on the next snapshot — it is simply not what you are hearing.
+     */
+    const s = buildSnapshot(STATUS, CURRENT, 0, PHONE);
+    assert.equal(s.state, 'play', "the phone's state, not MPD's pause");
+    assert.equal(s.track?.title, 'A National Acrobat');
+    assert.equal(s.track?.artist, 'Black Sabbath');
+    assert.equal(s.elapsed, 76.472);
+    assert.equal(s.duration, 375.107);
+
+    // None of MPD's numbers leak through. STATUS says elapsed 65.482, song 3,
+    // playlistlength 1337 — all absent here.
+    assert.notEqual(s.elapsed, 65.482);
+    assert.equal(s.queuePosition, 1, "the phone's track 2 of 8, 0-based");
+    assert.equal(s.queueLength, 8);
+    assert.equal(s.track?.file, undefined, 'a phone track has no library file');
+});
+
+test('MPD comes straight back when the phone goes away', () => {
+    // The reassurance the replaced test was really about: nothing is destroyed by
+    // a session, so the very next snapshot has MPD's position again.
+    const during = buildSnapshot(STATUS, CURRENT, 0, PHONE);
+    assert.equal(during.source, 'bluetooth');
+    const after = buildSnapshot(STATUS, CURRENT, 0, null);
+    assert.equal(after.source, 'mpd');
+    assert.equal(after.elapsed, 65.482);
+    assert.equal(after.queuePosition, 3);
+    assert.equal(after.queueLength, 1337);
+});
+
+test('a queue listing is refused, not faked, for Bluetooth', () => {
+    /*
+     * queueVersion -1 is the signal not to fetch. A phone exposes no track list at
+     * all — AVRCP browsing is not exposed by BlueZ — so anything else here would
+     * send a client after a listing that cannot exist. The counts beside it ARE
+     * real: "track 2 of 8" came from the phone.
+     */
+    const s = buildSnapshot(STATUS, CURRENT, 0, PHONE);
+    assert.equal(s.queueVersion, -1);
+    assert.equal(s.queueLength, 8);
+    assert.equal(s.queuePosition, 1);
+});
+
+test('a Bluetooth track carries no cover art, deliberately', () => {
+    /*
+     * Not an oversight and not pending. The phone advertises AVRCP 1.6, which does
+     * specify Cover Art, but offers no OBEX channel to fetch it over and BlueZ
+     * implements none either. Borrowing a cover from the local library by matching
+     * artist and album was considered and rejected: a near-miss would show a
+     * confidently wrong cover, and a missing cover is obvious where a wrong one is
+     * misinformation.
+     */
+    const s = buildSnapshot(STATUS, CURRENT, 0, PHONE);
+    assert.equal(s.track?.image, null);
+    assert.ok(s.track && 'image' in s.track, 'image must still be a key');
+});
+
+test('a snapshot with a connected device has the same keys as one without', () => {
+    // The key-parity rule, extended to the new field: `bluetooth` is null when
+    // nothing is connected, never an absent key.
+    const withBt = buildSnapshot(STATUS, CURRENT, 0, PHONE);
+    const without = buildSnapshot(STATUS, CURRENT, 0);
+    assert.deepEqual(Object.keys(withBt).sort(), Object.keys(without).sort());
+    assert.deepEqual(
+        Object.keys(unavailableSnapshot(0, PHONE)).sort(),
+        Object.keys(unavailableSnapshot(0)).sort(),
+    );
+});
+
+test('MPD being down does not hide a connected phone', () => {
+    /*
+     * The two halves are independent: the arbiter is a root service that does not
+     * care whether this one is healthy, so a phone can be connected and playing
+     * while MPD is dead. It used to report `state: 'stop'` here while claiming
+     * source 'bluetooth' — stopped and playing in the same breath.
+     */
+    const dead = unavailableSnapshot(0, PHONE);
+    assert.equal(dead.status, 'unavailable');
+    assert.equal(dead.source, 'bluetooth');
+    assert.deepEqual(dead.bluetooth, PHONE.device);
+    assert.equal(dead.state, 'play', 'the phone is audibly playing');
+    assert.equal(dead.track?.title, 'A National Acrobat');
+});
+
+test('a phone that has told us nothing yet still produces a usable snapshot', () => {
+    // Between the transport appearing and the phone answering. The device must be
+    // reported — that is what the UI needs to offer a disconnect — but there is no
+    // track and nothing is claimed to be playing.
+    const s = buildSnapshot(STATUS, CURRENT, 0, SILENT);
+    assert.equal(s.source, 'bluetooth');
+    assert.equal(s.bluetooth?.name, 'Pixel');
+    assert.equal(s.state, 'stop');
+    assert.equal(s.track, null);
+    assert.equal(s.elapsed, null);
+    assert.equal(s.queueLength, 0);
+});
+
+test('repeat and shuffle come from the phone during a session', () => {
+    const s = buildSnapshot(STATUS, CURRENT, 0, { ...PHONE, repeat: true, single: true, random: true });
+    assert.equal(s.repeat, true);
+    assert.equal(s.single, true);
+    assert.equal(s.random, true);
+    // STATUS has random: 1, repeat: 0 — MPD's values must not leak in.
+    const mpd = buildSnapshot(STATUS, CURRENT, 0);
+    assert.equal(mpd.repeat, false);
+    assert.equal(mpd.random, true);
+});
+
+test('a device whose codec is not yet negotiated is still reported', () => {
+    // A connect is visible before the codec is known; null means "not yet", and
+    // must not suppress the device.
+    const s = buildSnapshot(STATUS, CURRENT, 0, {
+        ...PHONE,
+        device: { ...PHONE.device, codec: null },
+    });
+    assert.equal(s.source, 'bluetooth');
+    assert.equal(s.bluetooth?.codec, null);
+    assert.equal(s.bluetooth?.name, "Luke's iPhone");
+});
+
+test('trackFromBluetooth refuses to build a row out of nothing', () => {
+    // A phone with no metadata at all gets no track, so the UI shows its idle
+    // state rather than a row of blanks.
+    assert.equal(trackFromBluetooth(SILENT), null);
+    assert.ok(trackFromBluetooth({ ...SILENT, title: 'Something' }));
+});
+
+test('trackFromTags still refuses a tag map with no file', () => {
+    /*
+     * Track.file became optional for Bluetooth's sake, and this is the invariant
+     * that must NOT have loosened with it: for MPD, no file means no song. A
+     * Bluetooth track gets its own constructor precisely so this stays strict.
+     */
     assert.equal(trackFromTags(new Map([['Title', 'orphan']])), null);
 });

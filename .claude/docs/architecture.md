@@ -30,14 +30,56 @@ the 6.6s total boot saving, so in practice it is not optional at all.
 | `setup-nas.sh` | one `/etc/fstab` entry + `/etc/musicbox/nas.credentials` | `# >>> musicbox setup-nas.sh managed block >>>` |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf` + one `MPDCONF=` line in `/etc/default/mpd` | `# >>> musicbox setup-mpd.sh managed block >>>` |
 | `setup-server.sh` | `/etc/musicbox/server.conf` + three systemd units | (owns whole files) |
+| `setup-bluetooth.sh` | `/etc/bluetooth/main.conf` + `/etc/default/bluez-alsa`, the arbiter and three systemd units, the rfkill soft block | `# >>> musicbox setup-bluetooth.sh managed block >>>` |
 | `setup-kiosk.sh` | 4 files, `getty@tty1`, its own packages | (no shared file) |
 | `install.sh` | `apt-get install` only | (none) |
 | `migrate-network.sh` | `/etc/NetworkManager/system-connections/` | (none) |
 
-Three of these write to `/boot/firmware/config.txt`. **Never let two scripts
-share a marker** — `strip_managed_block` removes everything between the
-delimiters, so a shared marker means one script silently deletes the other's
-work.
+Three of these write to `/boot/firmware/config.txt`, and three now write managed
+blocks into files under `/etc`. **Never let two scripts share a marker** —
+`strip_managed_block` removes everything between the delimiters, so a shared
+marker means one script silently deletes the other's work.
+`tests/test-bluetooth-config.sh` asserts that every `setup-*.sh` names itself in
+its own marker.
+
+## Exactly one source owns the DAC
+
+MPD's `audio_output` is `hw:0,0` — the raw device, no dmix, no sound server —
+because that is what keeps the bit-perfect passthrough in `device.md` true. The
+cost is that the card is **exclusive**, and every additional audio consumer has to
+be arbitrated rather than merely configured.
+
+That is why chromium runs with `--mute-audio`, and why Bluetooth needed a root
+arbiter (`/usr/local/bin/musicbox-bt`) rather than just a second service: both
+directions of the handoff race, and `bluealsa-aplay` does not retry a busy device.
+The arbiter pauses MPD, waits for the card to actually go quiet, and only then
+starts the Bluetooth audio path.
+
+**Anything new that makes sound goes through the arbiter.** Opening `hw:0,0`
+directly from a new service will appear to work until the first time something
+else already has it. See `bluetooth.md`.
+
+### The snapshot describes the active source
+
+`state`, `track`, `elapsed`, `duration`, `queueLength` and `queuePosition` answer
+"what is playing", not "what is MPD doing". A client renders them identically for
+every source and consults `source` only to decide what *extra* it can offer — a
+queue listing for MPD, a device name and a Disconnect button for Bluetooth.
+
+This was the other way round when the Bluetooth sink first landed, and the
+comments in `api.ts`, `bridge.ts` and `app.ts` said so: the top-level fields meant
+MPD and clients were told to branch on `source`. That was honest while a phone had
+no readable metadata. AVRCP changed what was possible, so it changed what was
+right; the old reasoning is preserved in those comments rather than deleted.
+
+Two consequences worth knowing:
+
+- `Track.file` is optional and `Track.image` nullable — a source with no library
+  has neither. `trackFromTags` still refuses to build an MPD track without a file;
+  a Bluetooth track has its own constructor so that invariant stays strict.
+- `queueVersion: -1` means "there is no listing to fetch", and
+  `GET /api/queue` answers **409** for such a source rather than an empty array,
+  which would be indistinguishable from "nothing queued".
 
 ## Album art reads the library directly
 
@@ -135,7 +177,8 @@ Installs `cifs-utils`, `nfs-common`, `smbclient` (both NAS clients, because
 `setup-nas.sh` chooses the protocol interactively at run time and cannot install
 anything itself) plus `mpd` and `mpc`. Its header carries the contract with
 `setup.sh` (the automount rule, the hardware, MPD and kiosk handoffs); read it
-before adding packages. Bluetooth, CD and web-UI packages are marked TODO.
+before adding packages. `bluez-alsa-utils` and `bluez-tools` give the Bluetooth
+A2DP sink, configured by `setup-bluetooth.sh`. CD packages are still TODO.
 
 `mpd` alone costs **118 packages** with `--no-install-recommends`. See
 `decisions.md` for why that is accepted.

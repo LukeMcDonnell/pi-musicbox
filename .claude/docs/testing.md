@@ -1,19 +1,23 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, eight bash suites (**451 assertions**)
-and the backend's 44 `node:test` cases. All green, shellcheck clean (2026-09-12). Safe on a dev machine:
+`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**631 assertions**)
+and the backend's 124 `node:test` cases. All green, shellcheck clean (2026-09-13). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
+
+These numbers go stale fast. `bash tests/run-all.sh | grep -oE 'passed: [0-9]+'`
+sums the suites; the node figure is its own `# pass` line.
 
 | Suite | Assertions | Covers |
 |---|---:|---|
-| `test-setup-helpers.sh` | 62 | Sources `setup.sh`'s helpers against temp fixtures: managed-block round-trips, single-line `cmdline.txt` edits, fstab rewriting, EEPROM key merge |
+| `test-setup-helpers.sh` | 77 | Sources `setup.sh`'s helpers against temp fixtures: managed-block round-trips, single-line `cmdline.txt` edits, fstab rewriting, EEPROM key merge |
 | `test-migrate-network.sh` | 25 | `--convert-only`: wifi/ethernet/static layouts, UUID preservation, the mandatory `0600`, and that a PSK never leaks into an ethernet profile |
 | `test-hardware-config.sh` | 47 | `--emit-config`/`--emit-revert`: neutralising conflicting stock lines, overlay ordering, idempotency, `--keep-hdmi`/`--skip-*`, byte-for-byte revert |
-| `test-kiosk-config.sh` | 60 | `--emit`: every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file drives the URL, and that the wrapper passes `bash -n` |
+| `test-kiosk-config.sh` | 61 | `--emit`: every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file drives the URL, and that the wrapper passes `bash -n` |
 | `test-nas-config.sh` | 66 | `--emit-fstab` plus the sourced block writer: the boot contract, `ro`, `soft`, `\040` escaping, 6 fields, password never in fstab |
 | `test-mpd-config.sh` | 82 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0, **`mixer_type "none"` with no mixer control** (giving MPD the attenuator back would silently cost bits), `replaygain` off and no resampler, the unity script sets dB rather than percentages and turns `Deemphasis` off, its unit is ordered after `alsa-restore` and before `mpd`, `auto_update` off, and `--emit` writes nothing to stderr (a backtick in an unquoted heredoc would) |
-| `test-server-config.sh` | 60 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, and that `dev-push.sh` never invokes sudo or `rsync --inplace` |
-| `src/backend` (node:test) | 44 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
+| `test-server-config.sh` | 88 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, and that `dev-push.sh` never invokes sudo or `rsync --inplace` |
+| `test-bluetooth-config.sh` | 138 | `--emit` plus the sourced rfkill helper: **that MPD is paused and the card has actually gone quiet BEFORE the Bluetooth audio unit is started** (and the reverse), that Debian's `bluealsa-aplay.service` is masked and the audio unit has no `[Install]` section, that aptX and aptX HD are enabled on the daemon's real `ExecStart=` line (they are off by default, and an earlier version wrote them to `/etc/default/bluez-alsa`, which nothing reads), `--volume=none` so nothing fights `musicbox-dac-unity`, that a soft-blocked radio is unblocked and a hard-blocked one is not pretended away, and that the arbiter's JSON survives quotes, backslashes and emoji in a device name |
+| `src/backend` (node:test) | 124 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
 | `test-integration.sh` | 47 | The real `setup.sh` + `install.sh --dry-run` in `debian:trixie-slim` against a fake `/boot/firmware` |
 
 ## Three layers
@@ -66,5 +70,5 @@ deliberately `set -uo pipefail`, no `-e`, so that a failing assertion does not
 abort the run. The first deliberately-failing check after the `source` silently
 kills the suite mid-way, and the summary line never prints.
 
-Both suites now call `set +e` immediately after sourcing. If you add a third
-suite that sources a script, do the same.
+All three suites that source a script — nas, mpd and bluetooth — call `set +e`
+immediately afterwards. If you add a fourth, do the same.

@@ -287,3 +287,30 @@ mpc status && mpc stats             # and it can see the library
 
 The `.automount` check matters: `ls` on an unmounted empty mountpoint succeeds
 and looks exactly like a working mount.
+
+## Bluetooth (2026-09-13)
+
+```
+hci0            UART (fe201000.serial), BD DC:A6:32:0D:E0:81, Manufacturer 0x0131 (Cypress)
+bluez           5.82
+```
+
+**The radio shipped rfkill soft-blocked** — `/sys/class/rfkill/rfkill0/soft = 1`,
+`bluetoothd: Failed to set mode: Failed (0x03)`, `PowerState: off-blocked`.
+Nothing in this repo set it. `setup-bluetooth.sh` clears it through sysfs
+(`rfkill` the command is not installed) and systemd-rfkill persists it.
+
+`config.txt` has **no** `disable-bt` and no `miniuart-bt`: Bluetooth is on the
+full PL011 UART, and `setup.sh` keeps `bluetooth` and `hciuart` running.
+
+**Codec availability, measured from apt rather than assumed.** Neither
+`bluez-alsa-utils` nor `libspa-0.2-bluetooth` depends on fdk-aac, so **no AAC in
+either stack** — both get `libfreeaptx0`, `libsbc1`, `liblc3-1`,
+`libldacbt-enc2`. LDAC is encoder-only, so it is unusable for a sink. `a2dpconf`
+(shipped with bluez-alsa-utils) decodes a negotiated capability blob if you need
+to prove which codec is actually in use.
+
+**Card 0 is exclusive and that now matters twice.** `/proc/asound/card0/pcm0p/sub0/status`
+reads `closed` when free and `state: RUNNING` when held; the arbiter polls it to
+tell "asked MPD to stop" apart from "MPD has stopped". `fuser -v /dev/snd/*` must
+never list both `mpd` and `bluealsa-aplay`.

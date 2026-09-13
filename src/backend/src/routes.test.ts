@@ -13,12 +13,32 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { request as httpRequest } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { open as fsOpen, constants as fsConstants } from 'node:fs/promises';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
+import { SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
+import type { BluetoothState } from './bluetooth.ts';
+
+/** A phone that is connected and playing, as the arbiter would report it. */
+const PHONE: BluetoothState = {
+    device: { name: "Luke's iPhone", address: 'AA:BB:CC:DD:EE:FF', codec: 'aptX-HD' },
+    state: 'play',
+    title: 'A National Acrobat',
+    artist: 'Black Sabbath',
+    album: 'Sabbath Bloody Sabbath',
+    duration: 375.107,
+    elapsed: 76.472,
+    queuePosition: 1,
+    queueLength: 8,
+    repeat: false,
+    random: false,
+    single: false,
+};
 
 /** A bridge pointed at a closed port: never connects, but is a real instance. */
 function deadBridge(): MpdBridge {
@@ -31,7 +51,9 @@ function deadBridge(): MpdBridge {
     });
 }
 
-async function startServer(opts: { forceCloseConnections?: boolean; musicRoot?: string } = {}) {
+async function startServer(
+    opts: { forceCloseConnections?: boolean; musicRoot?: string; bluetoothControl?: string } = {},
+) {
     const app = Fastify({
         logger: false,
         forceCloseConnections: opts.forceCloseConnections ?? true,
@@ -42,6 +64,9 @@ async function startServer(opts: { forceCloseConnections?: boolean; musicRoot?: 
         build: 'test',
         startedAt: Date.now(),
         musicRoot: opts.musicRoot ?? '/nonexistent-music-root',
+        // A path that cannot exist, so control attempts fail fast and loudly
+        // rather than reaching a real arbiter on a developer's machine.
+        bluetoothControl: opts.bluetoothControl ?? '/nonexistent-run-dir/control',
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -327,4 +352,208 @@ test('/api/events announces the build BEFORE the first snapshot', async () => {
     assert.ok(buildAt !== -1 && snapshotAt !== -1, `got frames: ${JSON.stringify(frames)}`);
     assert.ok(buildAt < snapshotAt, 'the build must be stated before the first snapshot');
     assert.match(frames, /"build":"test"/, 'the build id itself must be in the payload');
+});
+
+test('a connected Bluetooth device reaches the client over SSE', async () => {
+    /*
+     * The end of the wire. The arbiter publishes a file, the watcher reads it,
+     * the bridge republishes, and this is where it has to come out — on the same
+     * snapshot frame as everything else, because a separate bluetooth event would
+     * break the "every message is a complete snapshot" rule.
+     *
+     * Note the bridge here is pointed at a closed port, so this also pins down
+     * that MPD being unreachable does not suppress the device: the two halves are
+     * independent services and a phone can be playing while MPD is dead.
+     */
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+
+        const frame = await new Promise<string>((resolve, reject) => {
+            const req = httpRequest(
+                { host: '127.0.0.1', port, path: '/api/events', method: 'GET' },
+                (res) => {
+                    let buf = '';
+                    res.on('data', (chunk: Buffer) => {
+                        buf += chunk.toString('utf8');
+                        // The build frame is written first, so wait for the snapshot.
+                        if (buf.includes(`event: ${SSE_SNAPSHOT_EVENT}`) && buf.includes('\n\n')) {
+                            req.destroy();
+                            resolve(buf);
+                        }
+                    });
+                    res.on('error', () => {});
+                },
+            );
+            req.on('error', (err) => reject(err));
+            req.end();
+            setTimeout(() => {
+                req.destroy();
+                reject(new Error('no snapshot frame within 5s'));
+            }, 5_000);
+        });
+
+        const line = frame
+            .split('\n')
+            .find((l) => l.startsWith('data: ') && l.includes('"bluetooth"'));
+        assert.ok(line, `no snapshot frame carrying bluetooth:\n${frame}`);
+        const snapshot = JSON.parse(line.slice('data: '.length)) as Snapshot;
+        assert.equal(snapshot.source, 'bluetooth');
+        assert.equal(snapshot.bluetooth?.name, "Luke's iPhone");
+        assert.equal(snapshot.bluetooth?.codec, 'aptX-HD');
+        // The now-playing fields describe the phone, which is the whole point.
+        assert.equal(snapshot.state, 'play');
+        assert.equal(snapshot.track?.title, 'A National Acrobat');
+        assert.equal(snapshot.track?.image, null, 'no cover art over Bluetooth');
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('with nothing connected the field is present and null', async () => {
+    // Never an absent key — see the snapshot rule in src/shared/api.ts.
+    const { app, routes, port } = await startServer();
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/status`);
+        const snapshot = (await res.json()) as Snapshot;
+        assert.ok('bluetooth' in snapshot, 'bluetooth must always be a key');
+        assert.equal(snapshot.bluetooth, null);
+        assert.equal(snapshot.source, 'mpd');
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+/*
+ * ---------------------------------------------------------------------------
+ * Routing by source. The buttons mean "control what I am hearing", so every one
+ * of them has to go to whichever source owns the DAC.
+ * ---------------------------------------------------------------------------
+ */
+
+test('playback commands go to Bluetooth while a phone owns the DAC', async () => {
+    /*
+     * The bridge here is pointed at a closed port, so if the command reached MPD
+     * it would come back 503 "MPD is not connected". A 503 naming the arbiter
+     * instead proves it took the Bluetooth path — the control FIFO does not exist
+     * in this test, which is exactly the failure that should be reported.
+     */
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        for (const command of ['play', 'pause', 'stop', 'next', 'previous']) {
+            const res = await fetch(`http://127.0.0.1:${port}/api/playback/${command}`, {
+                method: 'POST',
+            });
+            assert.equal(res.status, 503, command);
+            const body = (await res.json()) as { error: string };
+            assert.match(body.error, /arbiter is not running/, command);
+        }
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playback commands go to MPD when it owns the DAC', async () => {
+    // The same requests against the same dead bridge, with no phone: now the
+    // error must be MPD's, proving the branch is on `source` and not on luck.
+    const { app, routes, port } = await startServer();
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/playback/play`, { method: 'POST' });
+        assert.equal(res.status, 503);
+        const body = (await res.json()) as { error: string };
+        assert.match(body.error, /MPD is not connected/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('the queue is refused, not emptied, during a Bluetooth session', async () => {
+    /*
+     * 409 rather than an empty array. A phone exposes no track list at all, and an
+     * empty list is indistinguishable from "nothing queued" — a different and
+     * answerable state.
+     */
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        const res = await fetch(`http://127.0.0.1:${port}/api/queue`);
+        assert.equal(res.status, 409);
+        const body = (await res.json()) as { error: string };
+        assert.match(body.error, /no queue for the bluetooth source/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('disconnect is refused when there is nothing connected', async () => {
+    const { app, routes, port } = await startServer();
+    try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/bluetooth/disconnect`, {
+            method: 'POST',
+        });
+        assert.equal(res.status, 409);
+        const body = (await res.json()) as { error: string };
+        assert.match(body.error, /no bluetooth device is connected/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('disconnect reaches the arbiter, and reports honestly when it cannot', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        const res = await fetch(`http://127.0.0.1:${port}/api/bluetooth/disconnect`, {
+            method: 'POST',
+        });
+        assert.equal(res.status, 503);
+        const body = (await res.json()) as { error: string };
+        assert.match(body.error, /arbiter is not running/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('a Bluetooth command is accepted, not answered with a stale snapshot', async () => {
+    /*
+     * With a real FIFO behind it the response is 202 and carries no snapshot.
+     * Returning `bridge.current` here would state the pre-command value as though
+     * it were the result, and AVRCP takes seconds to settle — measured at about
+     * four on the device. The truth arrives over SSE instead.
+     */
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-routes-'));
+    try {
+        const fifo = join(dir, 'control');
+        await new Promise<void>((resolve, reject) => {
+            execFile('mkfifo', [fifo], (e) => (e ? reject(e) : resolve()));
+        });
+        const reader = await fsOpen(fifo, fsConstants.O_RDWR | fsConstants.O_NONBLOCK);
+        const { app, bridge, routes, port } = await startServer({ bluetoothControl: fifo });
+        try {
+            await bridge.setBluetooth(PHONE);
+            const res = await fetch(`http://127.0.0.1:${port}/api/playback/next`, {
+                method: 'POST',
+            });
+            assert.equal(res.status, 202);
+            assert.deepEqual(await res.json(), { accepted: 'next' });
+
+            const buf = Buffer.alloc(32);
+            const { bytesRead } = await reader.read(buf, 0, buf.length, null);
+            assert.equal(buf.subarray(0, bytesRead).toString('utf8'), 'next\n');
+        } finally {
+            routes.closeStreams();
+            await app.close();
+            await reader.close();
+        }
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
 });

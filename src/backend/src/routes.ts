@@ -17,6 +17,12 @@ import {
 } from '../../shared/api.ts';
 import type { MpdBridge } from './mpd/bridge.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
+import {
+    BluetoothUnavailableError,
+    DEFAULT_CONTROL_PATH,
+    sendControl,
+    type ControlVerb,
+} from './bluetooth.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -27,6 +33,8 @@ export interface RouteOptions {
     startedAt: number;
     /** Music library root, for cover art lookups. See config.musicRoot. */
     musicRoot: string;
+    /** The arbiter's control FIFO. See config.bluetoothControl. */
+    bluetoothControl?: string;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -50,12 +58,29 @@ const COMMAND_MAP: Record<PlaybackCommand, string> = {
     previous: 'previous',
 };
 
+/**
+ * The same verbs, for the Bluetooth arbiter.
+ *
+ * A second exhaustive `Record<PlaybackCommand, …>` on purpose: adding a command
+ * to PLAYBACK_COMMANDS now fails to compile until BOTH sources handle it. That
+ * exhaustiveness is the only thing standing between this route and a command
+ * that silently does nothing for one source.
+ */
+const BLUETOOTH_COMMAND_MAP: Record<PlaybackCommand, ControlVerb> = {
+    play: 'play',
+    pause: 'pause',
+    stop: 'stop',
+    next: 'next',
+    previous: 'previous',
+};
+
 function sseFrame(event: string, data: unknown): string {
     return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteHandle {
     const { bridge, build, startedAt, musicRoot } = opts;
+    const controlPath = opts.bluetoothControl ?? DEFAULT_CONTROL_PATH;
 
     /** Every live SSE stream, so shutdown can end them. */
     const streams = new Set<() => void>();
@@ -81,7 +106,21 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         return bridge.current;
     });
 
+    /**
+     * The MPD queue.
+     *
+     * 409, not an empty list, while a phone is the source. A phone has no
+     * readable track list at all — AVRCP browsing is not exposed by BlueZ — and
+     * an empty array would be indistinguishable from "nothing queued", which is a
+     * different and answerable state. The snapshot says the same thing more
+     * cheaply with `queueVersion: -1`, so a well-behaved client never gets here.
+     */
     app.get('/api/queue', async (_req: FastifyRequest, reply: FastifyReply) => {
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({
+                error: 'no queue for the bluetooth source — a phone exposes no track list',
+            });
+        }
         try {
             return await bridge.queue();
         } catch (err) {
@@ -96,11 +135,61 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
                 error: `unknown command '${command}', expected one of ${PLAYBACK_COMMANDS.join(', ')}`,
             });
         }
+        /*
+         * Whichever source owns the DAC gets the command. There is deliberately no
+         * way to address the other one: the buttons mean "control what I am
+         * hearing", and a phone that is playing is what you are hearing.
+         *
+         * Pressing play used to be how you took the speaker back from a phone —
+         * it started MPD, and the arbiter noticed and disconnected. That is now
+         * POST /api/bluetooth/disconnect, an explicit action rather than a side
+         * effect of a button that appears to mean something else.
+         */
+        if (bridge.current.source === 'bluetooth') {
+            try {
+                await sendControl(BLUETOOTH_COMMAND_MAP[command as PlaybackCommand], controlPath);
+                // No refreshed snapshot to return: AVRCP takes seconds to settle
+                // and the truth arrives over SSE. Answering with the current
+                // snapshot would state the old value as though it were the new one.
+                return reply.code(202).send({ accepted: command });
+            } catch (err) {
+                if (err instanceof BluetoothUnavailableError) {
+                    return reply.code(503).send({ error: err.message });
+                }
+                throw err;
+            }
+        }
+
         try {
             await bridge.command(COMMAND_MAP[command as PlaybackCommand]);
             return bridge.current;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    /**
+     * End the Bluetooth session and give the DAC back to MPD.
+     *
+     * NOT a playback command, which is why it is not in PLAYBACK_COMMANDS: it
+     * changes which source exists, not what that source is doing.
+     *
+     * MPD is left PAUSED, exactly as it is when a phone wanders out of range. It
+     * keeps its position, so the next press of play resumes in place — but the box
+     * does not start playing to an empty room because somebody tidied up.
+     */
+    app.post('/api/bluetooth/disconnect', async (_req: FastifyRequest, reply: FastifyReply) => {
+        if (bridge.current.source !== 'bluetooth') {
+            return reply.code(409).send({ error: 'no bluetooth device is connected' });
+        }
+        try {
+            await sendControl('disconnect', controlPath);
+            return reply.code(202).send({ accepted: 'disconnect' });
+        } catch (err) {
+            if (err instanceof BluetoothUnavailableError) {
+                return reply.code(503).send({ error: err.message });
+            }
+            throw err;
         }
     });
 

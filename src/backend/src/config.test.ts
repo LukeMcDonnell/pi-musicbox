@@ -74,3 +74,16 @@ test('nonsense numbers fall back rather than producing NaN', () => {
 test('the default port is 80 so the URL needs no suffix', () => {
     assert.equal(DEFAULTS.port, 80);
 });
+
+test('the bluetooth state path is configurable and defaults under /run', () => {
+    /*
+     * /run is a tmpfs, which is the point: the arbiter's view of which phone is
+     * connected is true only for this boot, and a stale file surviving a reboot
+     * would have the UI announcing a device that is not there.
+     *
+     * Overridable so a dev backend can be pointed at a fixture without root.
+     */
+    assert.equal(DEFAULTS.bluetoothState, '/run/musicbox/bluetooth.json');
+    const config = loadConfig('/nonexistent', { MUSICBOX_BLUETOOTH_STATE: '/tmp/fake-bt.json' });
+    assert.equal(config.bluetoothState, '/tmp/fake-bt.json');
+});

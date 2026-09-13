@@ -1,4 +1,5 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from './musicbox-api';
 
 /** Seconds as m:ss, or a dash when there is nothing to show. */
@@ -45,12 +46,52 @@ export class App implements OnDestroy {
     /** scaleX rather than width — see the comment in app.scss for why it matters. */
     readonly progressTransform = computed(() => `scaleX(${this.progress() / 100})`);
 
-    /** Shown when there is no track; also covers MPD being down. */
+    /** The connected Bluetooth device, or null. */
+    readonly bluetooth = this.api.bluetooth;
+
+    /**
+     * True when a phone owns the DAC.
+     *
+     * Used only to decide what EXTRA to show — the device chip and the disconnect
+     * button. The now-playing block itself is source-agnostic, because the
+     * snapshot's top-level fields describe whichever source is active.
+     */
+    readonly onBluetooth = computed(() => this.snapshot()?.source === 'bluetooth');
+
+    /** "Luke's iPhone · aptX HD", or just the name until the codec is known. */
+    readonly bluetoothLine = computed(() => {
+        const bt = this.bluetooth();
+        if (!bt) return null;
+        return bt.codec ? `${bt.name} · ${bt.codec}` : bt.name;
+    });
+
+    /** Best available name for a track, whatever source it came from. */
+    readonly trackTitle = computed(() => {
+        const track = this.snapshot()?.track;
+        if (!track) return null;
+        // `file` is absent for a Bluetooth track, so it cannot be the fallback it
+        // is for MPD. A phone that reports nothing at all still gets a row rather
+        // than a blank.
+        return track.title || track.file || 'Unknown track';
+    });
+
+    /**
+     * Shown instead of the now-playing block when there is nothing to show.
+     *
+     * Bluetooth is checked before MPD's conditions: while a phone owns the DAC,
+     * MPD being stopped or unreachable is not worth reporting — it is not what
+     * you are listening to.
+     */
     readonly statusLine = computed(() => {
         if (this.stream() === 'offline') return 'Reconnecting to musicbox…';
         if (this.stream() === 'connecting') return 'Connecting…';
-        if (!this.mpdAvailable()) return 'MPD is not running';
         const snap = this.snapshot();
+        if (this.onBluetooth()) {
+            // A connected phone with nothing playing yet. The chip below still
+            // names the device, so this only has to explain the silence.
+            return snap?.track ? null : 'Connected — start playing on your phone';
+        }
+        if (!this.mpdAvailable()) return 'MPD is not running';
         if (!snap?.track) return snap?.queueLength ? 'Stopped' : 'Nothing queued';
         return null;
     });
@@ -118,7 +159,7 @@ export class App implements OnDestroy {
         clearInterval(this.ticker);
     }
 
-    async command(name: 'play' | 'pause' | 'stop' | 'next' | 'previous'): Promise<void> {
+    async command(name: PlaybackCommand): Promise<void> {
         this.error.set(null);
         try {
             await this.api.playback(name);
@@ -128,6 +169,21 @@ export class App implements OnDestroy {
     }
 
     async toggle(): Promise<void> {
+        // Works unchanged for both sources now that `state` describes the active
+        // one. It used to be the mechanism for taking the speaker back from a
+        // phone — `playing()` was always false during a session, so this always
+        // sent `play`, which started MPD and made the arbiter disconnect. That is
+        // now an explicit Disconnect button.
         await this.command(this.playing() ? 'pause' : 'play');
+    }
+
+    /** Hand the DAC back to MPD. Leaves MPD paused where it was. */
+    async disconnectBluetooth(): Promise<void> {
+        this.error.set(null);
+        try {
+            await this.api.disconnectBluetooth();
+        } catch (err) {
+            this.error.set((err as Error).message);
+        }
     }
 }

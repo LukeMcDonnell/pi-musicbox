@@ -85,8 +85,19 @@
 #    The server unit is deliberately NOT ordered after mpd.service: mpd takes
 #    ~6s at boot and is on the critical path. Do not "fix" that ordering.
 #
-# 6. STILL TO DO HERE
-#      - Bluetooth audio (bluez + a BlueALSA/PipeWire sink)
+# 6. BLUETOOTH AUDIO
+#
+#    bluez is already on the image and setup.sh keeps it running. This script
+#    adds the A2DP sink (bluez-alsa-utils) and a pairing agent (bluez-tools);
+#    install/setup-bluetooth.sh configures them.
+#
+#    BlueALSA rather than PipeWire, on measured grounds: neither Debian build
+#    links fdk-aac, so both offer exactly the same sink codecs, and BlueALSA is
+#    one daemon where PipeWire is a session bus, wireplumber and a user session.
+#    It also leaves MPD holding hw:0,0 raw, which is what keeps the bit-perfect
+#    passthrough measured in .claude/docs/device.md true.
+#
+# 7. STILL TO DO HERE
 #      - USB CD audio playback and ripping
 #      - the web UI service
 #      - optional: read-only root via `raspi-config nonint enable_overlayfs`
@@ -117,6 +128,12 @@ PACKAGES=(
     mpd             # the player itself; configured by setup-mpd.sh
     mpc             # CLI client, and how setup-mpd.sh verifies the result
     nodejs          # runtime for the web server; configured by setup-server.sh
+
+    # Bluetooth A2DP sink; configured by setup-bluetooth.sh. bluez itself is
+    # already on the image and setup.sh keeps it. These two are small — the
+    # codec libraries (libfreeaptx, libsbc, liblc3, libldacbt) come as Depends.
+    bluez-alsa-utils  # the sink daemon and bluealsa-aplay
+    bluez-tools       # bt-agent: a just-works pairing agent, for a box with no keyboard
 )
 
 # NOTE: nodejs only, NEVER npm. The runtime is 12 packages; Debian's npm is 363,
@@ -124,8 +141,14 @@ PACKAGES=(
 # does not need npm: the frontend and backend are built on the dev machine and
 # the device receives a single bundled server.js plus static files.
 
-# TODO, next pass: bluez-alsa-utils, cdparanoia / libcdio-utils, and whatever
-# the web UI needs.
+# TODO, next pass: cdparanoia / libcdio-utils for the CD source.
+#
+# NOT installed, deliberately: libfdk-aac2t64. It is the only way to get AAC into
+# a Bluetooth sink, and Debian's bluez-alsa is not linked against it because it
+# is non-free — so having the library changes nothing without rebuilding the
+# package. That trade (a pinned local .deb apt will never update, for iPhones
+# moving from SBC-XQ to AAC) was considered and declined; see
+# .claude/docs/bluetooth.md.
 
 DRY_RUN=0
 ASSUME_YES=0
@@ -219,12 +242,13 @@ main() {
       sudo ./install/setup-nas.sh     # mount the music share
       sudo ./install/setup-mpd.sh     # configure MPD against it
       sudo ./install/setup-server.sh  # web server + API
+      sudo ./install/setup-bluetooth.sh  # Bluetooth A2DP sink
 
     Installing mpd does NOT configure or enable it. On Trixie the package leaves
     mpd.service and mpd.socket disabled and inactive, on a default config
     pointing at /var/lib/mpd/music. setup-mpd.sh is what makes it useful.
 
-    Not implemented yet: Bluetooth audio, USB CD.
+    Not implemented yet: USB CD.
 EOF
 }
 

@@ -10,7 +10,8 @@ A Raspberry Pi music player appliance.
 | Display | DFRobot DFR0550 — 5" 800×480 DSI capacitive touchscreen |
 | Library | NFS/SMB network share |
 | Web UI | Angular + Fastify at `http://musicbox.local/` |
-| Planned | Bluetooth audio · USB CD audio |
+| Bluetooth | A2DP sink — a phone pairs and plays through the DAC |
+| Planned | USB CD audio |
 
 ## Run order
 
@@ -21,13 +22,14 @@ sudo reboot                             # 3.
 musicbox-bootreport                     # 4. before/after boot timings
 sudo ./install/setup-hardware.sh        # 5. DAC+, DSI panel, HDMI
 sudo reboot                             # 6.
-sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc)
+sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc, node, bluez-alsa)
 sudo ./install/setup-nas.sh             # 8. mount the music share (interactive)
 sudo ./install/setup-mpd.sh             # 9. point MPD at the library and the DAC
 sudo ./install/setup-server.sh          # 10. web server + API
 tools/dev-push.sh                       # 11. build here, push the app to the Pi
-sudo ./install/setup-kiosk.sh           # 12. cage + chromium on the panel
-sudo reboot                             # 13.
+sudo ./install/setup-bluetooth.sh       # 12. Bluetooth A2DP sink
+sudo ./install/setup-kiosk.sh           # 13. cage + chromium on the panel
+sudo reboot                             # 14.
 ```
 
 The three scripts split by concern, and each owns its own managed block in
@@ -41,6 +43,7 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf` and the `MPDCONF=` line that selects it |
 | `setup-server.sh` | the web server units and `/etc/musicbox/server.conf` |
+| `setup-bluetooth.sh` | the A2DP sink, the pairing agent and the DAC arbiter |
 | `install.sh` | apt packages — and nothing else |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
@@ -267,7 +270,7 @@ This box is neither, so roughly half the usual advice is actively harmful here:
 
 | Common tweak | Why it's excluded |
 |---|---|
-| `dtoverlay=disable-bt` | Bluetooth audio is a planned feature |
+| `dtoverlay=disable-bt` | Bluetooth audio is a working feature |
 | `dtoverlay=disable-wifi` | The library lives on a network share |
 | Remove `avahi-daemon` | The web UI is served at `<hostname>.local` — mDNS is required |
 | `max_framebuffers=0`, `disable_fw_kms_setup=1` | Headless-only; a DSI panel is attached |
@@ -292,7 +295,8 @@ musicbox-bootreport                    # before/after systemd-analyze
 nmcli general status                   # network
 getent hosts musicbox.local            # mDNS (from another machine)
                                        # avahi-resolve needs: apt install avahi-utils
-bluetoothctl show                      # Bluetooth controller present
+bluetoothctl show                      # want Powered: yes, Class: 0x240414
+musicbox-bt status                     # which phone is connected, and its codec
 aplay -l | grep hifiberry              # DAC+ present (HAT EEPROM is unprogrammed,
                                        # so /proc/device-tree/hat/ is always empty)
 lsblk                                  # USB CD drive
@@ -432,6 +436,9 @@ nothing using the DAC.
 When the web UI genuinely needs sound, the fix is a shared audio layer (dmix or
 PipeWire) — not just dropping the flag.
 
+The same exclusivity is why Bluetooth needed an arbiter rather than just another
+service; see the Bluetooth section below.
+
 ### Choosing cage
 
 `cage + chromium` is 129 packages; `labwc + chromium` is 131 and
@@ -441,6 +448,106 @@ config file to get wrong. The trade-off is that **cage cannot rotate the
 output** — fine here, since the panel is mounted in its native landscape
 800x480. A rotation requirement would mean labwc, or a kernel-level `video=`
 rotation in `cmdline.txt`.
+
+## Bluetooth
+
+`setup-bluetooth.sh` turns the box into a Bluetooth speaker. Pair from the phone —
+look for **musicbox** — and there is nothing to confirm on the box, which has no
+keyboard.
+
+Connect and MPD pauses and hands over the DAC. The now-playing screen then shows
+what the *phone* is playing — title, artist, album, a moving progress bar — and
+the transport buttons control the phone. A **Disconnect** button hands the speaker
+back; MPD stays paused where it was, so the next press of play resumes in place.
+
+### One source owns the DAC at a time
+
+MPD opens `hw:0,0` raw, so the card is exclusive and **both directions of the
+handoff race**: a phone connecting while MPD plays, and play being pressed while
+the phone streams. `bluealsa-aplay` does not retry a busy device — it gets
+`EBUSY` and exits.
+
+So `/usr/local/bin/musicbox-bt`, a root service, sequences it: pause MPD, wait for
+the card to actually go quiet, then start the Bluetooth audio path — and the
+reverse. It is the only thing allowed to start `musicbox-bt-audio.service`, which
+has no `[Install]` section, and Debian's `bluealsa-aplay.service` is masked.
+
+It deliberately does **not** live in the web server: the handoff has to keep
+working while the server is being redeployed, and disconnecting a BlueZ device
+needs privilege the server should not have. The server only reads the state file
+the arbiter publishes.
+
+MPD is **paused, not stopped**, so the queue position survives — and it is never
+auto-resumed when the phone leaves or when you press Disconnect, because a speaker
+that starts playing to an empty room because a phone ran out of battery is worse
+than silence.
+
+MPD being started from somewhere else — `mpc`, another client — is a different
+matter: it will have already tried the card, failed while Bluetooth held it, and
+paused itself. So the arbiter disconnects the phone, waits for the player to exit,
+and explicitly restarts MPD. Measured on a Pixel 8 Pro: **3.2s** from that point
+to MPD having the DAC, most of it BlueZ tearing the connection down.
+
+### The API follows whichever source is playing
+
+`state`, `track`, `elapsed` and `duration` describe what you are hearing, not what
+MPD is doing, so a client renders them the same way for both sources. During a
+Bluetooth session the metadata comes from AVRCP, `track.image` is null (there is
+no cover art — see below), `queueVersion` is `-1`, and `GET /api/queue` answers
+**409**: a phone exposes no track list at all, and an empty array would be
+indistinguishable from "nothing queued".
+
+Playback commands reach the phone over AVRCP. Expect a few seconds between
+pressing pause and the UI showing paused — that is AVRCP, measured at 2-6s, and
+the UI deliberately does not guess in the gap.
+
+### No cover art over Bluetooth
+
+The phone advertises AVRCP **1.6**, which does specify Cover Art, and it is still
+unavailable: the phone offers no OBEX channel to fetch images over, and BlueZ
+implements none of it either. Either alone is fatal. Devices that manage it are
+generally on Android Auto or CarPlay, which are not Bluetooth.
+
+Borrowing a cover from your own library by matching the artist and album was
+considered and rejected. It works, but a phone's metadata is free text and a
+near-miss would show a confidently wrong cover. A missing cover is obvious; a
+wrong one is misinformation.
+
+### Codecs, and the missing one
+
+aptX HD → aptX → SBC-XQ → SBC. As a sink the box advertises capabilities and the
+phone picks, so the fallback is A2DP negotiation rather than anything in this
+repo.
+
+**There is no AAC**, which matters because iPhones support only SBC and AAC.
+Debian's `bluez-alsa` is not linked against `libfdk-aac` (it is non-free) — and
+neither is Debian's PipeWire, so this is not a stack choice. An iPhone lands on
+SBC-XQ. Getting AAC would mean maintaining a locally rebuilt `.deb` forever; that
+was declined rather than overlooked.
+
+### Volume, repeat and shuffle
+
+Nothing here attenuates: the phone applies its volume *before* encoding and the
+DAC's gain stages stay at unity, same as for MPD.
+
+Repeat and shuffle are *reflected* from AVRCP but cannot be changed — there has
+never been an API for them, for either source. Adding it for both together is on
+the roadmap.
+
+### It is open to anyone in radio range
+
+Always discoverable, just-works pairing. That is how a commodity Bluetooth
+speaker behaves and it is a deliberate choice. A UI-gated pairing window is the
+answer if it ever matters.
+
+### The radio was switched off
+
+Bluetooth appeared dead on the real box: `rfkill` soft-blocked, `bluetoothd`
+logging `Failed to set mode: Failed (0x03)` every boot, adapter reporting
+`PowerState: off-blocked`. Nothing in this repo set it. `setup-bluetooth.sh`
+clears it through sysfs and systemd-rfkill persists it. Another case of verifying
+the effect rather than the setting — `AutoEnable` alone does nothing while the
+block is in place.
 
 ## MPD
 
@@ -790,6 +897,13 @@ amixer -c 0 sset Analogue 0dB    # back to unity
 ```
 
 The web UI has no volume slider, and `POST /api/volume` no longer exists.
+
+**Bluetooth was the first real test of that rule and did not break it.**
+`bluealsa-aplay` runs `--volume=none` and the daemon runs `--a2dp-volume`, so the
+phone attenuates *before* encoding and nothing on this box touches the signal or
+the mixer. The phone's own slider is the volume control, which is the right answer
+for that source — and it means `musicbox-dac-unity` has nothing to fight. The
+`Snapshot` still carries no `volume` field.
 
 ## Mitigated, not proven fixed: the board deadlocked under sustained playback
 

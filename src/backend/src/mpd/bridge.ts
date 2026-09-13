@@ -17,6 +17,7 @@ import type { Snapshot, Track, PlaybackState, BackendStatus } from '../../../sha
 import { API_VERSION } from '../../../shared/api.ts';
 import { MpdConnection, firstValue, groupBy, quoteArg, type Reply } from './protocol.ts';
 import { artUriFor } from '../art.ts';
+import type { BluetoothState } from '../bluetooth.ts';
 
 /** Subsystems worth waking up for. */
 const IDLE_SUBSYSTEMS = 'player mixer playlist options update';
@@ -88,13 +89,60 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
     return track;
 }
 
-/** The snapshot used whenever MPD cannot be reached. */
-export function unavailableSnapshot(now: number): Snapshot {
+/**
+ * Build a Track from what AVRCP told us about the phone.
+ *
+ * SEPARATE FROM trackFromTags ON PURPOSE. That function refuses to build a Track
+ * without a `file`, which is the right rule for the library and is asserted — a
+ * tag map with no file is a parse error, not a song. A Bluetooth track has no
+ * file and never will, so it gets its own constructor rather than weakening the
+ * MPD invariant to accommodate it.
+ *
+ * `image` is null, not a URI. There is no cover art to be had: the phone offers
+ * no AVRCP cover-art channel and BlueZ implements none, and deriving one by
+ * matching artist and album against the local library was considered and
+ * rejected — a near-miss would show a confidently wrong cover, which is worse
+ * than none. See .claude/docs/bluetooth.md.
+ *
+ * Returns null when the phone has told us nothing at all, so the UI shows its
+ * idle state rather than an empty row of blanks.
+ */
+export function trackFromBluetooth(bt: BluetoothState): Track | null {
+    if (bt.title === null && bt.artist === null && bt.album === null) return null;
+    const track: Track = { image: null };
+    if (bt.title !== null) track.title = bt.title;
+    if (bt.artist !== null) track.artist = bt.artist;
+    if (bt.album !== null) track.album = bt.album;
+    if (bt.duration !== null) track.duration = bt.duration;
+    if (bt.queuePosition !== null) track.position = bt.queuePosition;
+    return track;
+}
+
+/**
+ * The snapshot used whenever MPD cannot be reached.
+ *
+ * It still carries `bt`, because the two halves are independent: the Bluetooth
+ * arbiter is a root service that does not care whether this one is healthy, so a
+ * phone can perfectly well be connected and playing while MPD is down. Reporting
+ * "no Bluetooth" in that state would be a lie the UI acts on.
+ */
+export function unavailableSnapshot(now: number, bt: BluetoothState | null = null): Snapshot {
+    if (bt !== null) {
+        // MPD is unreachable but a phone is playing, so the snapshot describes the
+        // phone. `state: 'stop'` was hardcoded here before and was simply wrong:
+        // it claimed source 'bluetooth' and stopped in the same breath while audio
+        // was coming out of the speakers.
+        return {
+            ...bluetoothSnapshot(bt, now),
+            status: 'unavailable',
+        };
+    }
     return {
         apiVersion: API_VERSION,
         status: 'unavailable',
         source: 'mpd',
         state: 'stop',
+        bluetooth: null,
         repeat: false,
         random: false,
         single: false,
@@ -109,8 +157,61 @@ export function unavailableSnapshot(now: number): Snapshot {
     };
 }
 
-/** Turn MPD's `status` + `currentsong` replies into a Snapshot. */
-export function buildSnapshot(status: Reply, currentSong: Reply, now: number): Snapshot {
+/**
+ * The snapshot for a Bluetooth session.
+ *
+ * Everything here describes the PHONE, because that is the active source. MPD's
+ * own position is absent, not lost: it is paused rather than stopped, so
+ * disconnecting brings it back on the very next snapshot.
+ *
+ * `queueVersion` is -1 — there is no version to watch and no listing to fetch,
+ * which is exactly the signal a client needs. The counts beside it are real
+ * though: AVRCP reports "track 1 of 8", so a client can say that much honestly.
+ */
+function bluetoothSnapshot(bt: BluetoothState, now: number): Snapshot {
+    return {
+        apiVersion: API_VERSION,
+        status: 'ok',
+        source: 'bluetooth',
+        state: bt.state ?? 'stop',
+        bluetooth: bt.device,
+        repeat: bt.repeat,
+        random: bt.random,
+        single: bt.single,
+        // MPD's consume mode has no AVRCP equivalent.
+        consume: false,
+        track: trackFromBluetooth(bt),
+        elapsed: bt.elapsed,
+        duration: bt.duration,
+        queueVersion: -1,
+        queueLength: bt.queueLength ?? 0,
+        queuePosition: bt.queuePosition,
+        serverTime: now,
+    };
+}
+
+/**
+ * Turn MPD's `status` + `currentsong` replies into a Snapshot.
+ *
+ * `bt` is a parameter rather than something stamped on afterwards so this stays a
+ * pure function of its inputs — which is the only reason bridge.test.ts can be a
+ * pile of plain assertions with no sockets. It defaults to null, so every
+ * existing three-argument call site still means what it used to.
+ *
+ * A CONNECTED DEVICE SHORT-CIRCUITS EVERYTHING BELOW. The snapshot then describes
+ * the phone, because the phone is what is playing; MPD's replies are ignored
+ * rather than blended in. This is the reverse of how it worked when the sink
+ * first landed, when there was no metadata for a phone and the top-level fields
+ * meant MPD. AVRCP changed what is possible, so it changed what is right.
+ */
+export function buildSnapshot(
+    status: Reply,
+    currentSong: Reply,
+    now: number,
+    bt: BluetoothState | null = null,
+): Snapshot {
+    if (bt !== null) return bluetoothSnapshot(bt, now);
+
     const get = (k: string) => firstValue(status, k);
     const rawState = get('state');
     const state: PlaybackState =
@@ -124,6 +225,7 @@ export function buildSnapshot(status: Reply, currentSong: Reply, now: number): S
         status: 'ok',
         source: 'mpd',
         state,
+        bluetooth: null,
         // No volume: MPD runs mixer_type "none" and reports -1. See shared/api.ts.
         repeat: get('repeat') === '1',
         random: get('random') === '1',
@@ -155,6 +257,15 @@ export class MpdBridge {
     private timers = new Set<NodeJS.Timeout>();
     private unavailableTimer: NodeJS.Timeout | null = null;
 
+    /**
+     * The connected Bluetooth device, as last reported by the arbiter.
+     *
+     * Held here rather than read per-snapshot because snapshots are built on
+     * MPD's timeline (every idle wake) and this changes on its own. See
+     * src/backend/src/bluetooth.ts for why this side only observes.
+     */
+    private bluetooth: BluetoothState | null = null;
+
     // Declared explicitly rather than as a constructor parameter property:
     // those emit code, so Node's type-stripping (used by `npm test`) rejects them.
     private opts: BridgeOptions;
@@ -163,7 +274,7 @@ export class MpdBridge {
         this.opts = opts;
         this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
         this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
-        this.snapshot = unavailableSnapshot(Date.now());
+        this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth);
     }
 
     get current(): Snapshot {
@@ -206,7 +317,7 @@ export class MpdBridge {
             this.unavailableTimer = null;
             if (!this.commands.connected && !this.stopped) {
                 this.opts.log('warn', 'MPD still unreachable — reporting unavailable');
-                this.publish(unavailableSnapshot(Date.now()));
+                this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
             }
         }, grace);
         this.timers.add(timer);
@@ -301,9 +412,29 @@ export class MpdBridge {
         try {
             const status = await this.commands.send('status');
             const song = await this.commands.send('currentsong');
-            this.publish(buildSnapshot(status, song, Date.now()));
+            this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth));
         } catch (err) {
             this.opts.log('warn', `refresh failed: ${(err as Error).message}`);
+        }
+    }
+
+    /**
+     * Record the connected Bluetooth device and republish.
+     *
+     * Republishing is the point: a phone connecting is not an MPD event, so
+     * nothing would otherwise wake the idle loop and the panel would keep showing
+     * the old source until MPD happened to change something. It goes through
+     * refresh() when MPD is reachable so the MPD half of the snapshot is fresh
+     * too — the arbiter has just paused MPD, and a snapshot claiming `play`
+     * alongside a connected phone would be wrong in a way a user would notice.
+     */
+    async setBluetooth(info: BluetoothState | null): Promise<void> {
+        this.bluetooth = info;
+        if (this.stopped) return;
+        if (this.commands.connected) {
+            await this.refresh();
+        } else {
+            this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
         }
     }
 

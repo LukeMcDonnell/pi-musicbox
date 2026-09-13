@@ -20,6 +20,12 @@ Last updated 2026-09-12.
 - A dev loop that is **2.5s** backend-only, **4.3s** for both halves, with no sudo.
 - MPD playing that library through the DAC — 37,289 songs indexed, resident from
   boot at a deliberate cost of ~6s (9.348s → 17.896s; see `device.md`)
+- A **Bluetooth A2DP sink** at aptX HD: a phone pairs with no prompt and plays
+  through the DAC, MPD pauses and releases the card. The now-playing screen and
+  the transport buttons follow whichever source is active, over AVRCP, and a
+  Disconnect button hands the speaker back. The handoff is owned by a root arbiter
+  rather than the backend, so it survives the web server being redeployed. See
+  `bluetooth.md`.
 
 ## Open issue: the box drops off the network under load
 
@@ -36,11 +42,17 @@ repeating, and how to remove the instrumentation.**
 
 1. **Flesh out the UI** — the skeleton is now-playing plus transport and volume.
    Queue, library browse and search are next, and the API is shaped for them.
-2. **Bluetooth audio** — bluez + a BlueALSA or PipeWire sink. Note chromium runs
-   with `--mute-audio` precisely because MPD is meant to own the DAC
-   exclusively; adding a second audio consumer means a shared layer, not just
-   dropping the flag.
-3. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`).
+2. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`). Note the
+   DAC exclusion that Bluetooth ran into applies again: whatever plays a CD has
+   to go through the same arbiter, not open `hw:0,0` for itself.
+3. **Repeat and shuffle control, for both sources at once.** They are now
+   *reflected* in the snapshot — AVRCP's `Repeat`/`Shuffle` for a phone, MPD's own
+   flags otherwise — but nothing can change them: there has never been an API for
+   it. AVRCP's are writable and MPD's obviously are, so do both together rather
+   than adding a Bluetooth-only control and a second inconsistency.
+4. **A UI-gated Bluetooth pairing window** — the box is currently discoverable to
+   anyone in radio range. Designed for, deliberately deferred; see
+   `bluetooth.md`.
 
 
 ## Offered, not actioned
@@ -48,6 +60,34 @@ repeating, and how to remove the instrumentation.**
 - Mask `rpcbind` / `rpc-statd-notify` / `nfs-blkmap` (~666ms). Only if SMB is
   chosen — NFS needs them.
 - A `tools/sync.sh` to stop the device drifting from the repo.
+- **Shutdown stalls ~90s when MPD is playing.** `/srv/music` cannot be unmounted
+  while MPD holds it, so a graceful reboot spends the full stop timeout waiting.
+  Observed 2026-09-13:
+
+  ```
+  12:41:54  netwatch: mpd=[[playing] #59/130 1:42/5:19]
+  12:41:59  Unmounting srv-music.mount...
+  12:41:59  umount.nfs4: /srv/music: device is busy
+  12:41:59  srv-music.mount: Mount process exited, code=exited, status=16
+  12:41:59  Failed unmounting srv-music.mount - /srv/music
+  12:43:29  srv-music.mount: Deactivated successfully      <- 90s later
+  ```
+
+  Not a data risk: the share is mounted `ro` and the unmount does eventually
+  succeed. Not new either, though the journal cannot prove that — only five boots
+  are recorded and the earlier ones were a hard power cycle (the clock deadlock)
+  or seconds long, so this was the first graceful shutdown with the share actually
+  in use. Nothing in the Bluetooth work touches `/srv/music`.
+
+  The fix is a shutdown-ordering dependency so `mpd.service` stops before
+  `srv-music.mount` — systemd has no idea MPD depends on it, because the mount is
+  `noauto,x-systemd.automount` and MPD merely triggers it by access. A drop-in
+  with `After=srv-music.mount` on `mpd.service` would do it (systemd reverses
+  ordering on shutdown), but **it touches the boot contract**: non-negotiable #1
+  in `CLAUDE.md` exists because anything that makes boot wait on the network hangs
+  the box when the NAS is off. `After=` on an automount unit should be safe —
+  the automount unit, not the mount, is what is active at boot — but that needs
+  proving with the NAS powered down, not reasoning. Own change, own tests.
 - Investigate the unexplained 1543ms firmware gap.
 - Reclaim the ~4s the kiosk currently waits on NetworkManager.
 - Read-only root via `raspi-config nonint enable_overlayfs` (planned from the
