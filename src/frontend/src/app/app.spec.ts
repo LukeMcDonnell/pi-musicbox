@@ -18,21 +18,25 @@ describe('App', () => {
         expect(fixture.componentInstance).toBeTruthy();
     });
 
-    it('opens now-playing from the mini bar and closes it again', () => {
-        const fixture = TestBed.createComponent(App);
-        fixture.detectChanges();
-        const root = fixture.nativeElement as HTMLElement;
-        const view = root.querySelector('app-now-playing')!;
+    // Both open buttons are always in the DOM — which one is visible is a media
+    // query Karma cannot set — so each is found by its host, not by label alone.
+    for (const host of ['app-now-playing-mini', 'app-now-playing-micro']) {
+        it(`opens now-playing from ${host} and closes it again`, () => {
+            const fixture = TestBed.createComponent(App);
+            fixture.detectChanges();
+            const root = fixture.nativeElement as HTMLElement;
+            const view = root.querySelector('app-now-playing')!;
 
-        root.querySelector<HTMLButtonElement>('[aria-label="Open now playing"]')!.click();
-        fixture.detectChanges();
-        expect(view.hasAttribute('inert')).toBeFalse();
+            root.querySelector<HTMLButtonElement>(`${host} [aria-label="Open now playing"]`)!.click();
+            fixture.detectChanges();
+            expect(view.hasAttribute('inert')).toBeFalse();
 
-        const close = Array.from(view.querySelectorAll('button')).find(
-            (b) => b.textContent?.trim() === 'Close',
-        );
-        close!.click();
-        fixture.detectChanges();
-        expect(view.hasAttribute('inert')).toBeTrue();
-    });
+            const close = Array.from(view.querySelectorAll('button')).find(
+                (b) => b.textContent?.trim() === 'Close',
+            );
+            close!.click();
+            fixture.detectChanges();
+            expect(view.hasAttribute('inert')).toBeTrue();
+        });
+    }
 });

@@ -8,25 +8,38 @@
                  [attr.inert]="sheet.open() ? null : ''"
                  (close)="sheet.hide()" />
 
-<!-- Wide: the menu is a sticky rail beside the page, and the mini bar runs along
-     the bottom under both.
+<!-- Wide: the menu is a rail beside the page, and the mini bar runs along the
+     bottom under both.
      Narrow: the menu is fixed to the very bottom, with the mini bar stacked
      directly above it — the tabs stay where a thumb is, and now-playing sits
      next to the controls that lead to it. Out of the flow, so the page takes
-     the full width. -->
-<div class="flex flex-row">
-  <app-menu class="sticky top-0 z-20 h-[calc(100dvh-var(--spacing-bar))] w-rail flex-none bg-surface
-                   max-[46rem]:fixed max-[46rem]:inset-x-0 max-[46rem]:top-auto
-                   max-[46rem]:bottom-0 max-[46rem]:h-tabs max-[46rem]:w-auto
-                   max-[46rem]:border-t max-[46rem]:border-raised" />
+     the full width.
+     Short (either width): no mini bar at all — the menu carries just the album
+     art instead. See the `short` variant in styles.scss.
 
-  <!-- Bottom padding: the fixed chrome sits over the bottom of the page, and the
-       last row of a route would otherwise be underneath it. -->
-  <main class="z-10 min-w-0 flex-1 pb-bar
-               max-[46rem]:pb-[calc(var(--spacing-bar)+var(--spacing-tabs))]">
+     THE PAGE SCROLLS IN <main>, NOT IN THE WINDOW. The frame is exactly the
+     viewport minus whatever fixed chrome is showing, and main is its scroller.
+     A window scrollbar is laid out beside fixed elements, never under them, so
+     it stayed visible down the edge of the now-playing sheet whatever its
+     z-index; and hiding it while the sheet is open changes the page width, which
+     shifts the sheet's centred content as it opens and closes. main's own
+     scrollbar is covered like anything else. It also ends where the bar begins,
+     rather than running on underneath it, and the page no longer needs bottom
+     padding to keep its last row clear of the chrome. Nothing reads window
+     scroll: there is no router scroll restoration. -->
+<div class="flex h-[calc(100dvh-var(--spacing-bar))] flex-row
+            max-[46rem]:h-[calc(100dvh-var(--spacing-bar)-var(--spacing-tabs))]
+            short:h-dvh short:max-[46rem]:h-[calc(100dvh-var(--spacing-tabs))]">
+  <app-menu class="z-20 h-full w-rail flex-none bg-surface
+                   max-[46rem]:fixed max-[46rem]:inset-x-0 max-[46rem]:bottom-0 max-[46rem]:h-tabs
+                   max-[46rem]:w-auto max-[46rem]:border-t max-[46rem]:border-raised" />
+
+  <!-- overscroll-contain: a fling that reaches the end stops here instead of
+       chaining to a window that has nothing to scroll. -->
+  <main class="min-w-0 flex-1 overflow-y-auto overscroll-contain">
     <router-outlet />
   </main>
 </div>
 
-<app-now-playing-mini class="fixed inset-x-0 bottom-0 z-30 h-bar max-[46rem]:bottom-tabs"
+<app-now-playing-mini class="fixed inset-x-0 bottom-0 z-30 h-bar max-[46rem]:bottom-tabs short:hidden"
                       (open)="sheet.show()" />

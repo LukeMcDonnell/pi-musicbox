@@ -29,7 +29,10 @@
 
   /* The thickness of the app chrome. Each generates `h-*`, `w-*`, `pb-*` and so
      on.
-       bar   the mini now-playing bar along the bottom, at every width
+       bar   the mini now-playing bar along the bottom, at every width — except
+             on short screens, where the menu carries a micro now-playing
+             instead (see `short` below). 70px under the tabs; beside the rail
+             it becomes the rail's width, just below
        rail  the menu as a column down the left, when there is width for it
        tabs  the menu as a row along the bottom, beneath the bar, when there is
              not — thinner than the rail because on a phone it is taken out of
@@ -40,6 +43,29 @@
 }
 
 /*
+  Beside the rail, the bar is as tall as the rail is wide, so the corner where
+  they meet is square. Redefined on the token rather than with width variants on
+  its three users in app.html — the bar, the rail's height and the page's
+  bottom padding — so they cannot disagree. 46rem is app.html's `max-[46rem]`
+  breakpoint, from the other side; the two must move together. (Utilities read
+  the token through var(), and unlayered beats the theme layer, so this wins.)
+*/
+@media (width >= 46rem) {
+  :root {
+    --spacing-bar: var(--spacing-rail);
+  }
+}
+
+/*
+  Short screens: under 640px tall. The panel is 800x480, and there the 70px mini
+  bar was a seventh of the height. This is the one switch between the two
+  now-playing affordances — the bar below the page, or just the album art in the
+  menu — and it also drops the blurred backdrop. Height only, so it applies to
+  the rail and to the tab row alike.
+*/
+@custom-variant short (@media (height < 40rem));
+
+/*
   The blurred, darkened cover behind now-playing and behind the mini bar.
 
   One definition so the two cannot drift apart — tune it here. The blur radius
@@ -48,8 +74,12 @@
 
   Both views size the image to the full viewport, the mini bar included, and
   let their own box clip it. That is what makes them match: a 172px blur
-  applied to a 70px-tall image would be nearly all faded edge, and would read
+  applied to a bar-tall image would be nearly all faded edge, and would read
   as a smudge rather than as the same backdrop.
+
+  Short screens render neither: the bar is hidden there, and now-playing hides
+  its own copy. It is the heaviest thing on screen, and the panel is too slow
+  to carry it.
 */
 @utility art-backdrop {
   filter: blur(172px) brightness(0.68) saturate(1);
@@ -60,4 +90,27 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/*
+  Scrollbars: thin, and a dim thumb on a clear track, so they sit on the dark
+  palette instead of the browser's light grey gutter.
+
+  The standard properties, not ::-webkit-scrollbar. The kiosk is Chromium, which
+  has supported these since 121, and once either is set Chromium ignores the
+  -webkit- pseudo-elements anyway — writing both would only be dead code.
+  Phones use overlay scrollbars and ignore all of this, which is fine.
+
+  scrollbar-color inherits, so it is set once on the root; scrollbar-width does
+  not, so it goes on every element — the page is not the only scroller (the
+  now-playing sheet scrolls down to its queue). color-scheme: dark covers what
+  these two cannot reach, such as the scrollbar corner.
+*/
+:root {
+  color-scheme: dark;
+  scrollbar-color: color-mix(in oklab, var(--color-muted) 40%, transparent) transparent;
+}
+
+* {
+  scrollbar-width: thin;
 }

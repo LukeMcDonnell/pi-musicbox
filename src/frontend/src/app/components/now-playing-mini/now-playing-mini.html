@@ -12,13 +12,16 @@
 
 <div class="relative flex h-full items-center gap-1 border-t border-raised pr-2">
   <button class="flex h-full min-w-0 flex-1 cursor-pointer touch-manipulation items-center gap-3
-                 px-2 text-left select-none active:bg-raised"
+                 p-2 text-left select-none active:bg-raised"
           (click)="open.emit()" aria-label="Open now playing">
-    <!-- Fixed box, so a cover arriving or failing never shifts the text. -->
-    <span class="grid size-[54px] flex-none place-items-center overflow-hidden rounded bg-raised">
+    <!-- Fixed box, so a cover arriving or failing never shifts the text. Square
+         and the full height inside the button's p-2, so the margin above and
+         below the cover matches the one to its left at either bar height (see
+         the `bar` token in styles.scss). -->
+    <span class="grid aspect-square h-full flex-none place-items-center overflow-hidden rounded bg-raised">
       @if (artUri(); as uri) {
         <img class="h-full w-full object-cover" [src]="uri" alt=""
-             width="54" height="54" decoding="async" (error)="onArtError(uri)">
+             width="69" height="69" decoding="async" (error)="onArtError(uri)">
       } @else if (onBluetooth()) {
         <svg lucideBluetooth class="size-6 text-muted" aria-hidden="true"></svg>
       } @else {

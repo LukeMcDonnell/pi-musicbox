@@ -1,8 +1,11 @@
 <div class="wrapper w-full h-full z-1 overflow-auto">
   @if (artUri(); as uri) {
-    <!-- art-backdrop is shared with the mini bar: see styles.scss. -->
+    <!-- art-backdrop is shared with the mini bar: see styles.scss. Not on short
+         screens: it is the heaviest thing on screen and the panel is one, so
+         there the host's plain bg-bg shows instead. Hidden rather than removed
+         — it is the same URL as the cover, so it costs no extra fetch. -->
     <img class="art-backdrop pointer-events-none absolute inset-0 z-0 h-full w-full object-cover
-              will-change-transform"
+              will-change-transform short:hidden"
          [src]="uri" alt="" aria-hidden="true" decoding="async">
   }
 
