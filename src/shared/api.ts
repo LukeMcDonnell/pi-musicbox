@@ -94,6 +94,21 @@ export interface Track {
     albumArtist?: string;
     track?: string;
     date?: string;
+    /**
+     * The `OriginalDate` tag — when the album first came out, as opposed to when
+     * THIS pressing did.
+     *
+     * WORTH A SECOND DATE FIELD because `Date` on a remaster is the remaster's
+     * year, and this library is full of them: measured across all 2,758 albums,
+     * 2,726 carry OriginalDate and **940 of them disagree with `Date`**. AC/DC's
+     * catalogue is dated 2020 by `Date` and 1976-1990 by this one; `Back in
+     * Black` is 2003 against 1980. An "albums by year" screen built on `Date`
+     * would be wrong for a third of the library and would contradict the year
+     * written on the folder on disk.
+     *
+     * Free text like `date`, and absent rather than guessed when untagged.
+     */
+    originalDate?: string;
     genre?: string;
     /** Seconds. Absent for streams. */
     duration?: number;
@@ -260,6 +275,151 @@ export interface QueueResponse {
  *   until MPD and Bluetooth both handle it. A phone exposes no addressable track
  *   list at all (the same reason GET /api/queue is a 409 during a session), so
  *   putting this there would force a mapping that could only ever be a lie.
+ */
+
+/*
+ * BROWSING THE LIBRARY
+ *
+ * Three screens, three GETs: artists, then one artist's albums, then one album's
+ * tracks. Nothing here travels on the snapshot — the library is 37,289 songs and
+ * the snapshot rule at the top of this file exists precisely to keep collections
+ * that size off the event stream. These are ordinary cacheable responses.
+ *
+ * WHY AN ARTIST IS IDENTIFIED BY ITS AlbumArtist TAG
+ *   `Artist` is the performing credit and splits an album across "Queen",
+ *   "Queen & David Bowie" and so on; `AlbumArtist` is the one an album is filed
+ *   under. Measured on this library: 535 Artist values against 487 AlbumArtist,
+ *   and the 487 line up one-for-one with the directories on disk.
+ */
+
+/**
+ * One artist in the browse list.
+ *
+ * NAME AND DIRECTORY ARE BOTH HERE, AND THEY ARE NOT THE SAME STRING. 48 of this
+ * library's 487 artists are filed under a directory that differs from the tag —
+ * `AC/DC` lives in `AC-DC` (a `/` cannot be a path segment), `Andrew W.K.` in
+ * `Andrew W.K`, `CAKE` in `Cake`. The tag is what a person is shown; the
+ * directory is only ever used to build `image`, and the backend learns it by
+ * asking MPD for one of the artist's songs rather than by transforming the name.
+ * Deriving one from the other would be wrong about one artist in ten, which is
+ * the same "confidently wrong" failure that rules out guessing Bluetooth covers.
+ */
+export interface ArtistSummary {
+    /** The `AlbumArtist` tag. This is the string to display. */
+    name: string;
+    /**
+     * The artist's directory, relative to the music root. Display it nowhere; it
+     * exists so `image` can be built and so a caller can tell two identically
+     * named artists apart.
+     */
+    directory: string;
+    albumCount: number;
+    /**
+     * `/api/art?album=<directory>`, or null when the artist's directory is not
+     * known.
+     *
+     * THE SAME ENDPOINT AS ALBUM ART, deliberately. `/api/art` resolves a cover
+     * inside whatever library directory it is given, and an artist directory in
+     * this library holds a `folder.jpg` of the artist exactly as an album
+     * directory holds one of the sleeve — 473 of 487, measured. So artist images
+     * needed no new endpoint, no new filename list and no new cache.
+     *
+     * Like every art URI here it MAY STILL 404: 16 artists have no image file.
+     * Clients show their placeholder, as they already do for the covers.
+     */
+    image: string | null;
+}
+
+/** One album in an artist's list, or the header of the album screen. */
+export interface AlbumSummary {
+    album: string;
+    /** The `AlbumArtist` this album is filed under — the `name` above. */
+    albumArtist: string;
+    /**
+     * When the album came out — `OriginalDate` where the tracks have it, falling
+     * back to `Date`.
+     *
+     * THAT PREFERENCE IS THE POINT. `Date` is the year of the pressing, and 940
+     * of this library's 2,758 albums are remasters whose `Date` is decades after
+     * the record. Sorting an artist's albums by `Date` puts AC/DC's entire
+     * catalogue in 2020.
+     *
+     * NOT parsed to a number: free text, and it appears as `1997`, `1997-06-16`
+     * and occasionally worse. Clients that want a year take the leading four
+     * digits.
+     *
+     * Null for the albums carrying neither tag. They sort last rather than as
+     * year zero.
+     */
+    date: string | null;
+    trackCount: number;
+    /** `/api/art?album=<album directory>`; may 404, as ever. */
+    image: string | null;
+}
+
+export interface ArtistsResponse {
+    artists: ArtistSummary[];
+}
+
+export interface AlbumsResponse {
+    albumArtist: string;
+    /**
+     * The artist's picture, as on ArtistSummary — repeated here so the artist
+     * screen is self-sufficient.
+     *
+     * IT CANNOT COME FROM THE ARTISTS LIST. That list is a client-side cache, and
+     * this screen is reachable without it: the kiosk reloads the page on every
+     * deploy, and a phone can hold a bookmark. Reading the picture out of the
+     * cache meant the hero silently fell back to the placeholder whenever the
+     * screen was opened directly — observed in a screenshot of the real device.
+     *
+     * Free to send: the backend derives it from the first path segment of a
+     * track it has already fetched, so it costs no extra MPD command and no
+     * index lookup.
+     */
+    image: string | null;
+    /** Oldest first; undated albums last. */
+    albums: AlbumSummary[];
+}
+
+export interface AlbumResponse {
+    album: AlbumSummary;
+    /**
+     * The album's tracks in playing order.
+     *
+     * FLAT, EVEN FOR A MULTI-DISC ALBUM, but ordered by directory before track
+     * number — 149 albums here keep their tracks in `CD 01`/`CD 02`/`Vinyl 01`
+     * subdirectories, and sorting on the `Track` tag alone would interleave two
+     * tracks both numbered 01.
+     *
+     * These carry no `id`: they are library songs, not queue entries, so there is
+     * nothing for `POST /api/queue/play/:id` to address. Play the album.
+     */
+    tracks: Track[];
+}
+
+/** Names an album for the two POSTs below. */
+export interface AlbumRef {
+    albumArtist: string;
+    album: string;
+}
+
+/*
+ * PUTTING AN ALBUM IN THE QUEUE
+ *
+ *   POST /api/library/queue   appends it
+ *   POST /api/library/play    clears the queue, adds it, starts playing
+ *
+ * Both take an AlbumRef and answer with a Snapshot.
+ *
+ * TWO ROUTES RATHER THAN ONE WITH A FLAG, because they are two different verbs:
+ * one adds to what you are listening to, the other replaces it. A boolean would
+ * make the destructive one the easier thing to reach by accident.
+ *
+ * The album is named by tag and resolved by MPD's own `findadd`, so the server
+ * never enumerates tracks and the whole album is queued in one command. 409 while
+ * a phone owns the DAC, for the same reason GET /api/queue is a 409 — MPD's queue
+ * is not what anyone is looking at during a Bluetooth session.
  */
 
 export interface HealthResponse {

@@ -630,3 +630,180 @@ test('a Bluetooth command is accepted, not answered with a stale snapshot', asyn
         await rm(dir, { recursive: true, force: true });
     }
 });
+
+/*
+ * LIBRARY BROWSE
+ *
+ * Listing and grouping logic lives in library.test.ts against a fake bridge;
+ * these are the HTTP contract — what each route does with a bad parameter, with
+ * a phone on the DAC, and with MPD unreachable. The dead bridge is what makes
+ * the last one honest: a 503 saying "MPD is not connected" proves the request
+ * reached MPD's side rather than being rejected on the way.
+ */
+
+test('library listings reject a missing or empty parameter before reaching MPD', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const cases: Array<[string, RegExp]> = [
+            ['/api/library/albums', /missing 'artist'/],
+            ['/api/library/albums?artist=', /missing 'artist'/],
+            ['/api/library/album?album=Kid%20A', /missing 'artist'/],
+            ['/api/library/album?artist=Radiohead', /missing 'album'/],
+            ['/api/library/album?artist=Radiohead&album=', /missing 'album'/],
+        ];
+        for (const [path, expected] of cases) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`);
+            // 400, never 503: a missing parameter is the caller's mistake, and
+            // answering with MPD's status would blame the wrong thing.
+            assert.equal(res.status, 400, path);
+            const body = (await res.json()) as { error: string };
+            assert.match(body.error, expected, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('library listings answer 503 when MPD is unreachable', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        for (const path of [
+            '/api/library/artists',
+            '/api/library/albums?artist=Radiohead',
+            '/api/library/album?artist=Radiohead&album=Kid%20A',
+        ]) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`);
+            assert.equal(res.status, 503, path);
+            const body = (await res.json()) as { error: string };
+            assert.match(body.error, /MPD is not connected/, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('a failed artists build is not cached as an empty library', async () => {
+    // MPD restarting must not leave the library permanently empty. Asserted over
+    // HTTP as well as in library.test.ts because the route holds the one
+    // long-lived index in the process.
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        for (let i = 0; i < 3; i += 1) {
+            const res = await fetch(`http://127.0.0.1:${port}/api/library/artists`);
+            assert.equal(res.status, 503, `attempt ${i}`);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('queueing and playing an album are refused while a phone owns the DAC', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        for (const path of ['/api/library/queue', '/api/library/play']) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ albumArtist: 'Radiohead', album: 'Kid A' }),
+            });
+            // 409 for the same reason GET /api/queue is one: MPD's queue is not
+            // what anyone is listening to during a Bluetooth session, so adding
+            // to it silently would be a button that appears to do nothing.
+            assert.equal(res.status, 409, path);
+            const body = (await res.json()) as { error: string };
+            assert.match(body.error, /phone owns the DAC/, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('an album reference is validated as strings before it can reach a command line', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const bodies: unknown[] = [
+            {},
+            { albumArtist: 'Radiohead' },
+            { album: 'Kid A' },
+            { albumArtist: '', album: 'Kid A' },
+            { albumArtist: 'Radiohead', album: '' },
+            // The reason the check is `typeof === 'string'` and not truthiness:
+            // these reach quoteArg as "[object Object]" or "1" and quietly match
+            // nothing, which looks to a user like a broken button.
+            { albumArtist: { toString: () => 'x' }, album: 'Kid A' },
+            { albumArtist: 1, album: 2 },
+            { albumArtist: ['Radiohead'], album: 'Kid A' },
+        ];
+        for (const body of bodies) {
+            for (const path of ['/api/library/queue', '/api/library/play']) {
+                const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const label = `${path} ${JSON.stringify(body)}`;
+                assert.equal(res.status, 400, label);
+                // Never MPD's error: rejection must happen before the bridge.
+                assert.notEqual(res.status, 503, label);
+            }
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing an album clears the queue first, and queueing does not', async () => {
+    // Asserted on the source: a dead bridge cannot show what was sent on the
+    // wire, and the difference between these two routes IS the `clear`.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+
+    const play = src.slice(
+        src.indexOf("app.post('/api/library/play'"),
+        src.indexOf("app.get('/api/events'"),
+    );
+    assert.match(
+        play,
+        /runAll\(\['clear', findaddFor\(ref\), 'play'\]\)/,
+        'play must clear, add, then play — in that order',
+    );
+
+    const queue = src.slice(
+        src.indexOf("app.post('/api/library/queue'"),
+        src.indexOf("app.post('/api/library/play'"),
+    );
+    assert.ok(
+        !queue.includes("'clear'"),
+        'queueing an album must APPEND — it must never clear the queue',
+    );
+});
+
+test('an album is added with one findadd, not a track at a time', async () => {
+    // A song-at-a-time add bumps queueVersion once per track, so a client
+    // watching that version refetches the whole listing a dozen times for one
+    // button press. Both fields go through quoteArg separately.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const helper = src.slice(src.indexOf('function findaddFor('));
+    assert.match(helper, /findadd \$\{quoteArg\('albumartist'\)\} \$\{quoteArg\(ref\.albumArtist\)\}/);
+    assert.match(helper, /\$\{quoteArg\('album'\)\} \$\{quoteArg\(ref\.album\)\}/);
+});
+
+test('the library index is invalidated by MPD, not by a timer', async () => {
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const hook = src.slice(src.indexOf('bridge.onIdle('), src.indexOf("app.get('/api/library/artists'"));
+    // Via onIdle, not onSnapshot: a snapshot deliberately says nothing about the
+    // library, so a database change has nowhere else to travel.
+    assert.match(hook, /subsystems\.includes\('database'\)/);
+    assert.match(hook, /subsystems\.includes\('update'\)/);
+    assert.match(hook, /library\.invalidate\(\)/);
+});

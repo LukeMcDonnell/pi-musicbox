@@ -1,7 +1,7 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**631 assertions**)
-and the backend's 124 `node:test` cases. All green, shellcheck clean (2026-09-13). Safe on a dev machine:
+`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**637 assertions**)
+and the backend's 155 `node:test` cases. All green, shellcheck clean (2026-09-14). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 
 These numbers go stale fast. `bash tests/run-all.sh | grep -oE 'passed: [0-9]+'`
@@ -17,8 +17,41 @@ sums the suites; the node figure is its own `# pass` line.
 | `test-mpd-config.sh` | 82 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0, **`mixer_type "none"` with no mixer control** (giving MPD the attenuator back would silently cost bits), `replaygain` off and no resampler, the unity script sets dB rather than percentages and turns `Deemphasis` off, its unit is ordered after `alsa-restore` and before `mpd`, `auto_update` off, and `--emit` writes nothing to stderr (a backtick in an unquoted heredoc would) |
 | `test-server-config.sh` | 88 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, and that `dev-push.sh` never invokes sudo or `rsync --inplace` |
 | `test-bluetooth-config.sh` | 138 | `--emit` plus the sourced rfkill helper: **that MPD is paused and the card has actually gone quiet BEFORE the Bluetooth audio unit is started** (and the reverse), that Debian's `bluealsa-aplay.service` is masked and the audio unit has no `[Install]` section, that aptX and aptX HD are enabled on the daemon's real `ExecStart=` line (they are off by default, and an earlier version wrote them to `/etc/default/bluez-alsa`, which nothing reads), `--volume=none` so nothing fights `musicbox-dac-unity`, that a soft-blocked radio is unblocked and a hard-blocked one is not pretended away, and that the arbiter's JSON survives quotes, backslashes and emoji in a device name |
-| `src/backend` (node:test) | 124 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
+| `src/backend` (node:test) | 155 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
 | `test-integration.sh` | 47 | The real `setup.sh` + `install.sh --dry-run` in `debian:trixie-slim` against a fake `/boot/firmware` |
+
+## The frontend specs are NOT in run-all.sh
+
+```sh
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 36 specs
+```
+
+Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only
+Node step is the backend's `node:test` — so they have to be run by hand and are
+easy to forget. `tools/build.sh --check` does not run them either.
+
+The pattern, from `queue.spec.ts` and the three library ones: build a fixture
+typed from `@musicbox/shared`, provide a hand-rolled fake service through
+`TestBed` (`{ provide: LibraryStore, useValue: fake }`), and assert on the
+component's computed values rather than the DOM. Every component also has a
+"creates without a backend present" case — `EventSource` will not connect under
+test, and that is genuinely the state at boot before MPD is up.
+
+**Two TestBed configurations in one `it` throws** ("test module has already been
+instantiated"). Split the cases instead of resetting.
+
+## And they still do not see the panel
+
+Nothing above catches a layout that does not fit 800x480, which is how both
+library detail screens shipped with their content below the fold. Screenshot it:
+
+```sh
+npm i puppeteer-core    # in a scratch dir; uses the system Chrome
+# page.setViewport({ width: 800, height: 480 }) against http://musicbox.local/
+```
+
+A plain `chrome --headless --screenshot` hangs on these pages —
+`--virtual-time-budget` never expires while the SSE stream is open.
 
 ## Three layers
 

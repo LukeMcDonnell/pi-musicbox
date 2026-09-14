@@ -1,5 +1,5 @@
 /**
- * The one place that talks to the backend.
+ * Live playback state, and the commands that change it.
  *
  * SSE carries state, REST carries commands. Every SSE message is a COMPLETE
  * snapshot, so this service never merges or patches — it replaces. That is why a
@@ -7,12 +7,18 @@
  *
  * EventSource reconnects on its own, and the server sends a snapshot immediately
  * on connect, so recovery from a dropped connection needs no code here.
+ *
+ * IT IS NO LONGER THE ONLY PLACE THAT TALKS TO THE BACKEND, which is what this
+ * header used to say. Browsing the library is a catalogue with a different
+ * lifetime and no relationship to the snapshot, so it lives in LibraryStore, and
+ * the HTTP both of them need moved down into ApiClient. What is left here is
+ * what is playing — which is what this service was always actually about.
  */
 
 import { Injectable, computed, effect, signal, DestroyRef, inject } from '@angular/core';
 import type { Snapshot, PlaybackCommand, QueueResponse, Track, BuildInfo } from '@musicbox/shared';
 import { SSE_SNAPSHOT_EVENT, SSE_BUILD_EVENT } from '@musicbox/shared';
-import { environment } from '../environments/environment';
+import { ApiClient } from './api-client';
 
 /** How the browser is getting on with the server (not with MPD — that is snapshot.status). */
 export type StreamState = 'connecting' | 'live' | 'offline';
@@ -20,6 +26,7 @@ export type StreamState = 'connecting' | 'live' | 'offline';
 @Injectable({ providedIn: 'root' })
 export class MusicboxApi {
     private readonly destroyRef = inject(DestroyRef);
+    private readonly api = inject(ApiClient);
 
     private readonly _snapshot = signal<Snapshot | null>(null);
     private readonly _stream = signal<StreamState>('connecting');
@@ -147,7 +154,7 @@ export class MusicboxApi {
     }
 
     private connect(): void {
-        this.source = new EventSource(this.resolve('/api/events'));
+        this.source = new EventSource(this.api.resolve('/api/events'));
 
         this.source.addEventListener(SSE_SNAPSHOT_EVENT, (event) => {
             const snapshot = JSON.parse((event as MessageEvent<string>).data) as Snapshot;
@@ -205,7 +212,7 @@ export class MusicboxApi {
     }
 
     async playback(command: PlaybackCommand): Promise<void> {
-        await this.post(this.resolve(`/api/playback/${command}`));
+        await this.api.post(`/api/playback/${command}`);
     }
 
     /**
@@ -215,14 +222,12 @@ export class MusicboxApi {
      * start playing. See .claude/docs/bluetooth.md.
      */
     async disconnectBluetooth(): Promise<void> {
-        await this.post(this.resolve('/api/bluetooth/disconnect'));
+        await this.api.post('/api/bluetooth/disconnect');
     }
 
     /** One-shot GET. Prefer the `queue` signal, which keeps itself current. */
     async fetchQueue(): Promise<QueueResponse> {
-        const response = await fetch(this.resolve('/api/queue'));
-        if (!response.ok) throw new Error(`queue: HTTP ${response.status}`);
-        return (await response.json()) as QueueResponse;
+        return this.api.getJson<QueueResponse>('/api/queue');
     }
 
     /**
@@ -233,52 +238,15 @@ export class MusicboxApi {
      * src/shared/api.ts.
      */
     async playQueueId(id: number): Promise<void> {
-        await this.post(this.resolve(`/api/queue/play/${id}`));
+        await this.api.post(`/api/queue/play/${id}`);
     }
 
     /**
-     * Prefix an API path with the configured origin.
-     *
-     * Blank apiUrl — production, and dev by default — returns the path untouched,
-     * so the request stays root-relative and same-origin, exactly as the
-     * hardcoded literals this replaced did. A configured value makes the URL
-     * absolute, for pointing a dev frontend at a real box; the backend allows any
-     * origin on /api, so that needs no configuration there.
-     *
-     * PUBLIC because paths also arrive FROM the server — `Track.image` is a
-     * root-relative `/api/art?...`. Anything binding one of those into the DOM
-     * must send it through here: the browser would otherwise resolve it against
-     * the page's own origin, so with apiUrl set to a real box the art would be
-     * fetched from the dev server and 404. Images need no CORS, so this works
-     * cross-origin as-is.
+     * Resolve a server-supplied path. See ApiClient.resolve for why this must
+     * never be bypassed; it stays on this service because every existing caller
+     * and the spec that asserts nothing bypasses it name it here.
      */
     resolve(path: string): string {
-        return environment.apiUrl.replace(/\/+$/, '') + path;
-    }
-
-    private async post(url: string, body?: unknown): Promise<void> {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: body ? { 'content-type': 'application/json' } : undefined,
-            body: body ? JSON.stringify(body) : undefined,
-        });
-        if (!response.ok) {
-            let detail = `HTTP ${response.status}`;
-            try {
-                const parsed = (await response.json()) as { error?: string };
-                if (parsed.error) detail = parsed.error;
-            } catch {
-                // Non-JSON error body; the status code is enough.
-            }
-            throw new Error(detail);
-        }
-        // No state update here. For MPD the command lands, MPD's idle fires, and
-        // the snapshot arrives over SSE. For Bluetooth the arbiter acts and its
-        // next published state does the same. One source of truth either way.
-        //
-        // Deliberately no optimistic local update, even though AVRCP takes a few
-        // seconds to report a new status: guessing would show the wrong state
-        // confidently whenever a command is genuinely ignored, and phones do
-        // ignore them.
+        return this.api.resolve(path);
     }
 }

@@ -11,12 +11,17 @@ import {
     SSE_SNAPSHOT_EVENT,
     SSE_BUILD_EVENT,
     API_VERSION,
+    type AlbumResponse,
+    type AlbumsResponse,
+    type ArtistsResponse,
     type HealthResponse,
     type PlaybackCommand,
     type Snapshot,
 } from '../../shared/api.ts';
 import type { MpdBridge } from './mpd/bridge.ts';
+import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
+import { albumsFromTracks, createLibrary } from './library.ts';
 import {
     BluetoothUnavailableError,
     DEFAULT_CONTROL_PATH,
@@ -236,6 +241,174 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * request. Track.image points here; see src/backend/src/art.ts.
      */
     app.get('/api/art', createArtHandler(createArtResolver(musicRoot)));
+
+    /*
+     * LIBRARY BROWSE
+     *
+     * Read-only listings from MPD's tag database, plus the two ways to put an
+     * album in the queue. Everything is addressed by QUERY PARAMETER rather than
+     * by path segment, for the reason /api/art already is: `AC/DC` is a real
+     * artist and album titles contain `/` too, so the identity would have to
+     * travel as `%2F`, which routers and proxies are entitled to normalise back.
+     *
+     * These routes are appended after /api/art deliberately. Three tests in
+     * routes.test.ts assert on the SOURCE TEXT of this file, slicing between
+     * route literals — inserting a route between two existing ones silently
+     * changes what they assert.
+     */
+
+    const library = createLibrary(bridge);
+
+    /*
+     * A database scan invalidates the index.
+     *
+     * Via onIdle rather than onSnapshot: a snapshot says nothing about the
+     * library, deliberately, so the fact that the song database changed has
+     * nowhere else to travel. The index is dropped, not rebuilt — the next
+     * request pays the ~200ms, and on a box where `auto_update` is off that
+     * request may be days away.
+     *
+     * `mpc update` on a library this size takes the better part of an hour, and
+     * `update` fires at both ends of it. Invalidating twice is free.
+     */
+    bridge.onIdle((subsystems) => {
+        if (subsystems.includes('database') || subsystems.includes('update')) {
+            library.invalidate();
+        }
+    });
+
+    /** Every artist in the library, in MPD's own AlbumArtist order. */
+    app.get('/api/library/artists', async (_req: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const artists = await library.artists();
+            const body: ArtistsResponse = { artists };
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    /** One artist's albums, oldest first. */
+    app.get('/api/library/albums', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { artist } = request.query as { artist?: string };
+        if (artist === undefined || artist === '') {
+            return reply.code(400).send({ error: "missing 'artist' query parameter" });
+        }
+        try {
+            const { image, albums } = await library.albumsOf(artist);
+            const body: AlbumsResponse = { albumArtist: artist, image, albums };
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    /** One album: its header and its tracks in playing order. */
+    app.get('/api/library/album', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { artist, album } = request.query as { artist?: string; album?: string };
+        if (artist === undefined || artist === '') {
+            return reply.code(400).send({ error: "missing 'artist' query parameter" });
+        }
+        if (album === undefined || album === '') {
+            return reply.code(400).send({ error: "missing 'album' query parameter" });
+        }
+        try {
+            const tracks = await library.tracksOf(artist, album);
+            if (tracks.length === 0) {
+                return reply.code(404).send({ error: 'no such album' });
+            }
+            // Built from the tracks just fetched rather than by asking again:
+            // the header's date, cover and count are all facts about these very
+            // rows, and a second query could disagree with them.
+            const [summary] = albumsFromTracks(artist, tracks);
+            const body: AlbumResponse = { album: summary, tracks };
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    /**
+     * Read an AlbumRef off a request body.
+     *
+     * Both fields are checked as STRINGS before they go anywhere near MPD. They
+     * are interpolated into a command line — `quoteArg` escapes them, but a
+     * non-string would reach it as `[object Object]` or `undefined` and quietly
+     * match nothing, which looks to a user like a button that does not work.
+     * Same standard as the `/^\d+$/` on a song id.
+     */
+    function albumRefFrom(body: unknown): { albumArtist: string; album: string } | string {
+        const ref = (body ?? {}) as { albumArtist?: unknown; album?: unknown };
+        if (typeof ref.albumArtist !== 'string' || ref.albumArtist === '') {
+            return "missing 'albumArtist'";
+        }
+        if (typeof ref.album !== 'string' || ref.album === '') return "missing 'album'";
+        return { albumArtist: ref.albumArtist, album: ref.album };
+    }
+
+    /**
+     * MPD's own `findadd` — the whole album in ONE command.
+     *
+     * The alternative was fetching the track list and adding it a song at a
+     * time, which is a round trip per track and bumps `queueVersion` once per
+     * track with it: a client watching that version would refetch the whole
+     * listing a dozen times for one button press. MusicboxApi has a sequence
+     * guard against exactly that, and this makes it unnecessary.
+     */
+    function findaddFor(ref: { albumArtist: string; album: string }): string {
+        return `findadd ${quoteArg('albumartist')} ${quoteArg(ref.albumArtist)} ${quoteArg('album')} ${quoteArg(ref.album)}`;
+    }
+
+    /**
+     * Append an album to the queue.
+     *
+     * 409 while a phone owns the DAC, exactly as GET /api/queue is. MPD's queue
+     * is not what anyone is listening to during a Bluetooth session, so adding
+     * to it silently would be a button that appears to do nothing.
+     */
+    app.post('/api/library/queue', async (request: FastifyRequest, reply: FastifyReply) => {
+        const ref = albumRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({
+                error: 'cannot queue an album while a phone owns the DAC',
+            });
+        }
+        try {
+            await bridge.runAll([findaddFor(ref)]);
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    /**
+     * Replace the queue with an album and play it.
+     *
+     * THREE COMMANDS, ONE REFRESH — see MpdBridge.runAll. `clear` then `findadd`
+     * then `play`, rather than `findadd` then seeking: the button means "play
+     * this album", and leaving the previous queue underneath would make the next
+     * track a surprise.
+     *
+     * Separate from the queue route rather than a flag on it, because this one
+     * throws away what you were listening to and that should not be reachable by
+     * passing `false`.
+     */
+    app.post('/api/library/play', async (request: FastifyRequest, reply: FastifyReply) => {
+        const ref = albumRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({
+                error: 'cannot play an album while a phone owns the DAC',
+            });
+        }
+        try {
+            await bridge.runAll(['clear', findaddFor(ref), 'play']);
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
 
     /**
      * SSE stream. Sends the current snapshot immediately on connect, so a client

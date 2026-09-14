@@ -37204,8 +37204,11 @@ function albumDirOf(file) {
   const dir = posix.dirname(file);
   return dir === "." || dir === "/" ? "" : dir;
 }
+function artUriForDir(dir) {
+  return `/api/art?album=${encodeURIComponent(dir)}`;
+}
 function artUriFor(file) {
-  return `/api/art?album=${encodeURIComponent(albumDirOf(file))}`;
+  return artUriForDir(albumDirOf(file));
 }
 var realDeps = {
   statFile: async (path) => {
@@ -37272,11 +37275,14 @@ function createArtHandler(resolver) {
 }
 
 // src/mpd/bridge.ts
-var IDLE_SUBSYSTEMS = "player mixer playlist options update";
+var IDLE_SUBSYSTEMS = "player mixer playlist options update database";
 var BACKOFF_MIN_MS = 500;
 var BACKOFF_MAX_MS = 1e4;
 var KEEPALIVE_MS = 2e4;
 var UNAVAILABLE_GRACE_MS = 3e3;
+function filterArgs(pairs) {
+  return pairs.map(([k, v]) => `${quoteArg(k)} ${quoteArg(v)}`).join(" ");
+}
 function num(v) {
   if (v === void 0) return void 0;
   const n = Number(v);
@@ -37296,6 +37302,7 @@ function trackFromTags(tags) {
   if (tags.get("AlbumArtist")) track.albumArtist = tags.get("AlbumArtist");
   if (tags.get("Track")) track.track = tags.get("Track");
   if (tags.get("Date")) track.date = tags.get("Date");
+  if (tags.get("OriginalDate")) track.originalDate = tags.get("OriginalDate");
   if (tags.get("Genre")) track.genre = tags.get("Genre");
   const dur = num(tags.get("duration") ?? tags.get("Time"));
   if (dur !== void 0) track.duration = dur;
@@ -37392,6 +37399,7 @@ var MpdBridge = class {
   commands;
   idler;
   listeners = /* @__PURE__ */ new Set();
+  idleListeners = /* @__PURE__ */ new Set();
   snapshot;
   stopped = false;
   commandBackoff = BACKOFF_MIN_MS;
@@ -37424,6 +37432,18 @@ var MpdBridge = class {
   onSnapshot(fn) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+  /**
+   * Told which subsystems MPD reported on each idle wake.
+   *
+   * SEPARATE FROM onSnapshot because a snapshot deliberately says nothing
+   * about the library — it is about what is playing, and the snapshot rule
+   * keeps it that way. The library index needs to know the song database
+   * changed, and that fact has nowhere else to travel.
+   */
+  onIdle(fn) {
+    this.idleListeners.add(fn);
+    return () => this.idleListeners.delete(fn);
   }
   start() {
     void this.runCommandLoop();
@@ -37512,8 +37532,11 @@ var MpdBridge = class {
         this.opts.log("info", "MPD idle connection up");
         this.idleBackoff = BACKOFF_MIN_MS;
         while (!this.stopped && this.idler.connected) {
-          await this.idler.send(`idle ${IDLE_SUBSYSTEMS}`, { timeoutMs: null });
+          const woke = await this.idler.send(`idle ${IDLE_SUBSYSTEMS}`, {
+            timeoutMs: null
+          });
           if (this.stopped) break;
+          this.announceIdle(woke.pairs.filter(([k]) => k === "changed").map(([, v]) => v));
           await this.refresh();
         }
       } catch (err) {
@@ -37557,6 +37580,16 @@ var MpdBridge = class {
       this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
     }
   }
+  announceIdle(subsystems) {
+    if (subsystems.length === 0) return;
+    for (const fn of this.idleListeners) {
+      try {
+        fn(subsystems);
+      } catch (err) {
+        this.opts.log("error", `idle listener threw: ${err.message}`);
+      }
+    }
+  }
   publish(snapshot) {
     this.snapshot = snapshot;
     for (const fn of this.listeners) {
@@ -37579,10 +37612,79 @@ var MpdBridge = class {
     const tracks = groupBy(reply, "file").map(trackFromTags).filter((t) => t !== null);
     return { version: this.snapshot.queueVersion, tracks };
   }
-  async find(what, value) {
-    if (!this.commands.connected) throw new Error("MPD is not connected");
-    const reply = await this.commands.send(`find ${quoteArg(what)} ${quoteArg(value)}`);
+  /**
+   * `find`, the exact-match search, as Tracks.
+   *
+   * VARIADIC PAIRS because the library screens need two filters at once
+   * (`albumartist X album Y`) and MPD takes them as consecutive arguments. It
+   * took a single pair when it was written as a seam for this work and had no
+   * callers, so widening it cost nothing.
+   *
+   * EXACT AND CASE SENSITIVE, unlike `search`. That is not a limitation here,
+   * it is the point: every value passed in came out of MPD's own tag database
+   * in the first place. It is also dramatically cheaper — measured on this
+   * library, `search` takes 100ms where `find` takes 11ms, because `search`
+   * is a substring scan.
+   */
+  async find(...pairs) {
+    const reply = await this.send(`find ${filterArgs(pairs)}`);
     return groupBy(reply, "file").map(trackFromTags).filter((t) => t !== null);
+  }
+  /**
+   * The first match only, via `window 0:1`.
+   *
+   * The cheap way to ask "what is one song that satisfies this?", which is how
+   * the library index turns a directory into the tag name filed under it. MPD
+   * applies the window after filtering, so this saves the transfer, not the
+   * scan — which is why library.ts asks with `base` (an indexed path prefix,
+   * 0.23ms) rather than a tag (a full scan, 11ms).
+   */
+  async findFirst(...pairs) {
+    const reply = await this.send(`find ${filterArgs(pairs)} window 0:1`);
+    const groups = groupBy(reply, "file");
+    return groups.length > 0 ? trackFromTags(groups[0]) : null;
+  }
+  /**
+   * `list <tag> [group <tag>]` — distinct tag values, optionally grouped.
+   *
+   * Returns the raw Reply rather than something parsed: a grouped reply is a
+   * flat stream of alternating keys whose structure depends on what was asked
+   * for, and `groupBy` at the call site says what the caller expects far more
+   * clearly than a general-purpose shape would.
+   */
+  async list(tag, group) {
+    const cmd = group === void 0 ? `list ${quoteArg(tag)}` : `list ${quoteArg(tag)} group ${quoteArg(group)}`;
+    return this.send(cmd);
+  }
+  /** `lsinfo <path>` — one level of MPD's directory tree. '' is the root. */
+  async lsinfo(path) {
+    return this.send(`lsinfo ${quoteArg(path)}`);
+  }
+  /** Shared guard-and-send for the read-only queries above. */
+  async send(command) {
+    if (!this.commands.connected) throw new Error("MPD is not connected");
+    return this.commands.send(command);
+  }
+  /**
+   * Run several commands, then refresh ONCE.
+   *
+   * Replacing the queue is `clear`, `findadd`, `play` — three commands that are
+   * one action. Sending them through `command()` would query `status` and
+   * `currentsong` after each, so a caller would pay for three snapshots and the
+   * first would describe an empty queue that existed for a millisecond.
+   *
+   * Not atomic: MPD's idle connection can still wake between them. That is
+   * harmless here precisely because of the snapshot rule — a client that sees
+   * the intermediate state is corrected by the next frame a millisecond later,
+   * having merged nothing.
+   *
+   * Named `runAll` rather than `commands` because `this.commands` is already
+   * the command CONNECTION — the two cannot share a name on one class.
+   */
+  async runAll(cmds) {
+    if (!this.commands.connected) throw new Error("MPD is not connected");
+    for (const cmd of cmds) await this.commands.send(cmd);
+    await this.refresh();
   }
 };
 
@@ -37600,6 +37702,154 @@ function registerCors(app) {
   app.options("/api/*", async (_request, reply) => {
     return reply.header("access-control-allow-methods", ALLOWED_METHODS).header("access-control-allow-headers", ALLOWED_HEADERS).header("access-control-max-age", "600").code(204).send();
   });
+}
+
+// src/library.ts
+var JUNK_DIRS = ["@eaDir", "#recycle"];
+function artistDirOf(file) {
+  const slash = file.indexOf("/");
+  return slash === -1 ? "" : file.slice(0, slash);
+}
+function albumsFromTracks(albumArtist, tracks) {
+  const byAlbum = /* @__PURE__ */ new Map();
+  for (const track of tracks) {
+    const album = track.album;
+    if (album === void 0) continue;
+    const existing = byAlbum.get(album);
+    if (existing === void 0) {
+      byAlbum.set(album, {
+        album,
+        albumArtist,
+        date: releaseDateOf(track),
+        trackCount: 1,
+        image: track.image
+      });
+      continue;
+    }
+    existing.trackCount += 1;
+    if (existing.date === null) existing.date = releaseDateOf(track);
+  }
+  return [...byAlbum.values()].sort(compareAlbums);
+}
+function releaseDateOf(track) {
+  return track.originalDate ?? track.date ?? null;
+}
+function compareAlbums(a, b) {
+  const ya = yearOf(a.date);
+  const yb = yearOf(b.date);
+  if (ya !== yb) {
+    if (ya === null) return 1;
+    if (yb === null) return -1;
+    return ya - yb;
+  }
+  if (a.date !== null && b.date !== null && a.date !== b.date) {
+    return a.date < b.date ? -1 : 1;
+  }
+  return a.album.localeCompare(b.album);
+}
+function yearOf(date) {
+  if (date === null) return null;
+  const match = /^(\d{4})/.exec(date);
+  return match ? Number(match[1]) : null;
+}
+function sortAlbumTracks(tracks) {
+  return [...tracks].sort((a, b) => {
+    const da = dirOf(a.file);
+    const db = dirOf(b.file);
+    if (da !== db) return da.localeCompare(db);
+    const ta = trackNo(a.track);
+    const tb = trackNo(b.track);
+    if (ta !== tb) return ta - tb;
+    return (a.file ?? "").localeCompare(b.file ?? "");
+  });
+}
+function dirOf(file) {
+  if (file === void 0) return "";
+  const slash = file.lastIndexOf("/");
+  return slash === -1 ? "" : file.slice(0, slash);
+}
+function trackNo(track) {
+  if (track === void 0) return Number.MAX_SAFE_INTEGER;
+  const n = parseInt(track, 10);
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+}
+function artistImageOf(tracks) {
+  const file = tracks.find((t) => t.file !== void 0)?.file;
+  if (file === void 0) return null;
+  const dir = artistDirOf(file);
+  return dir === "" ? null : artUriForDir(dir);
+}
+function createLibrary(bridge) {
+  let cached = null;
+  let building = null;
+  let builds = 0;
+  async function build() {
+    builds += 1;
+    const counts = /* @__PURE__ */ new Map();
+    const order = [];
+    let current = null;
+    for (const [key, value] of (await bridge.list("album", "albumartist")).pairs) {
+      if (key === "AlbumArtist") {
+        current = value === "" ? null : value;
+        if (current !== null && !counts.has(current)) {
+          order.push(current);
+          counts.set(current, 0);
+        }
+      } else if (key === "Album" && current !== null) {
+        counts.set(current, (counts.get(current) ?? 0) + 1);
+      }
+    }
+    const dirs = /* @__PURE__ */ new Map();
+    for (const group of groupBy(await bridge.lsinfo(""), "directory")) {
+      const dir = group.get("directory");
+      if (dir === void 0 || JUNK_DIRS.includes(dir)) continue;
+      const track = await bridge.findFirst(["base", dir]);
+      const name = track?.albumArtist ?? track?.artist;
+      if (name !== void 0 && !dirs.has(name)) dirs.set(name, dir);
+    }
+    return order.map((name) => {
+      const directory = dirs.get(name);
+      return {
+        name,
+        directory: directory ?? "",
+        albumCount: counts.get(name) ?? 0,
+        // Null rather than a guessed URI when no directory was found.
+        // The client shows its placeholder, which is the same thing it
+        // does for the 16 artists whose directory has no image file.
+        image: directory === void 0 ? null : artUriForDir(directory)
+      };
+    });
+  }
+  return {
+    builds: () => builds,
+    invalidate: () => {
+      cached = null;
+      building = null;
+    },
+    artists: async () => {
+      if (cached !== null) return cached;
+      if (building === null) {
+        building = build().then((artists) => {
+          cached = artists;
+          return artists;
+        }).finally(() => {
+          building = null;
+        });
+      }
+      return building;
+    },
+    albumsOf: async (albumArtist) => {
+      const tracks = await bridge.find(["albumartist", albumArtist]);
+      return {
+        // From a track we already have, so this costs no MPD command and
+        // does not touch the index. `artistDirOf` is the first path
+        // segment — see its note for why not two dirnames.
+        image: artistImageOf(tracks),
+        albums: albumsFromTracks(albumArtist, tracks)
+      };
+    },
+    tracksOf: async (albumArtist, album) => sortAlbumTracks(await bridge.find(["albumartist", albumArtist], ["album", album]))
+  };
 }
 
 // src/bluetooth.ts
@@ -37894,6 +38144,95 @@ function registerRoutes(app, opts) {
     }
   });
   app.get("/api/art", createArtHandler(createArtResolver(musicRoot)));
+  const library = createLibrary(bridge);
+  bridge.onIdle((subsystems) => {
+    if (subsystems.includes("database") || subsystems.includes("update")) {
+      library.invalidate();
+    }
+  });
+  app.get("/api/library/artists", async (_req, reply) => {
+    try {
+      const artists = await library.artists();
+      const body = { artists };
+      return body;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.get("/api/library/albums", async (request, reply) => {
+    const { artist } = request.query;
+    if (artist === void 0 || artist === "") {
+      return reply.code(400).send({ error: "missing 'artist' query parameter" });
+    }
+    try {
+      const { image, albums } = await library.albumsOf(artist);
+      const body = { albumArtist: artist, image, albums };
+      return body;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.get("/api/library/album", async (request, reply) => {
+    const { artist, album } = request.query;
+    if (artist === void 0 || artist === "") {
+      return reply.code(400).send({ error: "missing 'artist' query parameter" });
+    }
+    if (album === void 0 || album === "") {
+      return reply.code(400).send({ error: "missing 'album' query parameter" });
+    }
+    try {
+      const tracks = await library.tracksOf(artist, album);
+      if (tracks.length === 0) {
+        return reply.code(404).send({ error: "no such album" });
+      }
+      const [summary] = albumsFromTracks(artist, tracks);
+      const body = { album: summary, tracks };
+      return body;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  function albumRefFrom(body) {
+    const ref = body ?? {};
+    if (typeof ref.albumArtist !== "string" || ref.albumArtist === "") {
+      return "missing 'albumArtist'";
+    }
+    if (typeof ref.album !== "string" || ref.album === "") return "missing 'album'";
+    return { albumArtist: ref.albumArtist, album: ref.album };
+  }
+  function findaddFor(ref) {
+    return `findadd ${quoteArg("albumartist")} ${quoteArg(ref.albumArtist)} ${quoteArg("album")} ${quoteArg(ref.album)}`;
+  }
+  app.post("/api/library/queue", async (request, reply) => {
+    const ref = albumRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    if (bridge.current.source === "bluetooth") {
+      return reply.code(409).send({
+        error: "cannot queue an album while a phone owns the DAC"
+      });
+    }
+    try {
+      await bridge.runAll([findaddFor(ref)]);
+      return bridge.current;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.post("/api/library/play", async (request, reply) => {
+    const ref = albumRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    if (bridge.current.source === "bluetooth") {
+      return reply.code(409).send({
+        error: "cannot play an album while a phone owns the DAC"
+      });
+    }
+    try {
+      await bridge.runAll(["clear", findaddFor(ref), "play"]);
+      return bridge.current;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
   app.get("/api/events", async (request, reply) => {
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -37941,7 +38280,7 @@ function registerRoutes(app, opts) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-13T16:00:16Z" : "dev";
+var BUILD = true ? "2026-09-13T17:16:15Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

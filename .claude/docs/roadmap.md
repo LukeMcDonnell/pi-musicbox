@@ -1,6 +1,6 @@
 # Status and roadmap
 
-Last updated 2026-09-12.
+Last updated 2026-09-14.
 
 ## Working on the device
 
@@ -40,9 +40,12 @@ repeating, and how to remove the instrumentation.**
 
 ## Next
 
-1. **Flesh out the UI** — now-playing plus transport, and the queue beneath it
-   (Back to / Up next, tap a row to play it — `POST /api/queue/play/:id`).
-   Library browse and search are next, and the API is shaped for them.
+1. **Library search.** Browse landed: artists -> albums -> tracks, with Play and
+   Queue on the album screen (`POST /api/library/{play,queue}`). Artist pictures
+   come from the existing `/api/art` keyed by the artist directory — 97% coverage,
+   no new code. See the "Browsing the library" section of `README.md` for the
+   measurements that shaped it, and `decisions.md` for what they ruled out.
+   Search is the remaining half and the API is shaped for it.
 2. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`). Note the
    DAC exclusion that Bluetooth ran into applies again: whatever plays a CD has
    to go through the same arbiter, not open `hw:0,0` for itself.

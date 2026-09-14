@@ -90,9 +90,29 @@ export function albumDirOf(file: string): string {
     return dir === '.' || dir === '/' ? '' : dir;
 }
 
+/**
+ * The URI for a library DIRECTORY's image. Always well-formed; may 404.
+ *
+ * `album` is the parameter's name because albums were the only caller when this
+ * was written, and renaming it now would break every cached URL in every
+ * browser for a week (see ART_MAX_AGE_S). What the handler actually does is
+ * resolve a cover inside whatever library directory it is given, and ARTIST
+ * DIRECTORIES ARE A SECOND CALLER — src/backend/src/library.ts builds artist
+ * images with this. It turns out this library files a `folder.jpg` of the artist
+ * beside their albums exactly as it files one of the sleeve beside the tracks:
+ * 473 of 487 artist directories have one, measured, so artist art needed no new
+ * endpoint, no new filename list and no new cache.
+ *
+ * So do not "tighten" the resolver to albums only. Nothing about it is
+ * album-specific, and two screens now depend on that.
+ */
+export function artUriForDir(dir: string): string {
+    return `/api/art?album=${encodeURIComponent(dir)}`;
+}
+
 /** The URI to put on a Track. Always well-formed; may 404. */
 export function artUriFor(file: string): string {
-    return `/api/art?album=${encodeURIComponent(albumDirOf(file))}`;
+    return artUriForDir(albumDirOf(file));
 }
 
 /** Injected in tests so cache behaviour can be asserted without timing. */

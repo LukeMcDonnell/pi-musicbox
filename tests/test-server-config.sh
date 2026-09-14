@@ -206,12 +206,28 @@ banner "every API url goes through the configured origin"
 # Track.image (a root-relative path the SERVER sends) meant art 404ing in that
 # setup. The <img> binding must resolve it like every other API call.
 API_TS="$REPO/src/frontend/src/app/musicbox-api.ts"
+# Transport moved out of musicbox-api.ts when library browse landed: two
+# services now need it (playback state and the browse catalogue) and neither
+# should own it. resolve() lives here; musicbox-api.ts keeps a delegating
+# resolve() because every caller and the Angular spec name it there.
+CLIENT_TS="$REPO/src/frontend/src/app/api-client.ts"
+STORE_TS="$REPO/src/frontend/src/app/library-store.ts"
 # The components, not app.ts: this used to look in app.ts, which stopped holding
 # any of it when now-playing was extracted — so the check silently passed against
 # a file that could never contain a violation. There is more than one art binding
 # now (now-playing and the queue), so it is asked of the whole directory.
 COMPONENTS="$REPO/src/frontend/src/app/components"
-check "the resolver exists and is public"   "0" "$(grep -qE '^\s+resolve\(path: string\)' "$API_TS"; echo $?)"
+check "the resolver exists and is public"   "0" "$(grep -qE '^\s+resolve\(path: string\)' "$CLIENT_TS"; echo $?)"
+# It stays reachable under its old name too. Components call api.resolve() for
+# art, and moving it without leaving this behind would break every one silently.
+check "musicbox-api still exposes resolve"  "0" "$(grep -qE '^\s+resolve\(path: string\)' "$API_TS"; echo $?)"
+# The client is the only thing allowed to call fetch, and every call it makes
+# must be resolved. This is the assertion the per-service ones below lean on.
+check "every fetch in the client is resolved" \
+    "$(grep -c 'fetch(' "$CLIENT_TS")" \
+    "$(grep -c 'fetch(this.resolve(' "$CLIENT_TS")"
+check "no fetch outside the client"         "1" \
+    "$(grep -rqE '\bfetch\(' "$API_TS" "$STORE_TS" "$COMPONENTS"; echo $?)"
 check "no private url() helper remains"     "1" "$(grep -q 'this\.url(' "$API_TS"; echo $?)"
 check "the art is resolved, not bound raw"  "0" \
     "$(grep -rq 'api\.resolve(' "$COMPONENTS"; echo $?)"
@@ -223,12 +239,46 @@ check "no template binds .image"            "1" \
 # with queueVersion -1, so the client must not ask.
 check "the queue is not fetched without a version" "0" \
     "$(has 'queueVersion() < 0' "$API_TS")"
-# Every literal /api path in the service must be wrapped. Comment lines are
-# excluded deliberately: the doc comment mentions /api/art, and matching THAT
-# would be asserting against the explanation rather than a violation — a mistake
-# this repo has already paid for once (see decisions.md).
-check "no unwrapped /api literal in the service" "0" \
-    "$(grep -n '/api/' "$API_TS" | grep -vE '^[0-9]+:[[:space:]]*(\*|//|/\*)' | grep -vc 'resolve(')"
+# Every literal /api path in either service must reach the network through the
+# client — resolve() directly, or getJson()/post(), which resolve internally.
+#
+# Comments are stripped first: the doc comments mention /api/art, and matching
+# THAT would be asserting against the explanation rather than a violation — a
+# mistake this repo has already paid for once (see decisions.md).
+#
+# The file is then collapsed to ONE LINE before matching, which is the part that
+# matters. A line-by-line version passed for a year and then broke the moment
+# calls grew a type parameter (`getJson<QueueResponse>(`) or wrapped across two
+# lines, because the path and its callee stopped sharing a line.
+#
+# What is matched is the CALLEE IMMEDIATELY BEFORE the literal, not a window of
+# preceding text. A window was tried first and silently passed the mutation
+# below: the literal happened to sit near the word `resolve` in an unrelated
+# method, so a bare fetch() looked wrapped.
+#
+# Type parameters are deleted before matching. Without that, `getJson<T>(` reads
+# as an identifier followed by a `<...>` that the regex will happily stretch back
+# across the collapsed line to an earlier `Promise<T>`, and the callee that comes
+# out is `Promise`.
+unwrapped_api() {
+    sed -E 's://.*$::' "$1" \
+        | grep -vE '^[[:space:]]*(\*|/\*)' \
+        | tr '\n' ' ' \
+        | sed -E 's/<[^<>()]*>//g' \
+        | grep -oE "[A-Za-z0-9_]+\\([[:space:]]*[\`'\"]/api/" \
+        | grep -vcE "^(resolve|getJson|post)" || true
+}
+# Asserted per file rather than over the directory so a new service cannot be
+# added and quietly skipped.
+for svc in "$API_TS" "$STORE_TS"; do
+    check "no unwrapped /api literal in $(basename "$svc")" "0" "$(unwrapped_api "$svc")"
+done
+# The guard must be able to fail. A literal with no resolver in front of it is
+# the exact bug, and a check that cannot go red is not a check — this repo has
+# shipped one of those before (see the COMPONENTS note above).
+MUTANT="$WORK/mutant.ts"
+{ cat "$STORE_TS"; printf "\nconst leak = await fetch('/api/library/artists');\n"; } > "$MUTANT"
+check "the guard catches an unresolved literal" "1" "$(unwrapped_api "$MUTANT")"
 
 printf '\n===============================\n passed: %d   failed: %d\n===============================\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

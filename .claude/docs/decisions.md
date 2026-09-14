@@ -420,3 +420,82 @@ proves only that you wrote it.
 Shadowing beats editing: a same-named file in `/etc/udev/rules.d` replaces the
 one in `/usr/lib/udev/rules.d`, so the packaged file is never touched and
 `rm` restores stock behaviour.
+
+## `listallinfo` is not an option on this library, and `find base` is 50x `find <tag>`
+
+Both measured against the real MPD, and both killed a design that looked obvious
+on paper.
+
+`listallinfo` **closes the connection** after 112ms — MPD's output buffer
+overflows on 37,289 songs. So there is no "read the library once into memory at
+startup" shape available, however much simpler it would be. Paging it with
+`window` works but is ~41MB of text across 37 requests, which is worse than not
+having an index at all.
+
+`find albumartist "X" window 0:1` costs **11.4ms**, because a tag filter scans
+every song and `window` is applied after filtering. `find base "X" window 0:1`
+costs **0.23ms**, because `base` is a path prefix and is indexed. Building the
+artist index one way takes 5.6s and the other 111ms. If you need one song
+matching something, ask by path.
+
+Use the LEGACY `find base "<dir>"` form, not the filter expression
+`"(base 'X')"`. The filter form needs its own escaping *inside* the quoting
+`quoteArg` already does, and six top-level directories here contain an apostrophe
+(`Guns N' Roses`, `Jane's Addiction`, `Tapes 'n Tapes`). One escaping layer that
+is provably right beats two that are nearly right.
+
+## An artist's directory is the first path segment, never a transform of their name
+
+48 of 487 artists are filed under a directory that is not their tag: `AC/DC` in
+`AC-DC` — a slash cannot be a path segment — `Andrew W.K.` in `Andrew W.K`,
+`CAKE` in `Cake`. Deriving a directory from a name would be wrong for one artist
+in ten and would show the wrong picture, which is the same failure mode that
+rules out matching a Bluetooth track against the local library. So the name and
+the directory are JOINED, by asking MPD for one song in each directory.
+
+And it is the FIRST path segment, not `dirname` applied twice. 149 albums keep
+their tracks in a disc subdirectory, so two dirnames on
+`Black Sabbath/13 (2013)/CD 01/01.flac` gives the album directory. Verified for
+all 487: every first segment is a real top-level directory.
+
+## Artist pictures needed no new code, because `/api/art` was never album-specific
+
+`GET /api/art?album=<dir>` resolves a cover inside whatever library directory it
+is handed. This library files a `folder.jpg` of the artist beside their albums —
+**473 of 487 artist directories have one**. So artist art is the same endpoint
+keyed by the artist directory: no new route, no new filename list, no second
+cache, and the week-long `Cache-Control` already applies.
+
+Do not "tighten" the resolver to albums only, and do not rename the `album`
+parameter — renaming it invalidates every cached URL in every browser for a week.
+
+## `OriginalDate`, not `Date`, is the year an album came out
+
+`Date` is the year of the pressing. Measured across all 2,758 albums here: 2,726
+carry `OriginalDate` and **940 of those disagree with `Date`**. AC/DC's entire
+catalogue is stamped 2020; `Back in Black` reads 2003 against 1980; `All Eyez on
+Me` 2001 against 1996.
+
+An artist page sorted on `Date` is therefore wrong for a third of this library,
+and wrong *visibly* — the year on screen contradicts the year in the folder name
+on disk. This was caught by looking at real output, not by reasoning; the first
+implementation used `Date` and looked fine until AC/DC was opened.
+
+## A UI verified only by unit tests was wrong in two ways a screenshot caught
+
+Both library detail screens shipped with a full-width hero. On the 800x480 panel
+that is 310-352 of 480 pixels, which put the album list — and the Play button,
+the reason the screen exists — entirely below the fold. Every test passed.
+
+The artist hero also read its picture from the client-side artist list, which is
+empty whenever the screen is opened directly. The kiosk reloads the page on every
+deploy and a phone can hold a bookmark, so that is a normal state, not an edge
+case; the hero silently fell back to the placeholder. The fix was for the screen
+to be self-sufficient — `GET /api/library/albums` now returns the picture, which
+costs no extra MPD command because it comes off a track already fetched.
+
+Screenshot the panel geometry. `node` + `puppeteer-core` against
+`http://musicbox.local/` at 800x480 takes a minute and sees what assertions
+cannot. Note that a plain `chrome --headless --screenshot` hangs on these pages:
+`--virtual-time-budget` never expires while the SSE stream is open.
+

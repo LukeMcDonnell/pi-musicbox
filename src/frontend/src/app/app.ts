@@ -1,8 +1,9 @@
-import { Component, signal } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { Menu } from './components/menu/menu';
 import { NowPlaying } from './components/now-playing/now-playing';
 import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
+import { NowPlayingSheet } from './now-playing-sheet';
 
 /**
  * The application frame: menu, routed screen, and the two now-playing views.
@@ -19,5 +20,13 @@ import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
     templateUrl: './app.html',
 })
 export class App {
-    readonly showNowPlaying = signal<boolean>(false);
+    /**
+     * Whether now-playing is showing.
+     *
+     * On a service rather than a local signal because the library screens open
+     * it too — tapping Play on an album raises it — and a routed component
+     * cannot reach a field on its parent. App still owns the wiring; the service
+     * owns only the boolean. See NowPlayingSheet.
+     */
+    readonly sheet = inject(NowPlayingSheet);
 }

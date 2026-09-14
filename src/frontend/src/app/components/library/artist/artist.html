@@ -1,0 +1,83 @@
+<section aria-label="Artist">
+  <!-- THE HERO IS A ROW, and that is a hardware decision. The panel is 800x480
+       landscape: a full-width 16:7 banner is 310 of those 480 pixels and pushed
+       the album list entirely below the fold. Same shape as the now-playing
+       art+text block, which already solved this, and it stacks on a phone at the
+       same breakpoint that one uses. -->
+  <div class="flex items-end gap-4 px-4 pt-4 max-[40rem]:flex-col max-[40rem]:items-start">
+    <div class="relative grid aspect-square w-[clamp(6rem,22vh,10rem)] flex-none
+                place-items-center overflow-hidden rounded-full bg-surface
+                max-[40rem]:w-[clamp(8rem,40vw,12rem)]">
+      @if (image(); as uri) {
+        <img class="h-full w-full object-cover" [src]="uri" alt=""
+             decoding="async" (error)="onArtError(uri)">
+      } @else {
+        <!-- 16 of this library's artists have no image file. -->
+        <svg lucideUserRound class="size-10 text-muted" aria-hidden="true"></svg>
+      }
+
+      <!-- Its own ground: it sits on artwork of unknown brightness, and on bare
+           bg-surface when there is none. A flat scrim, NOT backdrop-blur — a blur
+           is per-frame filter work on the one panel whose repaints go through the
+           vc4 commit path. -->
+      <button class="absolute top-0 left-0 grid size-11 cursor-pointer touch-manipulation
+                     place-items-center rounded-full bg-bg/60 text-text select-none
+                     active:bg-bg"
+              (click)="back()" aria-label="Back to Library">
+        <svg lucideChevronLeft class="size-6" aria-hidden="true"></svg>
+      </button>
+    </div>
+
+    <div class="min-w-0 flex-1">
+      <h1 class="text-2xl font-bold [overflow-wrap:anywhere]">{{ name() }}</h1>
+      @if (albums(); as list) {
+        <p class="text-[0.9rem] text-muted tabular-nums">
+          {{ list.length }}{{ list.length === 1 ? ' album' : ' albums' }}
+        </p>
+      }
+    </div>
+  </div>
+
+  <div class="px-4 py-3">
+    @if (error(); as message) {
+      <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+    }
+    @if (loading()) {
+      <p class="pt-3 text-[0.95rem] text-muted">Loading albums…</p>
+    }
+
+    <ul class="flex flex-col pt-2">
+      @for (album of albums(); track album.album) {
+        <li>
+          <button class="flex min-h-[3.5rem] w-full cursor-pointer touch-manipulation items-center
+                         gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
+                  (click)="open(album)">
+            <span class="grid size-12 flex-none place-items-center overflow-hidden rounded
+                         bg-surface">
+              @if (coverOf(album); as uri) {
+                <img class="h-full w-full object-cover" [src]="uri" alt=""
+                     width="48" height="48" loading="lazy" decoding="async"
+                     (error)="onCoverError(uri)">
+              } @else {
+                <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
+              }
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate">{{ album.album }}</span>
+              <span class="block truncate text-[0.85rem] text-muted">
+                {{ tracksLabel(album) }}
+              </span>
+            </span>
+            <span class="flex-none text-[0.85rem] text-muted tabular-nums">
+              {{ yearOf(album) }}
+            </span>
+          </button>
+        </li>
+      } @empty {
+        @if (!loading() && !error()) {
+          <li class="px-2 py-6 text-[0.95rem] text-muted">No albums for this artist.</li>
+        }
+      }
+    </ul>
+  </div>
+</section>

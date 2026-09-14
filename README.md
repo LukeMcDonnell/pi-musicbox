@@ -789,9 +789,15 @@ SSE carries state, REST carries commands.
 
 ```
 GET  /api/health     GET /api/status    GET /api/events (SSE)    GET /api/queue
-GET  /api/art?album=<url-encoded album directory>
+GET  /api/art?album=<url-encoded library directory>
 POST /api/playback/{play,pause,stop,next,previous}
 POST /api/queue/play/<song id>
+
+GET  /api/library/artists
+GET  /api/library/albums?artist=<name>
+GET  /api/library/album?artist=<name>&album=<title>
+POST /api/library/queue    {albumArtist, album}   append an album
+POST /api/library/play     {albumArtist, album}   replace the queue and play
 ```
 
 (`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
@@ -849,6 +855,58 @@ not either: scrolling a long list is the most repaint-heavy thing here, and ever
 repaint on the panel is a vc4 atomic commit. The per-album art key does most of
 the work — see below.
 
+### Browsing the library
+
+Three screens: every artist, one artist's albums, one album's tracks. Everything
+comes from MPD's in-memory tag database — never from the NFS share, which is
+mounted `noauto` with a 10 minute idle timeout and is routinely not mounted at
+all. Cover art is the one exception, and it is allowed to 404 for exactly that
+reason.
+
+**Measured against the real library** — 37,289 songs, 2,757 albums, 487 artists.
+Several plausible designs died here:
+
+| Command | |
+|---|---|
+| `listallinfo` | **MPD closes the connection** after 112ms — its output buffer overflows. There is no "load it all once" design to be had. |
+| `list album group albumartist` | 80ms, every artist and album count |
+| `lsinfo ""` | 3ms, 486 artist directories |
+| `find albumartist "X" window 0:1` | **11.4ms each** — 5.6s for all 487 |
+| `find base "X" window 0:1` | **0.23ms each** — 111ms for all 486 |
+
+That 50x gap is the whole design: a tag filter scans every song, while `base` is
+a path prefix and is indexed.
+
+**Artist and album screens need no index** — each is a single `find` — but the
+artist *list* does, for one field. An artist's picture lives in their DIRECTORY
+and MPD's database talks in names, and **48 of the 487 names differ from their
+directory**: `AC/DC` is filed under `AC-DC` (a slash cannot be a path segment),
+`Andrew W.K.` under `Andrew W.K`, `CAKE` under `Cake`. So the two are joined by
+asking MPD for one song in each directory and reading the tag off it, rather than
+transforming one string into the other — which would be wrong for one artist in
+ten, the same "confidently wrong" failure that rules out guessing a Bluetooth
+cover.
+
+The index is built lazily, held for the life of the process, and dropped when
+MPD's idle reports `database` or `update`. Measured on the device: **662ms cold,
+95ms warm**.
+
+The artist directory is the FIRST path segment of a track, not `dirname` twice —
+149 albums keep their tracks in a `CD 01`/`Vinyl 01` subdirectory, so two dirnames
+gives the album directory instead.
+
+**The year is the release year, not the pressing.** `OriginalDate` is preferred
+over `Date`, and that is load-bearing rather than fussy: 2,726 of 2,758 albums
+carry it and **940 of those disagree with `Date`**. AC/DC's entire catalogue is
+stamped 2020 by `Date`; `Back in Black` is 2003 against 1980. Sorting an artist's
+albums on `Date` is wrong for a third of this library and visibly contradicts the
+year in the folder name on disk.
+
+Adding an album is MPD's own `findadd` — one command, not a track at a time, which
+would bump `queueVersion` once per track and make every client refetch the whole
+listing a dozen times for one button press. Both POSTs answer **409 while a phone
+owns the DAC**, exactly as `GET /api/queue` does.
+
 ### Album art
 
 Every `Track` carries an `image` URI. It is **always present and may 404** — it is
@@ -895,6 +953,14 @@ bundle and the one-dependency rule) or a slow pure-JS decoder. Measured cost of
 serving the original over wifi: **866KB in 0.106s (8.2 MB/s)** — an order of
 magnitude less painful than expected, so the per-album key plus a week of caching
 is enough.
+
+**The same endpoint serves artist pictures**, and that needed no new code. The
+handler resolves a cover inside whatever library directory it is given, and this
+library files a `folder.jpg` of the artist beside their albums exactly as it files
+one of the sleeve beside the tracks — **473 of 487 artist directories have one,
+measured**. So artist art is `/api/art?album=<artist directory>`: no new endpoint,
+no new filename list, no second cache. The parameter is still spelled `album`
+because renaming it would invalidate every cached URL in every browser for a week.
 
 `MUSICBOX_MUSIC_ROOT` (default `/srv/music/Music`) **must match**
 `music_directory` in `setup-mpd.sh`. If they drift, every art request 404s and
