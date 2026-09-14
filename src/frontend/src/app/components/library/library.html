@@ -17,7 +17,7 @@
 
   @if (artists()?.length) {
     <div class="sticky top-0 z-1 flex w-full items-center gap-3 bg-bg py-2">
-      <h1 class="text-2xl font-bold" aria-live="polite">{{ countLabel() }}</h1>
+      <h1 class="text-2xl shrink-0 font-bold me-4" aria-live="polite">Library</h1>
       <div class="relative ms-auto w-full max-w-72 min-w-0">
         <svg lucideSearch
              class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
@@ -58,6 +58,7 @@
   }
 
   @if (artists()?.length) {
+    <p class="text-muted my-2">{{ countLabel() }}</p>
     <div class="pt-2">
       @if (frame(); as scrollFrame) {
         <virtual-scroller [items]="rows()"

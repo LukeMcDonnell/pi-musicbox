@@ -614,3 +614,58 @@ SIGINT ever stops working.
 The general lesson: two symptoms in the same 90-second window are not evidence
 of one cause. Timestamps at millisecond precision separated them in minutes,
 and the persistent journal is what made that possible.
+
+## Boot time is ~16.5s and none of the obvious levers move it (2026-09-14)
+
+Prompted by "boot has blown out to 17s". It had not: 17.7s was the high tail of a
+15.4–18.4s distribution, and `device.md` already records 17.896s as the measured
+baseline with MPD. The median is ~16.2s. Four things came out of measuring it.
+
+**Everything after `sysinit.target` is deterministic.** Across four boots the
+total minus `sysinit.target` was 9.082, 9.100, 9.097, 8.924 — a 0.18s spread.
+All boot-to-boot variance lives in reaching `sysinit.target` (6.5–9.1s), and in a
+slow boot every unit in that phase stretches together (journal-flush 0.22s→2.32s,
+udevd 0.47s→1.71s, `run-rpc_pipefs.mount` 0.09s→1.40s, binfmt 0.52s→1.66s) while
+`fsck` does not move. That is SD I/O contention, not a slow unit. Do not chase
+individual sysinit units; look at total SD write pressure.
+
+**`network-online.target` is a fiction on this box, by design.** `setup.sh` masks
+`NetworkManager-wait-online` (non-negotiable #1), so the target fires when
+NetworkManager's *service* is up — 3.3s before wlan0 has an address:
+
+```
+10.170  network.target + network-online.target "reached"
+10.174  mpd starts (stock Debian After=network.target)
+13.304  wlan0 actually activated, DHCP done
+14.473  srv-music mounted
+15.438  mpd ready = multi-user.target
+```
+
+**So MPD's boot-time NFS mount is a race it wins by ~1.2s, and only because MPD
+is slow.** MPD spends ~4.3s loading the local `tag_cache` before it touches
+`music_directory`; that is what covers the wifi association. Starting MPD earlier
+therefore does *not* save time — it would hit the automount ~3.9s before wifi has
+an IP, cost 5s to fail (`device.md`), lose the boot-time database update and
+leave `srv-music.mount` failed. **Dropping `After=network.target` from mpd.service
+is a dead end. Do not re-run it.** It is also mechanically impossible with a
+drop-in: systemd has no empty-string reset for ordering dependencies, so
+`After=` followed by a re-add leaves `network.target` in place (verified with
+`systemctl show mpd -p After`). Removing it would mean owning a full copy of
+Debian's `mpd.service` and its hardening stanzas.
+
+**Masking `e2scrub_reap.service` measured as exactly zero.** It is pointless work
+on this box (no LVM) and burns ~3.2s of SD I/O, so it looked like a free win.
+Over four boots masked: mean 16.47s. Over the twelve boots before: mean 16.45s.
+It is not on the critical path and removing its I/O did not help either. Left
+unmasked — an unmanaged `systemctl mask` is drift for no measured benefit.
+
+The one real constant left is a **2.43s wpa_supplicant scan** between
+`supplicant-available` and NetworkManager's `auto-activating` — 2.4322, 2.4320,
+2.4317, 2.4241, 2.4270, 2.4393 across six boots, with zero journal lines in the
+window. Cutting it saves nothing today, because MPD's `tag_cache` load is the
+gate rather than wifi; it would only widen the mount race margin from ~1.2s to
+~3.6s. That is a robustness argument, not a boot-time one.
+
+The only change that moves `multi-user.target` materially is socket-activating
+MPD (`device.md`), which relocates the cost to first client connect rather than
+removing it.

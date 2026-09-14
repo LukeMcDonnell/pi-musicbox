@@ -27,16 +27,27 @@ Last updated 2026-09-14.
   rather than the backend, so it survives the web server being redeployed. See
   `bluetooth.md`.
 
-## Open issue: the box drops off the network under load
+## Closed: the box drops off the network under load
 
-Unresolved. Streaming for tens of minutes over wifi and the Pi disappears from
-the network while continuing to run locally — the kiosk keeps working, MPD starts
-erroring on the NAS. Power save has been disabled and it has since run 47+
-minutes clean, but that is not proof. Diagnostic instrumentation is installed on
-the device.
+**Cause: the `ondemand` cpufreq governor.** 16,604 netwatch samples over 16 boots
+since the fix, **zero** genuine dropouts — the only "down" samples are each
+boot's first, taken before wlan0 associates. Against 38 drops in 53 minutes
+before the fix. The mitigation lives in `setup-hardware.sh` and stays; it is a
+fix, not instrumentation.
 
-**`.claude/docs/wifi-instability.md` has the full picture, the dead ends worth not
-repeating, and how to remove the instrumentation.**
+**Still to do: take the instrumentation off the device.** `netwatch` and the
+persistent journal are still installed and are the leading suspect for the
+boot-time variance (`decisions.md`, 2026-09-14). One command, on the device:
+
+```sh
+sudo ./tools/uninstrument-wifi-debug.sh     # keeps /var/log/journal
+```
+
+Then drop the "temporary diagnostic instrumentation" section from `CLAUDE.md`
+and the "What is installed on the device" section from `wifi-instability.md`.
+
+**`.claude/docs/wifi-instability.md` has the full picture and the dead ends worth
+not repeating.**
 
 ## Open issue: the panel's renderer crashes — blur + the library's artist images
 

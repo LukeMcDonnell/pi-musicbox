@@ -1,9 +1,12 @@
-# OPEN ISSUE — the box loses networking under load
+# CLOSED — the box loses networking under load
 
-**Status: unresolved, mitigated, instrumented.** Last touched 2026-09-12.
+**Status: cause found (the `ondemand` governor), fixed, and confirmed by 16,604
+netwatch samples with zero dropouts.** Last touched 2026-09-14. See
+"Verdict (2026-09-14)" below for the evidence that closed it.
 
-Read this before diagnosing any "the box stopped responding" report, and before
-removing anything under "What is installed on the device".
+Still read this before diagnosing any "the box stopped responding" report — the
+symptom, the dead ends and the triage are all still correct — and before removing
+anything under "What is installed on the device".
 
 ## The symptom
 
@@ -57,6 +60,31 @@ stay near zero, this becomes the explanation; if they return, it was noise. It a
 the clock deadlock** — during this episode the box was demonstrably healthy
 locally (no D-state tasks, `vcgencmd` answering). See
 [`clock-deadlock.md`](clock-deadlock.md).
+
+### Verdict (2026-09-14): the lead held — drops went to zero
+
+The "next few days of data" asked for above. Every `netwatch` sample the box has
+taken since the governor fix:
+
+| | |
+|---|---|
+| Window | 2026-09-12 20:47 → 2026-09-14 20:50, 16 boots |
+| Samples | **16,604** |
+| Samples reporting down | 16 |
+| **Genuine dropouts** | **0** |
+
+All 16 are **line 1 of their own boot** — the sample taken before wifi has
+associated (`gw=DOWN nas=up nm=disconnected link=[Not connected.]`). Not one boot
+logged a second one. Median signal per boot ranged −62 to −72 dBm, so conditions
+were no kinder than during the 12% boot.
+
+Against 38 drops in 53 minutes before the fix, that is the answer: **the
+`ondemand` governor was the cause**, and `clock-deadlock.md`'s single-root-cause
+hypothesis is confirmed for this fault too. The mitigation is in
+`setup-hardware.sh` and is not instrumentation — it stays.
+
+This is what retires the instrumentation. Leave `netwatch` off unless a new
+dropout is actually observed.
 
 ## The methodological mistake that cost hours
 
