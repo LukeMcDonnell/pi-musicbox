@@ -1,10 +1,12 @@
 <section aria-label="Album">
-  <!-- THE HERO IS A ROW, and that is a hardware decision. The panel is 800x480
-       landscape: a full-width square cover is 352 of those 480 pixels, which put
-       the Play button and the entire track list below the fold — the two things
-       this screen exists for. Same shape as the now-playing art+text block, and
-       it stacks on a phone at the same breakpoint that one uses. -->
-  <div class="flex items-start gap-4 px-4 pt-4 max-[40rem]:flex-col">
+  <div class="flex sticky top-0 px-4 py-0 bg-bg z-1">
+    <button class="flex py-4 cursor-pointer touch-manipulation" (click)="back()" aria-label="Back to Artist">
+      <svg lucideChevronLeft class="size-6" aria-hidden="true"></svg>
+      <h2 class="flex-none font-bold" aria-live="polite">Back</h2>
+    </button>
+  </div>
+
+  <div class="flex items-start gap-4 px-4 pt-0 max-[40rem]:flex-col">
     <div class="relative grid aspect-square w-[clamp(6rem,26vh,11rem)] flex-none
                 place-items-center overflow-hidden rounded-md bg-surface
                 max-[40rem]:w-[clamp(9rem,45vw,14rem)]">
@@ -12,24 +14,13 @@
         <img class="h-full w-full object-cover" [src]="uri" alt=""
              decoding="async" (error)="onArtError(uri)">
       } @else {
-        <!-- 13 of this library's 2,757 albums have no cover file. -->
         <svg lucideDisc3 class="size-10 text-muted" aria-hidden="true"></svg>
       }
-
-      <!-- A flat scrim, NOT backdrop-blur — see the artist screen. -->
-      <button class="absolute top-1 left-1 grid size-11 cursor-pointer touch-manipulation
-                     place-items-center rounded-full bg-bg/60 text-text select-none
-                     active:bg-bg"
-              (click)="back()" [attr.aria-label]="'Back to ' + artist()">
-        <svg lucideChevronLeft class="size-6" aria-hidden="true"></svg>
-      </button>
     </div>
 
     <div class="min-w-0 flex-1">
       <h1 class="text-2xl font-bold [overflow-wrap:anywhere]">{{ album() }}</h1>
       <p class="text-[0.95rem] text-muted [overflow-wrap:anywhere]">
-        <!-- The separator carries its own leading space: an @if block swallows
-             the whitespace around it, which rendered "Radiohead· 1997". -->
         {{ artist() }}@if (year(); as y) {<span class="tabular-nums">&nbsp;· {{ y }}</span>}
       </p>
       @if (summary(); as line) {
@@ -37,7 +28,7 @@
       }
 
       <div class="flex flex-wrap gap-2 pt-3">
-        <button class="flex min-h-11 cursor-pointer touch-manipulation items-center gap-2
+        <button class="flex min-h-8 cursor-pointer touch-manipulation items-center gap-2
                        rounded-full bg-accent px-5 text-[0.95rem] font-semibold text-on-accent
                        select-none active:bg-raised disabled:opacity-40"
                 [disabled]="busy() || tracks().length === 0"
@@ -45,7 +36,7 @@
           <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
           Play
         </button>
-        <button class="flex min-h-11 cursor-pointer touch-manipulation items-center gap-2
+        <button class="flex min-h-8 cursor-pointer touch-manipulation items-center gap-2
                        rounded-full border border-muted px-5 text-[0.95rem] font-semibold
                        text-muted select-none active:bg-raised disabled:opacity-40"
                 [disabled]="busy() || tracks().length === 0"
@@ -69,11 +60,10 @@
          nothing to address. See the component header. -->
     <ol class="flex flex-col pt-3">
       @for (track of tracks(); track track.file) {
-        <li class="flex min-h-11 items-center gap-3 px-2 py-2">
-          <span class="w-6 flex-none text-right text-[0.85rem] text-muted tabular-nums">
-            {{ $index + 1 }}
+        <li class="flex min-h-11 items-center gap-3 px-0 py-2">
+          <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ $index + 1 }}.
           </span>
-          <span class="min-w-0 flex-1 truncate">{{ titleOf(track) }}</span>
+          <span class="text-xl min-w-0 flex-1 truncate">{{ titleOf(track) }}</span>
           <span class="flex-none text-[0.85rem] text-muted tabular-nums">
             {{ durationOf(track) }}
           </span>

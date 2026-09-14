@@ -537,3 +537,21 @@ Screenshot the panel geometry. `node` + `puppeteer-core` against
 cannot. Note that a plain `chrome --headless --screenshot` hangs on these pages:
 `--virtual-time-budget` never expires while the SSE stream is open.
 
+
+## The panel's on-screen keyboard is in the app, not the compositor
+
+cage has no layer-shell, so wvkbd and squeekboard cannot draw over chromium, and
+Chromium's Wayland IME is unreliable at raising one on focus anyway. The
+alternatives were swapping cage for labwc (against "cage, not a full
+compositor", more packages, more boot) or a Chromium extension (unmaintained,
+and `--load-extension` is being withdrawn). An Angular keyboard needs neither.
+
+It is enabled only for `http://localhost/` with no port — the kiosk URL — so
+phones never see it; `?keyboard` forces it on for development. It attaches to
+every text field through document focus events, so new inputs need no wiring.
+
+Keys act on pointerdown and the keyboard cancels touchstart and mousedown. That
+is what keeps focus on the field; verified with emulated touch in Chrome at
+800x480, not yet on the panel itself. <main> gets bottom padding while it is up
+rather than a shorter box, because the library's virtual scroller only refreshes
+on viewport resizes.

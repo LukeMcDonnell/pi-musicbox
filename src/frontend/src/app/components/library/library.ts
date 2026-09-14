@@ -4,7 +4,7 @@ import {
     VirtualScrollerComponent,
     VirtualScrollerModule,
 } from '@iharbeck/ngx-virtual-scroller';
-import { LucideUserRound } from '@lucide/angular';
+import { LucideSearch, LucideUserRound, LucideX } from '@lucide/angular';
 import type { ArtistSummary } from '@musicbox/shared';
 import { LibraryStore } from '../../library-store';
 import { ScrollFrame } from '../../scroll-frame';
@@ -79,7 +79,7 @@ export const ROW_HEIGHT = 64;
 
 @Component({
     selector: 'app-library',
-    imports: [LucideUserRound, VirtualScrollerModule],
+    imports: [LucideSearch, LucideUserRound, LucideX, VirtualScrollerModule],
     templateUrl: './library.html',
     // The scroller's own resize polling is off; this is what replaces it. See
     // THE RESIZE CONTRACT above for what that does and does not cover.
@@ -105,6 +105,18 @@ export class Library {
 
     readonly loading = computed(() => this.artists() === null && this.error() === null);
 
+    readonly query = signal('');
+
+    // Separate computed so `Rad` -> `rad` doesn't hand the scroller a new array.
+    private readonly needle = computed(() => fold(this.query().trim()));
+
+    private readonly keyed = computed(() =>
+        (this.artists() ?? []).map((artist) => {
+            const folded = fold(artist.name);
+            return { artist, folded, squeezed: squeeze(folded) };
+        }),
+    );
+
     /**
      * The list as the scroller wants it: an array, never null.
      *
@@ -113,7 +125,25 @@ export class Library {
      * geometry on any new one. An inline `?? []` hands it a fresh empty array on
      * every change-detection pass; this hands back the same one.
      */
-    readonly rows = computed<ArtistSummary[]>(() => this.artists() ?? []);
+    readonly rows = computed<ArtistSummary[]>(() => {
+        const all = this.artists() ?? [];
+        const needle = this.needle();
+        if (needle === '') return all;
+        // `!!!` squeezes to '', which would match everything.
+        const squeezed = squeeze(needle);
+        return this.keyed()
+            .filter((row) =>
+                row.folded.includes(needle) ||
+                (squeezed !== '' && row.squeezed.includes(squeezed)))
+            .map((row) => row.artist);
+    });
+
+    readonly countLabel = computed(() => {
+        const total = this.artists()?.length ?? 0;
+        const shown = this.rows().length;
+        const noun = total === 1 ? 'Artist' : 'Artists';
+        return shown === total ? `${total} ${noun}` : `${shown} of ${total} ${noun}`;
+    });
 
     /** The <main> element, or null before App's view exists. See ScrollFrame. */
     readonly frame = inject(ScrollFrame).element;
@@ -135,6 +165,13 @@ export class Library {
         // frame apart. That is why this wires vsUpdate alone and not vsChange as
         // well: one event, one answer.
         this.firstIndex.set(this.scroller()?.viewPortInfo.startIndexWithBuffer ?? 0);
+    }
+
+    // Scroll to the top before the rows change, so the scroller refreshes from there.
+    setQuery(value: string): void {
+        const frame = this.frame();
+        if (frame && frame.scrollTop > 0) frame.scrollTop = 0;
+        this.query.set(value);
     }
 
     /** See THE RESIZE CONTRACT above. The scroller is absent while loading. */
@@ -193,4 +230,14 @@ export class Library {
     open(artist: ArtistSummary): void {
         void this.router.navigate(['/library/artist'], { queryParams: { name: artist.name } });
     }
+}
+
+/** `Sigur Rós` -> `sigur ros` */
+function fold(text: string): string {
+    return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/** `ac/dc` -> `acdc` */
+function squeeze(text: string): string {
+    return text.replace(/[^\p{L}\p{N}]/gu, '');
 }

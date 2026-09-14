@@ -1,0 +1,46 @@
+@if (keyboard.open()) {
+  <div class="grid h-keyboard touch-none grid-cols-20 grid-rows-4 gap-1.5 border-t border-raised
+              bg-bg p-1.5 select-none"
+       (touchstart)="$event.preventDefault()"
+       (mousedown)="$event.preventDefault()"
+       (pointerup)="release()"
+       (pointercancel)="release()"
+       (pointerleave)="release()">
+    @for (row of rows(); track $index) {
+      @for (key of row; track key.id) {
+        @if (key.char === undefined && key.action === undefined) {
+          <span [style.grid-column]="'span ' + key.span"></span>
+        } @else {
+          <button type="button" tabindex="-1"
+                  class="grid min-w-0 cursor-pointer place-items-center rounded-md text-lg text-text"
+                  [class]="tone(key)"
+                  [style.grid-column]="'span ' + key.span"
+                  [attr.aria-label]="key.label ?? null"
+                  (pointerdown)="press(key, $event)">
+            @switch (key.action) {
+              @case ('shift') {
+                @if (shift() === 'lock') {
+                  <svg lucideArrowBigUpDash class="size-5" aria-hidden="true"></svg>
+                } @else {
+                  <svg lucideArrowBigUp class="size-5" aria-hidden="true"></svg>
+                }
+              }
+              @case ('backspace') { <svg lucideDelete class="size-5" aria-hidden="true"></svg> }
+              @case ('hide') { <svg lucideKeyboardOff class="size-5" aria-hidden="true"></svg> }
+              @case ('space') { }
+              @case ('enter') {
+                @if (enterLabel(); as label) {
+                  <span class="text-[0.95rem]">{{ label }}</span>
+                } @else {
+                  <svg lucideCornerDownLeft class="size-5" aria-hidden="true"></svg>
+                }
+              }
+              @case ('layer') { <span class="text-[0.95rem]">{{ key.label }}</span> }
+              @default { {{ key.char }} }
+            }
+          </button>
+        }
+      }
+    }
+  </div>
+}

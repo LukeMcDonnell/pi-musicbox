@@ -1,9 +1,11 @@
 import { AfterViewInit, Component, ElementRef, inject, viewChild } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { Keyboard } from './components/keyboard/keyboard';
 import { Menu } from './components/menu/menu';
 import { NowPlaying } from './components/now-playing/now-playing';
 import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
 import { NowPlayingSheet } from './now-playing-sheet';
+import { OnScreenKeyboard } from './on-screen-keyboard';
 import { ScrollFrame } from './scroll-frame';
 
 /**
@@ -17,7 +19,7 @@ import { ScrollFrame } from './scroll-frame';
  */
 @Component({
     selector: 'app-root',
-    imports: [RouterOutlet, Menu, NowPlaying, NowPlayingMini],
+    imports: [RouterOutlet, Keyboard, Menu, NowPlaying, NowPlayingMini],
     templateUrl: './app.html',
 })
 export class App implements AfterViewInit {
@@ -30,6 +32,9 @@ export class App implements AfterViewInit {
      * owns only the boolean. See NowPlayingSheet.
      */
     readonly sheet = inject(NowPlayingSheet);
+
+    /** Panel only. Injected here so it is listening from boot. */
+    readonly keyboard = inject(OnScreenKeyboard);
 
     private readonly frame = inject(ScrollFrame);
 

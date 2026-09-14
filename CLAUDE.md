@@ -59,9 +59,17 @@ for whoever is editing the code.
   `--emit-fstab` (nas), `--convert-only` (network). Add one to any new script.
 - **SSE events are always a complete snapshot, never a delta** — a dropped event
   must cost nothing. The queue is referenced by version, not embedded.
-- Comments explain *why*, especially where the obvious-looking code is wrong.
-  The existing headers carry the reasoning — do not strip them when editing.
+- **Keep comments short.** One line, occasionally two, and only where the code
+  would otherwise mislead — say *why*, never *what*. No essay headers, no
+  measurement write-ups, no history of earlier attempts, no restating the code.
+  Reasoning longer than that belongs in `.claude/docs/decisions.md`, not the
+  source. Older files still carry long comments: don't add to them, and it is
+  fine to cut them down in code you are already changing.
 - Backups go to `/var/lib/musicbox/`, config to `/etc/musicbox/`.
+- **Text fields get the panel's on-screen keyboard automatically** — no wiring.
+  Set `enterkeyhint` to label its Enter key, `type`/`inputmode` numeric to open
+  on digits, `inputmode="none"` to opt out. On a phone or `ng serve`, add
+  `?keyboard` to see it. See `on-screen-keyboard.ts`.
 
 ## Commands
 

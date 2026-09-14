@@ -35,11 +35,18 @@
                    max-[46rem]:w-auto max-[46rem]:border-t max-[46rem]:border-raised" />
 
   <!-- overscroll-contain: a fling that reaches the end stops here instead of
-       chaining to a window that has nothing to scroll. -->
-  <main #scrollFrame class="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+       chaining to a window that has nothing to scroll. Keyboard padding rather
+       than a shorter <main>: see THE RESIZE CONTRACT in library.ts. -->
+  <main #scrollFrame class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+        [class.pb-keyboard]="keyboard.open()"
+        [class.scroll-pb-keyboard]="keyboard.open()">
     <router-outlet />
   </main>
 </div>
 
 <app-now-playing-mini class="fixed inset-x-0 bottom-0 z-30 h-bar max-[46rem]:bottom-tabs short:hidden"
                       (open)="sheet.show()" />
+
+@if (keyboard.enabled) {
+  <app-keyboard class="fixed inset-x-0 bottom-0 z-50 block" />
+}

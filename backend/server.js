@@ -38280,7 +38280,7 @@ function registerRoutes(app, opts) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-14T02:32:18Z" : "dev";
+var BUILD = true ? "2026-09-14T06:34:10Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

@@ -143,6 +143,63 @@ describe('Library', () => {
         expect(cmp.rows()).toBe(cmp.rows());
     });
 
+    describe('filter', () => {
+        const names = ['!!!', 'AC/DC', 'Radiohead', 'Sigur Rós', 'The Panics'];
+        const list = () => names.map((name) => artist({ name }));
+        const shown = (cmp: Library) => cmp.rows().map((a) => a.name);
+
+        it('matches a substring, ignoring case and accents', () => {
+            const cmp = create(fakeStore(list())).componentInstance;
+            cmp.setQuery('RADIO');
+            expect(shown(cmp)).toEqual(['Radiohead']);
+            cmp.setQuery('sigur ros');
+            expect(shown(cmp)).toEqual(['Sigur Rós']);
+            cmp.setQuery('panics');
+            expect(shown(cmp)).toEqual(['The Panics']);
+        });
+
+        it('matches through punctuation, without letting punctuation match everything', () => {
+            const cmp = create(fakeStore(list())).componentInstance;
+            cmp.setQuery('acdc');
+            expect(shown(cmp)).toEqual(['AC/DC']);
+            cmp.setQuery('!!!');
+            expect(shown(cmp)).toEqual(['!!!']);
+        });
+
+        it("keeps MPD's order", () => {
+            const cmp = create(fakeStore(list())).componentInstance;
+            cmp.setQuery('a');
+            expect(shown(cmp)).toEqual(['AC/DC', 'Radiohead', 'The Panics']);
+        });
+
+        it('hands the scroller the unfiltered array untouched when cleared', () => {
+            const artists = list();
+            const cmp = create(fakeStore(artists)).componentInstance;
+            cmp.setQuery('radio');
+            cmp.setQuery('   ');
+            expect(cmp.rows()).toBe(artists);
+        });
+
+        it('says how many of the whole list are showing', () => {
+            const cmp = create(fakeStore(list())).componentInstance;
+            expect(cmp.countLabel()).toBe('5 Artists');
+            cmp.setQuery('radio');
+            expect(cmp.countLabel()).toBe('1 of 5 Artists');
+        });
+
+        it('returns to the top of the frame when the filter changes', () => {
+            const element = realFrame();
+            const tall = document.createElement('div');
+            tall.style.height = '5000px';
+            element.appendChild(tall);
+            element.scrollTop = 2000;
+            const cmp = create(fakeStore(list()), fakeFrame(element)).componentInstance;
+            cmp.setQuery('radio');
+            expect(element.scrollTop).toBe(0);
+            element.remove();
+        });
+    });
+
     it('publishes the scroll frame it was given', () => {
         const element = realFrame();
         const cmp = create(fakeStore([artist()]), fakeFrame(element)).componentInstance;

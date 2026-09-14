@@ -23,7 +23,7 @@ sums the suites; the node figure is its own `# pass` line.
 ## The frontend specs are NOT in run-all.sh
 
 ```sh
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 36 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 70 specs
 ```
 
 Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only
