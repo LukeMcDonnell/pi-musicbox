@@ -34,6 +34,14 @@
 #   holds #recycle, and Synology scatters @eaDir thumbnail directories through
 #   the tree.
 #
+# WHY THERE IS A mpd.service DROP-IN
+#   The share is noauto,x-systemd.automount and MPD triggers it by reading
+#   music_directory, so systemd sees no dependency and unmounts it while MPD is
+#   still running — every shutdown logged "umount.nfs4: /srv/music: device is
+#   busy". The drop-in adds After= on the mount unit, which reverses on shutdown.
+#   It is ordering only and adds no requirement, so boot still never waits for
+#   the NAS. See .claude/docs/decisions.md.
+#
 # THIS BOX HAS NO VOLUME CONTROL, ON PURPOSE
 #   It feeds a preamp which feeds a power amp, both of which have volume. So MPD
 #   is configured mixer_type "none" and never touches the DAC, and the gain stages
@@ -49,9 +57,9 @@
 #   sudo ./setup-mpd.sh --revert
 #
 #   ./setup-mpd.sh --emit DEST
-#       Write mpd.conf, the unity script and unit, and the /etc/default/mpd block
-#       to a directory and exit. Touches no system state; used by the tests and
-#       handy for review.
+#       Write mpd.conf, the unity script and unit, the mpd.service drop-in and
+#       the /etc/default/mpd block to a directory and exit. Touches no system
+#       state; used by the tests and handy for review.
 
 set -euo pipefail
 
@@ -70,7 +78,12 @@ readonly UNITY_BIN="/usr/local/bin/musicbox-dac-unity"
 readonly UNITY_UNIT="/etc/systemd/system/musicbox-dac-unity.service"
 
 # The library, not the share root. See the header.
-readonly MUSIC_DIR="/srv/music/Music"
+readonly MOUNT_POINT="/srv/music"
+readonly MUSIC_DIR="${MOUNT_POINT}/Music"
+
+# Stops MPD before the share is unmounted. See gen_nas_dropin.
+readonly NAS_DROPIN_DIR="/etc/systemd/system/mpd.service.d"
+readonly NAS_DROPIN="${NAS_DROPIN_DIR}/10-musicbox-nas.conf"
 
 DRY_RUN=0
 ASSUME_YES=0
@@ -96,7 +109,7 @@ run() {
     else "$@"; fi
 }
 
-usage() { sed -n '3,53p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,62p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # install_if_changed <tmp> <dest> [mode] -> 0 changed, 1 already current
 install_if_changed() {
@@ -346,6 +359,17 @@ WantedBy=multi-user.target
 UNIT
 }
 
+gen_nas_dropin() {
+    cat <<UNIT
+[Unit]
+# MPD triggers the automount by reading music_directory, so systemd cannot infer
+# the dependency and umounts the share while MPD still holds it open. Ordering
+# only: After= adds no requirement and the .mount has no boot job, so this
+# cannot make boot wait on the NAS.
+After=$(systemd-escape --path "$MOUNT_POINT").mount
+UNIT
+}
+
 gen_default_block() {
     cat <<DEFAULTS
 # Point MPD at musicbox's own configuration. This is the mechanism Debian's unit
@@ -361,6 +385,7 @@ emit_all() {
     gen_conf > "${dest}/mpd.conf"
     gen_unity_script > "${dest}/musicbox-dac-unity"
     gen_unity_unit   > "${dest}/musicbox-dac-unity.service"
+    gen_nas_dropin   > "${dest}/10-musicbox-nas.conf"
     chmod 0755 "${dest}/musicbox-dac-unity"
 
     # Run the real block writer against a stock-shaped fixture, so --emit and
@@ -371,7 +396,7 @@ emit_all() {
     mv "$tmp" "${dest}/default-mpd"
     rm -f "$stock"
 
-    printf '  wrote mpd.conf musicbox-dac-unity musicbox-dac-unity.service default-mpd -> %s\n' "$dest"
+    printf '  wrote mpd.conf musicbox-dac-unity musicbox-dac-unity.service 10-musicbox-nas.conf default-mpd -> %s\n' "$dest"
 }
 
 # ---------------------------------------------------------------------------
@@ -446,6 +471,10 @@ do_apply() {
     tmp="$(mktemp)"; gen_unity_unit > "$tmp"
     if install_if_changed "$tmp" "$UNITY_UNIT" 0644; then ok "$UNITY_UNIT"; changed=1
     else skip "$UNITY_UNIT already current"; fi
+
+    tmp="$(mktemp)"; gen_nas_dropin > "$tmp"
+    if install_if_changed "$tmp" "$NAS_DROPIN" 0644; then ok "$NAS_DROPIN"; changed=1
+    else skip "$NAS_DROPIN already current"; fi
 
     # The package creates /var/lib/mpd, but not always the playlist directory.
     run install -d -o mpd -g audio -m 0755 "${MPD_STATE_DIR}/playlists"
@@ -580,7 +609,8 @@ do_revert() {
     if systemctl list-unit-files musicbox-dac-unity.service >/dev/null 2>&1; then
         run systemctl disable --now musicbox-dac-unity.service >/dev/null 2>&1 || true
     fi
-    run rm -f "$CONF_FILE" "$UNITY_BIN" "$UNITY_UNIT"
+    run rm -f "$CONF_FILE" "$UNITY_BIN" "$UNITY_UNIT" "$NAS_DROPIN"
+    run rmdir "$NAS_DROPIN_DIR" 2>/dev/null || true
     run systemctl daemon-reload
     run systemctl restart mpd.service
     ok "reverted"

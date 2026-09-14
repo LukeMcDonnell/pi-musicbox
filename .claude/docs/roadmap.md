@@ -154,34 +154,16 @@ Virtualisation is not that answer: it was never measured against the fault.
   minutes, since the device only ever holds copies, and verified by `md5sum`.
   A checked-in script that always names one source and one destination, and
   verifies afterwards, removes the whole class.
-- **Shutdown stalls ~90s when MPD is playing.** `/srv/music` cannot be unmounted
-  while MPD holds it, so a graceful reboot spends the full stop timeout waiting.
-  Observed 2026-09-13:
+- **The NAS-off boot proof for the `mpd.service` drop-in is still outstanding.**
+  `setup-mpd.sh` now writes `/etc/systemd/system/mpd.service.d/10-musicbox-nas.conf`
+  with `After=srv-music.mount`, so MPD stops before the share is unmounted. It
+  shipped on reasoning, not measurement: `After=` is ordering only, adds no
+  requirement, and the `.mount` has `noauto` so it gets no boot job — but
+  non-negotiable #1 deserves the real test. Reboot once with the NAS powered
+  down and check boot time and `systemd-analyze critical-chain mpd.service`.
 
-  ```
-  12:41:54  netwatch: mpd=[[playing] #59/130 1:42/5:19]
-  12:41:59  Unmounting srv-music.mount...
-  12:41:59  umount.nfs4: /srv/music: device is busy
-  12:41:59  srv-music.mount: Mount process exited, code=exited, status=16
-  12:41:59  Failed unmounting srv-music.mount - /srv/music
-  12:43:29  srv-music.mount: Deactivated successfully      <- 90s later
-  ```
-
-  Not a data risk: the share is mounted `ro` and the unmount does eventually
-  succeed. Not new either, though the journal cannot prove that — only five boots
-  are recorded and the earlier ones were a hard power cycle (the clock deadlock)
-  or seconds long, so this was the first graceful shutdown with the share actually
-  in use. Nothing in the Bluetooth work touches `/srv/music`.
-
-  The fix is a shutdown-ordering dependency so `mpd.service` stops before
-  `srv-music.mount` — systemd has no idea MPD depends on it, because the mount is
-  `noauto,x-systemd.automount` and MPD merely triggers it by access. A drop-in
-  with `After=srv-music.mount` on `mpd.service` would do it (systemd reverses
-  ordering on shutdown), but **it touches the boot contract**: non-negotiable #1
-  in `CLAUDE.md` exists because anything that makes boot wait on the network hangs
-  the box when the NAS is off. `After=` on an automount unit should be safe —
-  the automount unit, not the mount, is what is active at boot — but that needs
-  proving with the NAS powered down, not reasoning. Own change, own tests.
+  If it ever does hang boot, the rollback is one file:
+  `rm /etc/systemd/system/mpd.service.d/10-musicbox-nas.conf && systemctl daemon-reload`.
 - Investigate the unexplained 1543ms firmware gap.
 - Reclaim the ~4s the kiosk currently waits on NetworkManager.
 - Read-only root via `raspi-config nonint enable_overlayfs` (planned from the

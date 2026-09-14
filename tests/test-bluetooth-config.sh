@@ -188,6 +188,14 @@ check "always pairable" "0" "$(has 'AlwaysPairable = true' "$MAINBLOCK")"
 check "the adapter powers on at boot" "0" "$(has 'AutoEnable = true' "$MAINBLOCK")"
 check "the agent needs no input or display" "0" "$(has '--capability=NoInputNoOutput' "$AGENT")"
 
+# bt-agent catches SIGTERM and never exits, so an unbounded stop cost the full
+# 90s DefaultTimeoutStopSec on EVERY shutdown. Measured on the device: SIGINT
+# exits in ~100ms and unregisters the agent, SIGTERM never returns.
+check "the agent stop is bounded"  "0" "$(hasre '^TimeoutStopSec=[0-9]+$' "$AGENT")"
+check "stopped with a signal it acts on" "0" "$(hasre '^KillSignal=SIGINT$' "$AGENT")"
+check "never SIGTERM, which it ignores"  "1" "$(hasre '^KillSignal=SIGTERM$' "$AGENT")"
+check "the reason is written down"  "0" "$(has 'never exits' "$AGENT")"
+
 banner "the radio is unblocked, which is what the real box needed"
 # Found soft-blocked on the device: bluetoothd logging "Failed to set mode:
 # Failed (0x03)" every boot and the adapter reporting PowerState: off-blocked.

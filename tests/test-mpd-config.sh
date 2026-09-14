@@ -86,6 +86,30 @@ check "enabled at boot"         "0" "$(hasre '^WantedBy=multi-user\.target$' "$U
 check "setup-mpd.sh enables it" "0" "$(has 'systemctl enable musicbox-dac-unity.service' "$SCRIPT")"
 check "and revert removes it"   "0" "$(has 'disable --now musicbox-dac-unity.service' "$SCRIPT")"
 
+banner "THE SHUTDOWN ORDERING DROP-IN (and the boot contract it must not break)"
+# Without it systemd unmounts the share while MPD still holds it open and every
+# shutdown logs "umount.nfs4: /srv/music: device is busy".
+DROPIN="$OUT/10-musicbox-nas.conf"
+check "drop-in written"      "0" "$(if [[ -f "$DROPIN" ]]; then echo 0; else echo 1; fi)"
+check "it is a [Unit] stanza" "0" "$(hasre '^\[Unit\]$' "$DROPIN")"
+check "orders mpd after the mount" "0" "$(hasre '^After=srv-music\.mount$' "$DROPIN")"
+check "the reason is written down"  "0" "$(has 'music_directory' "$DROPIN")"
+# NON-NEGOTIABLE #1: ordering only. A requirement here would pull the mount into
+# the boot transaction and hang boot with the NAS off.
+for d in Requires Wants BindsTo Requisite PartOf RequiresMountsFor; do
+    check "no $d= in the drop-in" "1" "$(hasre "^${d}=" "$DROPIN")"
+done
+# After= on the .automount WOULD be real boot ordering: that unit does start at boot.
+check "does not order after the automount" "1" "$(hasre '^After=.*\.automount' "$DROPIN")"
+check "it lands in mpd.service.d" "0" \
+    "$(has 'NAS_DROPIN_DIR="/etc/systemd/system/mpd.service.d"' "$SCRIPT")"
+# shellcheck disable=SC2016
+check "under our own filename"   "0" \
+    "$(has 'NAS_DROPIN="${NAS_DROPIN_DIR}/10-musicbox-nas.conf"' "$SCRIPT")"
+check "revert removes it"        "0" "$(has 'NAS_DROPIN' "$SCRIPT")"
+# shellcheck disable=SC2016
+check "revert removes the dir too" "0" "$(has 'rmdir "$NAS_DROPIN_DIR"' "$SCRIPT")"
+
 banner "settings that must not drift"
 # inotify cannot see changes made on the far side of an NFS mount.
 check "auto_update no"        "0" "$(hasre '^auto_update[[:space:]]+"no"$' "$CONF")"
@@ -146,7 +170,7 @@ check "and does not die"         "1" "$(hasre 'die ".*'"$(printf '%s' '/srv/musi
 banner "managed block round-trip on a real fixture"
 # Needs the internal functions, so source the script minus main.
 HARNESS="$WORK/h.sh"
-sed -e '$ d' -e 's/^readonly \(CONF_FILE\|DEFAULT_FILE\|CONF_DIR\|STATE_DIR\|MPD_STATE_DIR\|MUSIC_DIR\)=/\1=/' \
+sed -e '$ d' -e 's/^readonly \(CONF_FILE\|DEFAULT_FILE\|CONF_DIR\|STATE_DIR\|MPD_STATE_DIR\|MOUNT_POINT\|MUSIC_DIR\|NAS_DROPIN_DIR\|NAS_DROPIN\)=/\1=/' \
     "$SCRIPT" > "$HARNESS"
 # shellcheck source=/dev/null
 source "$HARNESS"
@@ -188,7 +212,7 @@ banner "--emit must be silent (a backtick in an unquoted heredoc executes)"
 bash "$SCRIPT" --emit "$WORK/silent" 2>"$WORK/emit.err" >/dev/null
 check "no stderr from --emit" "" "$(cat "$WORK/emit.err")"
 check "no backticks in any generator" "1" \
-    "$(sed -n '/^gen_conf()/,/^CONF$/p;/^gen_unity_unit()/,/^UNIT$/p;/^gen_default_block()/,/^DEFAULTS$/p' "$SCRIPT" | grep -q '`'; echo $?)"
+    "$(sed -n '/^gen_conf()/,/^CONF$/p;/^gen_unity_unit()/,/^UNIT$/p;/^gen_nas_dropin()/,/^UNIT$/p;/^gen_default_block()/,/^DEFAULTS$/p' "$SCRIPT" | grep -q '`'; echo $?)"
 
 banner "idempotency"
 sum1="$(cat "$OUT"/* | md5sum)"

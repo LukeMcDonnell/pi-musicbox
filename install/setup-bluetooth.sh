@@ -372,6 +372,13 @@ Type=simple
 ExecStart=/usr/bin/bt-agent --capability=NoInputNoOutput
 Restart=always
 RestartSec=2
+#
+# bt-agent catches SIGTERM and then never exits, so every shutdown paid the full
+# 90s stop timeout. It does exit on SIGINT, unregistering from BlueZ on the way
+# out; TimeoutStopSec bounds it if that ever stops being true.
+#
+KillSignal=SIGINT
+TimeoutStopSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=musicbox-bt-agent

@@ -555,3 +555,62 @@ is what keeps focus on the field; verified with emulated touch in Chrome at
 800x480, not yet on the panel itself. <main> gets bottom padding while it is up
 rather than a shorter box, because the library's virtual scroller only refreshes
 on viewport resizes.
+
+
+## The shutdown "device is busy" and the 90s stall were two unrelated faults
+
+Every graceful shutdown logged `umount.nfs4: /srv/music: device is busy`, and
+every graceful shutdown took ~90s. It was natural to read that as one fault —
+`roadmap.md` did — but the journal says they are independent, and only one of
+them was costing the 90 seconds.
+
+**The unmount error.** systemd stopped `srv-music.mount` *concurrently with*
+MPD, in fact about 200ms ahead of it:
+
+```
+15:44:47.290  Unmounting srv-music.mount - /srv/music...
+15:44:47.369  umount.nfs4: /srv/music: device is busy
+15:44:47.497  Stopping mpd.service ...        <- 200ms too late
+15:44:47.831  Stopped mpd.service             <- exits cleanly in 0.33s
+```
+
+MPD was never slow to stop. systemd simply had no dependency to order by:
+`RequiresMountsFor=` was empty and the mount is `noauto,x-systemd.automount`,
+so MPD only ever triggers it by reading `music_directory`.
+
+The fix is a `mpd.service` drop-in with `After=srv-music.mount`, which systemd
+reverses on shutdown. It is safe against non-negotiable #1 because `After=` is
+ordering alone: it adds no requirement, cannot pull the mount into the boot
+transaction, and `noauto` means the `.mount` gets no boot job for the ordering
+to apply to. `After=` naming a unit that does not exist is a no-op, so a box
+that never ran `setup-nas.sh` is unaffected.
+
+`After=` on the `.automount` instead would be worse, not safer: that unit *does*
+start at boot, so it would be real boot ordering — for nothing, since the EBUSY
+comes from the `.mount`.
+
+**The 90s stall was `bt-agent`, which has nothing to do with the NAS.** In the
+same incident `roadmap.md` used as evidence for the mount:
+
+```
+12:43:29.172  musicbox-bt-agent.service: State 'stop-sigterm' timed out. Killing.
+12:43:29.276  srv-music.mount: Deactivated successfully   <- 0.1s AFTER the kill
+```
+
+The mount deactivated 100ms *after* bt-agent was SIGKILLed; it was waiting on
+the stall, not causing it. The gap is 90.1s in every recorded shutdown, i.e.
+`DefaultTimeoutStopSec`. `/proc/<pid>/status` gives `SigCgt: ...4202` — bit 14
+set, so bt-agent catches SIGTERM and then never exits, logging only
+`SIGUSR1 received`. That is a bluez-tools bug.
+
+The unit sets `KillSignal=SIGINT` and `TimeoutStopSec=5`. SIGINT was measured on
+the device, not assumed: the agent exits in ~100ms, logs `unregistering
+agent...`, and systemd records `Deactivated successfully`. SIGKILL also works
+and is what was tried first, but it skips the BlueZ unregister and systemd
+scores a killed main process as `Failed with result 'signal'` — a failure line
+on every shutdown, for no gain. `TimeoutStopSec` still escalates to SIGKILL if
+SIGINT ever stops working.
+
+The general lesson: two symptoms in the same 90-second window are not evidence
+of one cause. Timestamps at millisecond precision separated them in minutes,
+and the persistent journal is what made that possible.

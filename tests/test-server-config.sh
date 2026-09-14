@@ -144,9 +144,16 @@ check "dev-push never builds on the device" "1" "$(has 'ssh.*npm' "$REPO/tools/d
 banner "album art: the music root must agree with MPD's music_directory"
 # If these two drift, EVERY art request 404s and nothing else misbehaves — a
 # miserable thing to debug from the symptom. So compare the literals directly.
+# MUSIC_DIR is built from MOUNT_POINT, so resolve the reference rather than
+# comparing the literal.
+MPD_MOUNT_POINT="$(grep -oE '^readonly MOUNT_POINT="[^"]*"' "$REPO/install/setup-mpd.sh" | head -1 | sed 's/.*="//; s/"$//')"
 MPD_MUSIC_DIR="$(grep -oE '^readonly MUSIC_DIR="[^"]*"' "$REPO/install/setup-mpd.sh" | head -1 | sed 's/.*="//; s/"$//')"
+MPD_MUSIC_DIR="${MPD_MUSIC_DIR//\$\{MOUNT_POINT\}/$MPD_MOUNT_POINT}"
 BACKEND_MUSIC_ROOT="$(grep -oE "musicRoot: '[^']*'" "$REPO/src/backend/src/config.ts" | head -1 | sed "s/.*: '//; s/'$//")"
+check "setup-mpd.sh MOUNT_POINT was found"      "0" "$(if [[ -n "$MPD_MOUNT_POINT" ]]; then echo 0; else echo 1; fi)"
 check "setup-mpd.sh MUSIC_DIR was found"        "0" "$(if [[ -n "$MPD_MUSIC_DIR" ]]; then echo 0; else echo 1; fi)"
+# shellcheck disable=SC2016
+check "MUSIC_DIR resolved, not left literal"    "1" "$(printf '%s' "$MPD_MUSIC_DIR" | grep -qF '${'; echo $?)"
 check "backend musicRoot default was found"     "0" "$(if [[ -n "$BACKEND_MUSIC_ROOT" ]]; then echo 0; else echo 1; fi)"
 check "the two paths are identical"             "$MPD_MUSIC_DIR" "$BACKEND_MUSIC_ROOT"
 

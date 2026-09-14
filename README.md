@@ -41,7 +41,7 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression |
 | `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
 | `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
-| `setup-mpd.sh` | `/etc/musicbox/mpd.conf` and the `MPDCONF=` line that selects it |
+| `setup-mpd.sh` | `/etc/musicbox/mpd.conf`, the `MPDCONF=` line that selects it, and the `mpd.service` drop-in that orders MPD ahead of the share |
 | `setup-server.sh` | the web server units and `/etc/musicbox/server.conf` |
 | `setup-bluetooth.sh` | the A2DP sink, the pairing agent and the DAC arbiter |
 | `install.sh` | apt packages — and nothing else |
@@ -549,6 +549,16 @@ clears it through sysfs and systemd-rfkill persists it. Another case of verifyin
 the effect rather than the setting — `AutoEnable` alone does nothing while the
 block is in place.
 
+### The pairing agent had to be killed, not asked
+
+`bt-agent` catches SIGTERM and then never exits — `/proc/<pid>/status` shows the
+handler installed, and the process only ever logs `SIGUSR1 received`. systemd
+therefore waited the full `DefaultTimeoutStopSec` before SIGKILLing it, and
+**that, not the NFS share, is what made every shutdown take 90 seconds.** The
+unit now sets `KillSignal=SIGINT` and `TimeoutStopSec=5`. SIGINT it does act on:
+measured at ~100ms, unregistering from BlueZ on the way out, where SIGTERM never
+returned. The timeout escalates to SIGKILL if that ever changes.
+
 ## MPD
 
 `setup-mpd.sh` configures the player. It installs nothing — `mpd` and `mpc` come
@@ -626,6 +636,27 @@ where `x-systemd.mount-timeout` defaults to 90s.
 Related: because MPD builds the database itself on first start, **restarting
 mpd mid-scan abandons the scan and leaves a partial database.** `setup-mpd.sh`
 therefore restarts mpd only when the config actually changed.
+
+### Shutdown has to be ordered by hand, for the same reason
+
+The automount is what makes boot cheap, and it is also why systemd does not know
+MPD needs the share: MPD triggers the mount by reading `music_directory`, so no
+dependency is ever declared. Shutdown therefore unmounted the share while MPD
+still held it open, and every single shutdown logged:
+
+```
+umount.nfs4: /srv/music: device is busy
+Failed unmounting srv-music.mount - /srv/music
+```
+
+`setup-mpd.sh` writes `/etc/systemd/system/mpd.service.d/10-musicbox-nas.conf`
+with `After=srv-music.mount`; systemd reverses ordering on shutdown, so MPD now
+stops first. This does not touch the boot contract — `After=` adds no
+requirement and the `noauto` mount gets no boot job — but the NAS-off reboot
+that would prove it is still outstanding (see `.claude/docs/roadmap.md`).
+
+This was **not** what made shutdown take 90 seconds. That was the Bluetooth
+pairing agent; see below.
 
 ## The web server
 
