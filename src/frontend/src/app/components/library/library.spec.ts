@@ -2,8 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import type { ArtistSummary } from '@musicbox/shared';
-import { Library } from './library';
+import { Library, ROW_HEIGHT } from './library';
 import { LibraryStore } from '../../library-store';
+import { ScrollFrame } from '../../scroll-frame';
 
 function artist(over: Partial<ArtistSummary> = {}): ArtistSummary {
     return {
@@ -26,10 +27,46 @@ function fakeStore(artists: ArtistSummary[] | null = null) {
     };
 }
 
-function create(store: ReturnType<typeof fakeStore>) {
+/**
+ * A scroll frame, or none.
+ *
+ * The real one is App's <main>. A null frame is not a harmless default: the
+ * scroller falls back to measuring itself, decides all 487 rows are on screen,
+ * and renders every one of them looking exactly like the list that works. That
+ * is what 'publishes the scroll frame it was given' guards.
+ */
+function fakeFrame(element: HTMLElement | null = null) {
+    return { element: signal(element).asReadonly(), set: () => {} };
+}
+
+/** A real, scrollable frame in the document, so the scroller can measure it. */
+function realFrame(): HTMLElement {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:480px;overflow-y:auto';
+    document.body.appendChild(el);
+    return el;
+}
+
+/** The scroller refreshes in requestAnimationFrame, OUTSIDE the zone — so
+ *  whenStable() returns before a single row exists. Its recursion is bounded at
+ *  maxRunTimes = 2, so three frames is enough and is not a timing guess. */
+async function frames(count = 3): Promise<void> {
+    for (let i = 0; i < count; ++i) {
+        await new Promise(requestAnimationFrame);
+    }
+}
+
+function create(
+    store: ReturnType<typeof fakeStore>,
+    frame: ReturnType<typeof fakeFrame> = fakeFrame(),
+) {
     TestBed.configureTestingModule({
         imports: [Library],
-        providers: [provideRouter([]), { provide: LibraryStore, useValue: store }],
+        providers: [
+            provideRouter([]),
+            { provide: LibraryStore, useValue: store },
+            { provide: ScrollFrame, useValue: frame },
+        ],
     });
     return TestBed.createComponent(Library);
 }
@@ -94,5 +131,57 @@ describe('Library', () => {
         const cmp = create(fakeStore([])).componentInstance;
         expect(cmp.albumsLabel(artist({ albumCount: 1 }))).toBe('1 album');
         expect(cmp.albumsLabel(artist({ albumCount: 17 }))).toBe('17 albums');
+    });
+
+    it('hands the scroller an array, and the same one each time', () => {
+        const store = fakeStore(null);
+        const cmp = create(store).componentInstance;
+        // Never null: the scroller's items input is not optional. And never a
+        // fresh array — its setter compares by reference and recomputes the whole
+        // geometry on any new one, which would then happen on every check.
+        expect(cmp.rows()).toEqual([]);
+        expect(cmp.rows()).toBe(cmp.rows());
+    });
+
+    it('publishes the scroll frame it was given', () => {
+        const element = realFrame();
+        const cmp = create(fakeStore([artist()]), fakeFrame(element)).componentInstance;
+        expect(cmp.frame()).toBe(element);
+        element.remove();
+    });
+
+    it('creates when there is no scroll frame to be had', () => {
+        // Mounted outside App's <main>, which is exactly this fixture.
+        const fixture = create(fakeStore([artist()]), fakeFrame(null));
+        fixture.detectChanges();
+        expect(fixture.componentInstance.frame()).toBeNull();
+    });
+
+    it('tracks the visible slice and where it starts', () => {
+        const cmp = create(fakeStore([artist()])).componentInstance;
+        const slice = [artist({ name: 'Ought' }), artist({ name: 'Preoccupations' })];
+        cmp.onViewport(slice);
+        expect(cmp.visible()).toEqual(slice);
+        // No scroller mounted in this fixture, so the offset falls back to 0
+        // rather than throwing; aria-posinset is the only thing that reads it.
+        expect(cmp.firstIndex()).toBe(0);
+    });
+
+    it('renders a row exactly ROW_HEIGHT tall', async () => {
+        // The one DOM assertion in this file, and it earns its place: every index
+        // the scroller computes comes from ROW_HEIGHT, so a change to the row's
+        // padding that missed the constant would break scrolling with every other
+        // assertion still green. Measured against the real template, never
+        // against a copy of its classes — a copy would drift with it.
+        const element = realFrame();
+        const fixture = create(fakeStore([artist()]), fakeFrame(element));
+        fixture.detectChanges();
+        await frames();
+        fixture.detectChanges();
+
+        const row = fixture.nativeElement.querySelector('li') as HTMLElement | null;
+        expect(row).withContext('no row rendered').not.toBeNull();
+        expect(row!.offsetHeight).toBe(ROW_HEIGHT);
+        element.remove();
     });
 });

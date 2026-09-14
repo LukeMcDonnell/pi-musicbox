@@ -182,6 +182,44 @@ ever sounds wrong.
 **Attenuation, if ever needed, belongs in the analog domain** — the `Analogue`
 control's −6 dB step — never the digital attenuator.
 
+**The artist list is virtualised with a third-party scroller, not the CDK and not
+by hand.** `@iharbeck/ngx-virtual-scroller` — note the scope: the bare
+`ngx-virtual-scroller` on npm stopped at 4.0.3 in 2022, is View-Engine-compiled
+(it ships a `.metadata.json` and no Ivy declarations) and cannot be consumed at
+all since ngcc was removed in Angular 16. The scoped fork is the live one,
+published against 20.3. `@angular/cdk` was the obvious alternative and is not
+cheaper: `scrolling.mjs` alone is 75kB raw / 16kB gzip before tree-shaking, and
+its viewport wants to own the element that scrolls, which is the one thing
+app.html does not allow. Hand-rolling ~70 lines for a uniform single-column list
+was the third option and would have fitted the one-dependency ethos; it was
+turned down because the scroll geometry here is subtle enough that the review
+found two separate 8px ways to get it wrong, and none of them fail loudly.
+
+**Measured cost of it: 380.4kB to 418.9kB raw initial** (main 326.5 -> 365.1kB),
+i.e. +38.5kB, not the ~98kB the two packages weigh on disk — esbuild tree-shakes
+most of `@tweenjs/tween.js`, which is a declared peer and has to be installed
+even though only `scrollToIndex` would use it. 81kB of headroom left against
+`angular.json`'s 500kB warning, and **`tools/build.sh` pipes `ng build` to
+`/dev/null`, so that warning would be invisible** — run `npx ng build` directly
+when adding a dependency.
+
+**`parentScroll` onto `<main>`, and `checkResizeInterval` off.** The page scrolls
+in `<main>` (app.html says why at length), so the list is pointed at that element
+rather than given a viewport of its own. Two consequences worth knowing: the
+scroller's default is to write inline `overflow` onto whatever it is pointed at,
+which would move the definition of the scroll frame out of app.html — turned off;
+and its resize detection on that branch is a 1Hz `getBoundingClientRect` for as
+long as the screen is mounted, replaced by a window resize listener. That
+substitution holds only while every change to `<main>`'s box is viewport-driven,
+which is true today and is written down in the `library.ts` header.
+
+**Do not resolve the scroll frame with `closest('main')`.** A routed component's
+host element is inserted after its constructor runs, so it answers null — and the
+failure is silent: a virtual scroller with no frame measures itself, concludes
+every row is on screen, and renders all 487 looking exactly like the list that
+works. It comes through `ScrollFrame`, a root service App publishes into, the
+same shape as `NowPlayingSheet` and for the same reason.
+
 ## Predictions the hardware disproved
 
 **"Masking `NetworkManager-wait-online` is the biggest single win, 6–19s."**

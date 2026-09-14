@@ -60,7 +60,16 @@ Two costs arrived together and both are suspects; neither has been isolated yet.
 2. **The library screen renders 487 artists, each `/api/art` image a full
    1000×1000 JPEG (~250KB) displayed at 48×48.** `loading="lazy"` limits what is
    fetched at once, but scrolling still walks the whole list, and the page is
-   ~31,000px tall with no virtualisation.
+   ~31,000px tall.
+
+   **Half addressed since.** The artist list is virtualised — ~18 rows in the DOM
+   instead of 487 (`@iharbeck/ngx-virtual-scroller`, `parentScroll`-ed onto
+   `<main>`; see the `library.ts` header). That cut the row count and the NUMBER
+   of decodes. It did not make the page shorter, it did not make one decode
+   cheaper, and it added churn: a row leaving the window is destroyed, so
+   scrolling back up decodes its picture again — the response is cached, the
+   bitmap is not. **Whether this helped the crash at all is unmeasured**, and it
+   was landed for the DOM cost rather than as a fix for this.
 
 **What was already ruled out** — do not spend another cycle on these:
 
@@ -83,10 +92,14 @@ the one path that never exercises the fault.
 blurring a 1000×1000 JPEG at sigma 172 is paying twice over; a small downscaled
 source with a proportionally smaller sigma should look near-identical for almost
 nothing. `/api/art` serving a thumbnail size would fix the backdrop and the
-library list at the same time. Virtualising the artist list is the other half.
-Confirm which of the two actually causes the crash before fixing both — the panel
-is the only place that can answer it, and `--disable-gpu-rasterization` via
+library list at the same time, and it is now the OUTSTANDING half — the other,
+virtualising the artist list, has landed. It is also the half that matters for
+cost-per-decode, which virtualisation did nothing about.
+
+Still confirm which of the two actually causes the crash before fixing both — the
+panel is the only place that can answer it, and `--disable-gpu-rasterization` via
 `CHROMIUM_EXTRA_FLAGS` in `/etc/musicbox/kiosk.conf` is the cheapest way to ask.
+Virtualisation is not that answer: it was never measured against the fault.
 
 ## Next
 

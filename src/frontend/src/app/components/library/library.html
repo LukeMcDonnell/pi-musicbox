@@ -16,38 +16,102 @@
     <p class="pt-3 text-[0.95rem] text-muted">Reading the library…</p>
   }
 
-  <ul class="flex flex-col pt-2">
-    @for (artist of artists(); track artist.name) {
-      <li>
-        <button class="flex min-h-[3.5rem] w-full cursor-pointer touch-manipulation items-center
-                       gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
-                (click)="open(artist)">
-          <span class="grid size-12 flex-none place-items-center overflow-hidden rounded-full
-                       bg-surface">
-            @if (artOf(artist); as uri) {
-              <!-- Lazy, with the box fixed by width/height: most of 487 rows are
-                   off screen, and an undecoded picture costs nothing. -->
-              <img class="h-full w-full object-cover" [src]="uri" alt=""
-                   width="48" height="48" loading="lazy" decoding="async"
-                   (error)="onArtError(uri)">
-            } @else {
-              <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
+  <!-- Keyed off the list, never off the visible slice: the slice is empty for the
+       first frame or two of every refresh, and an @empty inside the scroller
+       would flash this at someone whose library is fine. -->
+  @if (artists()?.length === 0 && !error()) {
+    <p class="px-2 py-6 text-[0.95rem] text-muted">
+      Nothing in the library. Has MPD finished scanning?
+    </p>
+  }
+
+  <!--
+    VIRTUAL SCROLL. Measured at 800x480 against the real 487-artist library: 13
+    rows in the DOM at the top of the list, 19 in the middle, and the page still
+    31,232px tall. See the component header for what that does and does not buy.
+
+    Every input departs from a default on purpose:
+
+      childHeight     fixed, not measured — ROW_HEIGHT, which a spec pins to a
+                      rendered row.
+      bufferAmount    <main> is 480px on the panel, so 8 rows show; 5 either side
+                      is the runway a fling needs to not show a blank row.
+      scrollAnimation nothing calls scrollToIndex yet, but a tweened scroll is a
+                      repaint per frame on the vc4 path — ruled out once already
+                      in now-playing.ts.
+      modifyOverflow  the default writes inline overflow onto <main>, moving the
+                      definition of the scroll frame out of app.html.
+      checkResize     the default polls <main>'s geometry at 1Hz for as long as
+                      this screen is mounted. The component's window resize
+                      listener replaces it.
+      parentScroll    <main> is the scroller — not this element, not the window.
+                      See app.html.
+
+    PARENTSCROLL IS BOUND LAST, AND THAT IS NOT COSMETIC. Angular assigns inputs
+    in the order they appear here, and it is the parentScroll setter that installs
+    the scroll handlers and writes the overflow style, reading the two settings
+    above as they stand at that moment. Bound before them it takes their defaults
+    and the inline overflow lands on <main> anyway. Measured, not reasoned about:
+    that is what the first version of this template did.
+
+    IT IS ALSO INSIDE ITS OWN @if RATHER THAN ASSERTED NON-NULL. The element is
+    published in App's ngAfterViewInit, which runs after this component's first
+    change detection but long before a fetch can land, so by the time there are
+    rows it is always there. Keep the guard anyway: `frame()!` would turn a wiring
+    mistake into a list that silently renders all 487 rows and looks fine.
+
+    The 8px above the list is the wrapper div's padding, NOT padding on the <ul>
+    as it was before: the <ul> now sits inside an absolutely positioned box the
+    scroller translates, where padding adds height the index arithmetic does not
+    model and the last row ends up clipped. Outside the host it is just a number
+    the scroller measures. #container is what keeps ul/li semantics — without it
+    the scroller measures its own wrapper's children and sees one 31,000px child.
+  -->
+  @if (artists()?.length) {
+    <div class="pt-2">
+      @if (frame(); as scrollFrame) {
+        <virtual-scroller [items]="rows()"
+                          [childHeight]="rowHeight"
+                          [bufferAmount]="5"
+                          [scrollAnimationTime]="0"
+                          [modifyOverflowStyleOfParentScroll]="false"
+                          [checkResizeInterval]="0"
+                          [parentScroll]="scrollFrame"
+                          (vsUpdate)="onViewport($event)">
+          <ul #container class="flex flex-col">
+            @for (artist of visible(); track artist.name) {
+              <!-- A reader sees a dozen or so of 487 rows; the count is said out loud. -->
+              <li [attr.aria-posinset]="firstIndex() + $index + 1"
+                  [attr.aria-setsize]="rows().length">
+                <button class="flex min-h-[3.5rem] w-full cursor-pointer touch-manipulation
+                               items-center gap-3 rounded-md px-2 py-2 text-left select-none
+                               active:bg-raised"
+                        (click)="open(artist)">
+                  <span class="grid size-12 flex-none place-items-center overflow-hidden
+                               rounded-full bg-surface">
+                    @if (artOf(artist); as uri) {
+                      <!-- The box is fixed by width/height, so a decode never moves
+                           a row. `lazy` defers nothing now that only the visible
+                           rows exist; kept for the day the buffer grows. -->
+                      <img class="h-full w-full object-cover" [src]="uri" alt=""
+                           width="48" height="48" loading="lazy" decoding="async"
+                           (error)="onArtError(uri)">
+                    } @else {
+                      <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
+                    }
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate">{{ artist.name }}</span>
+                    <span class="block truncate text-[0.85rem] text-muted">
+                      {{ albumsLabel(artist) }}
+                    </span>
+                  </span>
+                </button>
+              </li>
             }
-          </span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate">{{ artist.name }}</span>
-            <span class="block truncate text-[0.85rem] text-muted">
-              {{ albumsLabel(artist) }}
-            </span>
-          </span>
-        </button>
-      </li>
-    } @empty {
-      @if (!loading() && !error()) {
-        <li class="px-2 py-6 text-[0.95rem] text-muted">
-          Nothing in the library. Has MPD finished scanning?
-        </li>
+          </ul>
+        </virtual-scroller>
       }
-    }
-  </ul>
+    </div>
+  }
 </section>

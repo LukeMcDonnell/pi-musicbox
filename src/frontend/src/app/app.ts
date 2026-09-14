@@ -1,9 +1,10 @@
-import { Component, inject } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, inject, viewChild } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { Menu } from './components/menu/menu';
 import { NowPlaying } from './components/now-playing/now-playing';
 import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
 import { NowPlayingSheet } from './now-playing-sheet';
+import { ScrollFrame } from './scroll-frame';
 
 /**
  * The application frame: menu, routed screen, and the two now-playing views.
@@ -19,7 +20,7 @@ import { NowPlayingSheet } from './now-playing-sheet';
     imports: [RouterOutlet, Menu, NowPlaying, NowPlayingMini],
     templateUrl: './app.html',
 })
-export class App {
+export class App implements AfterViewInit {
     /**
      * Whether now-playing is showing.
      *
@@ -29,4 +30,19 @@ export class App {
      * owns only the boolean. See NowPlayingSheet.
      */
     readonly sheet = inject(NowPlayingSheet);
+
+    private readonly frame = inject(ScrollFrame);
+
+    /**
+     * The <main> element from app.html — the one thing on this page that scrolls.
+     *
+     * Published for the same reason as the sheet boolean: a routed screen that
+     * virtualises a long list needs the scroller, and only App has it. See
+     * ScrollFrame for why the screens must not go looking for it themselves.
+     */
+    private readonly scroller = viewChild.required<ElementRef<HTMLElement>>('scrollFrame');
+
+    ngAfterViewInit(): void {
+        this.frame.set(this.scroller().nativeElement);
+    }
 }
