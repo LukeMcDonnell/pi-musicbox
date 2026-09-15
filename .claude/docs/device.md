@@ -11,6 +11,7 @@ the measurement was taken.
 | OS | Raspberry Pi OS **Lite**, Trixie (Debian 13), kernel 6.18.34+rpt-rpi-v8 |
 | Audio | HiFiBerry DAC+ **Standard** (I2S HAT) — not the Pro |
 | Display | DFRobot DFR0550, 5" 800×480 DSI capacitive touchscreen |
+| Backlight | `/sys/class/backlight/10-0045`, driver `rpi_touchscreen_attiny` (i2c) |
 | Library | Synology NAS, `synonas.local` |
 | Access | `musicbox@musicbox.local` over SSH (password not recorded here) |
 
@@ -314,3 +315,45 @@ to prove which codec is actually in use.
 reads `closed` when free and `state: RUNNING` when held; the arbiter polls it to
 tell "asked MPD to stop" apart from "MPD has stopped". `fuser -v /dev/snd/*` must
 never list both `mpd` and `bluealsa-aplay`.
+
+## The panel's backlight
+
+Measured 2026-09-15, on the box.
+
+```
+/sys/class/backlight/10-0045/
+  brightness        0664 root:video    0-255, and what we write
+  actual_brightness 0444 root:root     reads back what took effect
+  max_brightness    0444 root:root     255
+  bl_power          0644 root:root     NOT writable by us
+```
+
+The device is an i2c child of `fe205000.i2c` — driver `rpi_touchscreen_attiny`,
+name `7inch-touchscreen-p`, i.e. the ATtiny on the display board reached over
+i2c. Writing `brightness` therefore does **not** touch vc4, KMS or the VideoCore
+mailbox, which is the whole reason the panel-off feature uses it rather than
+DPMS. See `decisions.md` and `clock-deadlock.md`.
+
+`brightness=0` genuinely extinguishes the panel — confirmed by eye, not inferred
+from `actual_brightness`.
+
+The backend writes it directly, with no privileged helper:
+
+- the service's user is in group `video` (gid 44), which owns the file;
+- `/sys` is **rw** in the unit's mount namespace despite `ProtectKernelTunables=yes`
+  — check with `grep sysfs /proc/$(systemctl show -p MainPID --value musicbox-server)/mounts`;
+- a write from inside the real sandbox was verified with
+  `systemd-run --uid=musicbox -p ProtectSystem=full -p ProtectKernelTunables=yes
+  -p NoNewPrivileges=yes -p SupplementaryGroups=video ...` before any code was written.
+
+To drive it by hand:
+
+```sh
+echo 0   | sudo tee /sys/class/backlight/10-0045/brightness   # off
+echo 255 | sudo tee /sys/class/backlight/10-0045/brightness   # on
+curl -s http://musicbox.local/api/panel                       # what the server thinks
+```
+
+Not yet verified on hardware: that touch still registers while the backlight is
+off. The digitizer is a separate device (`raspberrypi-ts`, from
+`dtoverlay=rpi-ft5406`) so it should be unaffected.

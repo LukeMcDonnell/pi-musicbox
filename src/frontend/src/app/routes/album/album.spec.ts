@@ -4,6 +4,7 @@ import type { AlbumResponse, Track } from '@musicbox/shared';
 import { Album } from './album';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
+import { PREFERENCES_KEY, Preferences } from '../../services/preferences';
 
 function track(title: string, duration: number | undefined, file: string): Track {
     return { title, duration, file, image: '/api/art?album=x' };
@@ -44,6 +45,11 @@ function create(store: ReturnType<typeof fakeStore>, artist = 'Radiohead', album
 }
 
 describe('Album', () => {
+    // The Interface tab decides what Play and Queue do to the screen, and it
+    // is stored per device — so each case here starts from the defaults.
+    beforeEach(() => localStorage.removeItem(PREFERENCES_KEY));
+    afterAll(() => localStorage.removeItem(PREFERENCES_KEY));
+
     it('creates without a backend present', () => {
         const fixture = create(fakeStore(), '', '');
         fixture.detectChanges();
@@ -102,6 +108,45 @@ describe('Album', () => {
         });
         expect(store.playAlbum).not.toHaveBeenCalled();
         expect(TestBed.inject(NowPlayingSheet).open()).toBeFalse();
+    });
+
+    it('leaves now-playing alone on Play when the user turned that off', async () => {
+        const store = fakeStore();
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        TestBed.inject(Preferences).set('openNowPlayingOnPlay', false);
+
+        await fixture.componentInstance.play();
+        expect(store.playAlbum).toHaveBeenCalled();
+        expect(TestBed.inject(NowPlayingSheet).open()).toBeFalse();
+    });
+
+    it('opens on the queue after Queue when the user asked for that', async () => {
+        const store = fakeStore();
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        TestBed.inject(Preferences).set('openQueueOnAdd', true);
+
+        await fixture.componentInstance.queue();
+        const sheet = TestBed.inject(NowPlayingSheet);
+        expect(sheet.open()).toBeTrue();
+        // On the queue, not on the track: the album was appended, not started.
+        expect(sheet.atQueue()).toBeTrue();
+    });
+
+    it('does NOT open on the queue when Queue was refused', async () => {
+        const store = fakeStore();
+        store.queueAlbum.and.rejectWith(new Error('cannot queue while a phone owns the DAC'));
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        TestBed.inject(Preferences).set('openQueueOnAdd', true);
+
+        await fixture.componentInstance.queue();
+        expect(TestBed.inject(NowPlayingSheet).open()).toBeFalse();
+        expect(fixture.componentInstance.error()).toMatch(/phone owns the DAC/);
     });
 
     it('cannot be double-sent while a request is in flight', async () => {

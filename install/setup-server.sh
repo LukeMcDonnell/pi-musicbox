@@ -54,7 +54,11 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_VERSION="1.1.0"
+
+# The backend needs node:sqlite, which arrived in 22.5 and is flagless from 24.
+# install.sh is what puts a node this new on the box; this is the assertion.
+readonly NODE_MIN_MAJOR=24
 
 readonly CONF_DIR="/etc/musicbox"
 readonly CONF_FILE="${CONF_DIR}/server.conf"
@@ -68,6 +72,10 @@ ASSUME_YES=0
 MODE="apply"
 APP_USER="musicbox"
 DEPLOY_DIR="/home/musicbox/musicbox"
+# The database lives here, owned by the app user. /var/lib/musicbox itself stays
+# root-owned: it holds this repo's config backups and the kiosk's chromium
+# profile, so the server gets a subdirectory rather than the lot.
+DATA_DIR="/var/lib/musicbox/data"
 PORT="80"
 MPD_HOST="127.0.0.1"
 MPD_PORT="6600"
@@ -134,6 +142,13 @@ MUSICBOX_MPD_PORT=${MPD_PORT}
 
 # Where tools/dev-push.sh puts the Angular build.
 MUSICBOX_WEB_ROOT=${DEPLOY_DIR}/frontend
+
+# The box's own state: settings now, favourites and recent plays later.
+#
+# NOT under ${DEPLOY_DIR}/backend — dev-push.sh rsyncs that with --delete and
+# would erase it on the next deploy. /var/lib survives a reboot where /tmp and
+# /var/log do not (setup.sh made those tmpfs).
+MUSICBOX_DB=${DATA_DIR}/musicbox.db
 
 # fatal | error | warn | info | debug  (debug also logs every request)
 MUSICBOX_LOG_LEVEL=info
@@ -251,6 +266,13 @@ do_apply() {
 
     phase "Preflight"
     command -v node >/dev/null 2>&1 || die "node is not installed — run install.sh first"
+    # A floor, not a formality: the backend stores its state through node:sqlite,
+    # which Debian's node 20 does not have. install.sh takes node from NodeSource.
+    local node_major
+    node_major="$(node --version 2>/dev/null)" || node_major=""
+    node_major="${node_major#v}"; node_major="${node_major%%.*}"
+    [[ -n "$node_major" && "$node_major" -ge "$NODE_MIN_MAJOR" ]] \
+        || die "node ${node_major:-?} is too old — ${NODE_MIN_MAJOR} or newer is required (run install.sh)"
     ok "node $(node --version 2>/dev/null)"
     id "$APP_USER" >/dev/null 2>&1 || die "user '${APP_USER}' does not exist"
     ok "will run as ${APP_USER}"
@@ -267,6 +289,14 @@ do_apply() {
         ok "frontend build present"
     else
         warn "no frontend build at ${DEPLOY_DIR}/frontend — the API will work, the UI will 404"
+    fi
+
+    phase "State directory"
+    if [[ -d "$DATA_DIR" ]]; then
+        skip "${DATA_DIR} already exists"
+    else
+        run install -d -o "$APP_USER" -g "$APP_USER" -m 0755 "$DATA_DIR"
+        dry || ok "${DATA_DIR} (owned by ${APP_USER})"
     fi
 
     phase "Configuration"
@@ -357,6 +387,11 @@ do_revert() {
     run rm -f "$SERVICE" "$RESTART_UNIT" "$PATH_UNIT" "$CONF_FILE"
     run systemctl daemon-reload
     ok "units and configuration removed"
+    # The database is DATA, not configuration. Settings, and later favourites and
+    # play history, are not something a --revert should decide to throw away.
+    if [[ -e "${DATA_DIR}/musicbox.db" ]]; then
+        log "kept ${DATA_DIR}/musicbox.db — remove it by hand if you mean to"
+    fi
     log "the deployed build in ${DEPLOY_DIR} was left alone"
     log "node was left installed; remove with:"
     log "  sudo apt-get purge nodejs && sudo apt-get autoremove --purge"

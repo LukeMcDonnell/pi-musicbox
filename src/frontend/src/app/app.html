@@ -50,3 +50,19 @@
 @if (keyboard.enabled) {
   <app-keyboard class="fixed inset-x-0 bottom-0 z-50 block" />
 }
+
+<!-- The panel, asleep. The backlight is off but this page is still running and
+     still gets touches, so without this the tap that wakes the screen would also
+     press whatever happened to be under the finger — most likely Play, since
+     that is where now-playing puts it.
+
+     Transparent, not black: the backlight is what makes the screen dark, and
+     painting over the page as well would only mean a repaint on the way out. It
+     sits above everything, the keyboard included, and goes away on the first
+     touch. z-60 because the keyboard is 50 — see the stack in this file. -->
+@if (panelSleep.asleep()) {
+  <div class="fixed inset-0 z-[60]" aria-hidden="true"
+       (pointerdown)="panelSleep.wake()"
+       (touchstart)="panelSleep.wake()"
+       (keydown)="panelSleep.wake()"></div>
+}

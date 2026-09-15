@@ -4,6 +4,7 @@ import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay } from '@luc
 import type { AlbumResponse, Track } from '@musicbox/shared';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
+import { Preferences } from '../../services/preferences';
 import { clock } from '../../components/now-playing/now-playing';
 
 /*
@@ -35,6 +36,7 @@ import { clock } from '../../components/now-playing/now-playing';
 export class Album {
     private readonly library = inject(LibraryStore);
     private readonly sheet = inject(NowPlayingSheet);
+    private readonly prefs = inject(Preferences);
     private readonly router = inject(Router);
 
     /** Bound from `?artist=` and `?album=` by withComponentInputBinding(). */
@@ -117,13 +119,15 @@ export class Album {
     async play(): Promise<void> {
         await this.send(() => this.library.playAlbum(this.ref()));
         // Only on success: raising now-playing over a request that was refused
-        // would show a stale screen as though the button had worked.
-        if (this.error() === null) this.sheet.show();
+        // would show a stale screen as though the button had worked. Whether it
+        // is raised at all is the user's, on the Interface tab.
+        if (this.error() === null && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
     }
 
-    /** Append to the queue, leaving the screen and the music alone. */
+    /** Append to the queue, and show where it landed if that is wanted. */
     async queue(): Promise<void> {
         await this.send(() => this.library.queueAlbum(this.ref()));
+        if (this.error() === null && this.prefs.openQueueOnAdd()) this.sheet.showQueue();
     }
 
     private ref() {

@@ -67,7 +67,7 @@ if [[ "$DO_BACKEND" -eq 1 ]]; then
     if [[ "$DO_CHECK" -eq 1 ]]; then
         ( cd src/backend && npx tsc --noEmit ) || die "backend typecheck failed"
         ok "typecheck clean"
-        ( cd src/backend && node --test --experimental-strip-types "src/**/*.test.ts" >/dev/null ) \
+        ( cd src/backend && node --test "src/**/*.test.ts" >/dev/null ) \
             || die "backend tests failed"
         ok "unit tests pass"
     fi

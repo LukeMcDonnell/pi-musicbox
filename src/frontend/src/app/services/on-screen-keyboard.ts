@@ -12,6 +12,7 @@
 import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, InjectionToken, computed, inject, signal } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
+import { isPanel } from './panel-client';
 
 export type TextField = HTMLInputElement | HTMLTextAreaElement;
 
@@ -19,13 +20,14 @@ export type TextField = HTMLInputElement | HTMLTextAreaElement;
 const TEXT_TYPES = new Set(['text', 'search', 'url', 'tel', 'password', 'email', 'number']);
 
 /**
- * The kiosk loads `http://localhost/` (setup-kiosk.sh); phones use the hostname
- * and `ng serve` has a port. `?keyboard` forces it on anywhere, for development.
+ * Whether to show the keyboard: the panel, or `?keyboard` for development.
+ *
+ * The panel test itself moved to panel-client.ts when panel sleep needed the
+ * same answer — see the header there.
  */
 export function wantsKeyboard(location: Pick<Location, 'hostname' | 'port' | 'search'>): boolean {
     if (new URLSearchParams(location.search).has('keyboard')) return true;
-    return (location.hostname === 'localhost' || location.hostname === '127.0.0.1') &&
-        location.port === '';
+    return isPanel(location);
 }
 
 export const KEYBOARD_ENABLED = new InjectionToken<boolean>('KEYBOARD_ENABLED', {

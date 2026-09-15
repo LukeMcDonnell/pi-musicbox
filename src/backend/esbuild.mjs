@@ -4,10 +4,12 @@
  * Single-file output is the whole deployment story — the Pi gets a node binary
  * and this file, with no node_modules, no npm and no package-lock to drift.
  * That is only possible because nothing here needs a native module: MPD is
- * plain TCP, and BlueZ (later) is dbus-next, which is pure JS.
+ * plain TCP, and the database is node:sqlite, which is part of the runtime.
  *
- * Target is node20, matching Debian Trixie on the device, even though this
- * machine builds with a newer Node.
+ * Target is node24, which is what install.sh puts on the device (from
+ * NodeSource — Debian Trixie stops at 20, and node:sqlite is why we left it).
+ * node: imports are external to esbuild automatically, so nothing tries to
+ * bundle sqlite itself.
  */
 import { build } from 'esbuild';
 import { mkdirSync } from 'node:fs';
@@ -27,7 +29,7 @@ await build({
     outfile,
     bundle: true,
     platform: 'node',
-    target: 'node20',
+    target: 'node24',
     format: 'esm',
     sourcemap: true,
     minify: false, // readable stack traces matter more than bytes on a LAN appliance

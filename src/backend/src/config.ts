@@ -40,6 +40,16 @@ export interface Config {
      * for why it is a FIFO and not a subprocess.
      */
     bluetoothControl: string;
+    /**
+     * The SQLite file holding the box's own state — settings now, favourites
+     * and recent plays later.
+     *
+     * NOT under the deploy directory: tools/dev-push.sh rsyncs backend/ with
+     * --delete, so a database there would be erased by the next deploy.
+     * /var/lib is persistent where /tmp and /var/log are tmpfs (setup.sh), and
+     * install/setup-server.sh creates this one owned by the app user.
+     */
+    dbPath: string;
     logLevel: string;
 }
 
@@ -55,6 +65,7 @@ export const DEFAULTS: Config = {
     musicRoot: '/srv/music/Music',
     bluetoothState: '/run/musicbox/bluetooth.json',
     bluetoothControl: '/run/musicbox/control',
+    dbPath: '/var/lib/musicbox/data/musicbox.db',
     logLevel: 'info',
 };
 
@@ -117,6 +128,7 @@ export function loadConfig(
         musicRoot: pick('MUSICBOX_MUSIC_ROOT') ?? DEFAULTS.musicRoot,
         bluetoothState: pick('MUSICBOX_BLUETOOTH_STATE') ?? DEFAULTS.bluetoothState,
         bluetoothControl: pick('MUSICBOX_BLUETOOTH_CONTROL') ?? DEFAULTS.bluetoothControl,
+        dbPath: pick('MUSICBOX_DB') ?? DEFAULTS.dbPath,
         logLevel: pick('MUSICBOX_LOG_LEVEL') ?? DEFAULTS.logLevel,
     };
 }

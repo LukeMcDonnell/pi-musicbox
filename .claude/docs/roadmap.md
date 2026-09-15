@@ -112,6 +112,27 @@ panel is the only place that can answer it, and `--disable-gpu-rasterization` vi
 `CHROMIUM_EXTRA_FLAGS` in `/etc/musicbox/kiosk.conf` is the cheapest way to ask.
 Virtualisation is not that answer: it was never measured against the fault.
 
+## Landed: a database, and the panel turns itself off (2026-09-15)
+
+The box now has SQLite (`node:sqlite`, so no dependency and nothing to ship) at
+`/var/lib/musicbox/data/musicbox.db`, with append-only migrations keyed on
+`PRAGMA user_version`. Schema v1 is one `settings` table. **Favourites and recent
+plays are what it was stood up for** — they arrive as `MIGRATIONS[1]`, `[2]`, and
+`src/backend/src/db.ts` is the only file that imports the engine.
+
+Getting it needed node 24 on the device, which is now NodeSource rather than
+Debian — see `decisions.md` for what that costs.
+
+Its first user is Settings -> System -> "Turn the panel off after idle": the
+panel's backlight goes off after N idle minutes with nothing playing, and comes
+back on a touch or when the music starts. The backlight, deliberately, and never
+DPMS — `clock-deadlock.md` is the reason and `decisions.md` has the argument.
+
+**One thing unverified on hardware: that touch still registers while the
+backlight is off.** The digitizer is a separate device so it should, and a dead
+panel stream restores the backlight anyway, but nobody has put a finger on a dark
+screen yet. Worth thirty seconds next time you are at the box.
+
 ## Next
 
 1. **Library search.** Browse landed: artists -> albums -> tracks, with Play and
@@ -138,7 +159,7 @@ Virtualisation is not that answer: it was never measured against the fault.
 - Mask `rpcbind` / `rpc-statd-notify` / `nfs-blkmap` (~666ms). Only if SMB is
   chosen — NFS needs them.
 - **`tests/run-all.sh` does not run the frontend specs.** Its only Node step is
-  the backend's `node:test`; the 36 Karma/Jasmine specs under `src/frontend` have
+  the backend's `node:test`; the 121 Karma/Jasmine specs under `src/frontend` have
   to be run by hand:
 
   ```sh

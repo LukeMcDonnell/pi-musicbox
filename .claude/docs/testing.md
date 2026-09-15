@@ -1,11 +1,15 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**637 assertions**)
-and the backend's 155 `node:test` cases. All green, shellcheck clean (2026-09-14). Safe on a dev machine:
+`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**672 assertions**)
+and the backend's 188 `node:test` cases. All green, shellcheck clean (2026-09-15). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 
 These numbers go stale fast. `bash tests/run-all.sh | grep -oE 'passed: [0-9]+'`
 sums the suites; the node figure is its own `# pass` line.
+
+**Node 24 or newer is required** to run any of it: the backend imports
+`node:sqlite` and the tests are `.ts` executed directly. Debian's node 20 fails
+both, and `run-all.sh` says so rather than leaving a cryptic error.
 
 | Suite | Assertions | Covers |
 |---|---:|---|
@@ -14,16 +18,16 @@ sums the suites; the node figure is its own `# pass` line.
 | `test-hardware-config.sh` | 47 | `--emit-config`/`--emit-revert`: neutralising conflicting stock lines, overlay ordering, idempotency, `--keep-hdmi`/`--skip-*`, byte-for-byte revert |
 | `test-kiosk-config.sh` | 61 | `--emit`: every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file drives the URL, and that the wrapper passes `bash -n` |
 | `test-nas-config.sh` | 66 | `--emit-fstab` plus the sourced block writer: the boot contract, `ro`, `soft`, `\040` escaping, 6 fields, password never in fstab |
-| `test-mpd-config.sh` | 82 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0, **`mixer_type "none"` with no mixer control** (giving MPD the attenuator back would silently cost bits), `replaygain` off and no resampler, the unity script sets dB rather than percentages and turns `Deemphasis` off, its unit is ordered after `alsa-restore` and before `mpd`, `auto_update` off, and `--emit` writes nothing to stderr (a backtick in an unquoted heredoc would) |
-| `test-server-config.sh` | 88 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, and that `dev-push.sh` never invokes sudo or `rsync --inplace` |
-| `test-bluetooth-config.sh` | 138 | `--emit` plus the sourced rfkill helper: **that MPD is paused and the card has actually gone quiet BEFORE the Bluetooth audio unit is started** (and the reverse), that Debian's `bluealsa-aplay.service` is masked and the audio unit has no `[Install]` section, that aptX and aptX HD are enabled on the daemon's real `ExecStart=` line (they are off by default, and an earlier version wrote them to `/etc/default/bluez-alsa`, which nothing reads), `--volume=none` so nothing fights `musicbox-dac-unity`, that a soft-blocked radio is unblocked and a hard-blocked one is not pretended away, and that the arbiter's JSON survives quotes, backslashes and emoji in a device name |
-| `src/backend` (node:test) | 155 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
+| `test-mpd-config.sh` | 97 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0, **`mixer_type "none"` with no mixer control** (giving MPD the attenuator back would silently cost bits), `replaygain` off and no resampler, the unity script sets dB rather than percentages and turns `Deemphasis` off, its unit is ordered after `alsa-restore` and before `mpd`, `auto_update` off, and `--emit` writes nothing to stderr (a backtick in an unquoted heredoc would) |
+| `test-server-config.sh` | 110 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, that `dev-push.sh` never invokes sudo or `rsync --inplace`, and the NodeSource apt source — deb822, the `nodistro` suite, the pin at 600, and that `install.sh` version-checks node rather than merely finding it |
+| `test-bluetooth-config.sh` | 142 | `--emit` plus the sourced rfkill helper: **that MPD is paused and the card has actually gone quiet BEFORE the Bluetooth audio unit is started** (and the reverse), that Debian's `bluealsa-aplay.service` is masked and the audio unit has no `[Install]` section, that aptX and aptX HD are enabled on the daemon's real `ExecStart=` line (they are off by default, and an earlier version wrote them to `/etc/default/bluez-alsa`, which nothing reads), `--volume=none` so nothing fights `musicbox-dac-unity`, that a soft-blocked radio is unblocked and a hard-blocked one is not pretended away, and that the arbiter's JSON survives quotes, backslashes and emoji in a device name |
+| `src/backend` (node:test) | 188 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, SQLite migrations (append-only, refusing a newer schema, rolling back a failed step), the settings guards, the panel backlight against a temp sysfs tree, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
 | `test-integration.sh` | 47 | The real `setup.sh` + `install.sh --dry-run` in `debian:trixie-slim` against a fake `/boot/firmware` |
 
 ## The frontend specs are NOT in run-all.sh
 
 ```sh
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 70 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 121 specs
 ```
 
 Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only

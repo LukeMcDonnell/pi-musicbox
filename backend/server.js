@@ -7990,7 +7990,7 @@ var require_thread_stream = __commonJS({
     var { version } = require_package();
     var { EventEmitter } = __require("events");
     var { Worker } = __require("worker_threads");
-    var { join: join2 } = __require("path");
+    var { join: join3 } = __require("path");
     var { pathToFileURL } = __require("url");
     var { wait } = require_wait();
     var {
@@ -8041,7 +8041,7 @@ var require_thread_stream = __commonJS({
     function createWorker(stream, opts) {
       const { filename, workerData } = opts;
       const bundlerOverrides = "__bundlerPathsOverrides" in globalThis ? globalThis.__bundlerPathsOverrides : {};
-      const toExecute = bundlerOverrides["thread-stream-worker"] || join2(__dirname, "lib", "worker.js");
+      const toExecute = bundlerOverrides["thread-stream-worker"] || join3(__dirname, "lib", "worker.js");
       const worker = new Worker(toExecute, {
         ...opts.workerOpts,
         name: opts.workerOpts?.name || "thread-stream",
@@ -8509,7 +8509,7 @@ var require_transport = __commonJS({
     var { createRequire } = __require("module");
     var { existsSync } = __require("node:fs");
     var getCallers = require_caller();
-    var { join: join2, isAbsolute, sep: sep2 } = __require("node:path");
+    var { join: join3, isAbsolute, sep: sep2 } = __require("node:path");
     var { fileURLToPath } = __require("node:url");
     var sleep = require_atomic_sleep();
     var onExit = require_on_exit_leak_free();
@@ -8662,7 +8662,7 @@ var require_transport = __commonJS({
         throw new Error("only one of target or targets can be specified");
       }
       if (targets) {
-        target = bundlerOverrides["pino-worker"] || join2(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join3(__dirname, "worker.js");
         options.targets = targets.filter((dest) => dest.target).map((dest) => {
           return {
             ...dest,
@@ -8680,7 +8680,7 @@ var require_transport = __commonJS({
           });
         });
       } else if (pipeline) {
-        target = bundlerOverrides["pino-worker"] || join2(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join3(__dirname, "worker.js");
         options.pipelines = [pipeline.map((dest) => {
           return {
             ...dest,
@@ -8703,7 +8703,7 @@ var require_transport = __commonJS({
           return origin;
         }
         if (origin === "pino/file") {
-          return join2(__dirname, "..", "file.js");
+          return join3(__dirname, "..", "file.js");
         }
         let fixTarget2;
         for (const filePath of callers) {
@@ -9683,7 +9683,7 @@ var require_safe_stable_stringify = __commonJS({
               return circularValue;
             }
             let res = "";
-            let join2 = ",";
+            let join3 = ",";
             const originalIndentation = indentation;
             if (Array.isArray(value)) {
               if (value.length === 0) {
@@ -9697,7 +9697,7 @@ var require_safe_stable_stringify = __commonJS({
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join2 = `,
+                join3 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9705,13 +9705,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join2;
+                res += join3;
               }
               const tmp = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join2}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join3}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9732,7 +9732,7 @@ ${originalIndentation}`;
             let separator = "";
             if (spacer !== "") {
               indentation += spacer;
-              join2 = `,
+              join3 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9746,13 +9746,13 @@ ${indentation}`;
               const tmp = stringifyFnReplacer(key2, value, stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join2;
+                separator = join3;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...":${whitespace}"${getItemCount(removedKeys)} not stringified"`;
-              separator = join2;
+              separator = join3;
             }
             if (spacer !== "" && separator.length > 1) {
               res = `
@@ -9793,7 +9793,7 @@ ${originalIndentation}`;
             }
             const originalIndentation = indentation;
             let res = "";
-            let join2 = ",";
+            let join3 = ",";
             if (Array.isArray(value)) {
               if (value.length === 0) {
                 return "[]";
@@ -9806,7 +9806,7 @@ ${originalIndentation}`;
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join2 = `,
+                join3 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9814,13 +9814,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join2;
+                res += join3;
               }
               const tmp = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join2}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join3}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9833,7 +9833,7 @@ ${originalIndentation}`;
             let whitespace = "";
             if (spacer !== "") {
               indentation += spacer;
-              join2 = `,
+              join3 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9842,7 +9842,7 @@ ${indentation}`;
               const tmp = stringifyArrayReplacer(key2, value[key2], stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join2;
+                separator = join3;
               }
             }
             if (spacer !== "" && separator.length > 1) {
@@ -9900,20 +9900,20 @@ ${originalIndentation}`;
               indentation += spacer;
               let res2 = `
 ${indentation}`;
-              const join3 = `,
+              const join4 = `,
 ${indentation}`;
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
               let i = 0;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyIndent(String(i), value[i], stack, spacer, indentation);
                 res2 += tmp2 !== void 0 ? tmp2 : "null";
-                res2 += join3;
+                res2 += join4;
               }
               const tmp = stringifyIndent(String(i), value[i], stack, spacer, indentation);
               res2 += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res2 += `${join3}"... ${getItemCount(removedKeys)} not stringified"`;
+                res2 += `${join4}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               res2 += `
 ${originalIndentation}`;
@@ -9929,16 +9929,16 @@ ${originalIndentation}`;
               return '"[Object]"';
             }
             indentation += spacer;
-            const join2 = `,
+            const join3 = `,
 ${indentation}`;
             let res = "";
             let separator = "";
             let maximumPropertiesToStringify = Math.min(keyLength, maximumBreadth);
             if (isTypedArrayWithEntries(value)) {
-              res += stringifyTypedArray(value, join2, maximumBreadth);
+              res += stringifyTypedArray(value, join3, maximumBreadth);
               keys = keys.slice(value.length);
               maximumPropertiesToStringify -= value.length;
-              separator = join2;
+              separator = join3;
             }
             if (deterministic) {
               keys = sort(keys, comparator);
@@ -9949,13 +9949,13 @@ ${indentation}`;
               const tmp = stringifyIndent(key2, value[key2], stack, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}: ${tmp}`;
-                separator = join2;
+                separator = join3;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...": "${getItemCount(removedKeys)} not stringified"`;
-              separator = join2;
+              separator = join3;
             }
             if (separator !== "") {
               res = `
@@ -17895,7 +17895,7 @@ var require_fast_uri = __commonJS({
       const resolvedHost = resolved.host;
       const resolvedHostIsIP = resolvedHost !== void 0 && resolvedHost !== "" && (isIPv4(resolvedHost) || normalizeIPv6(resolvedHost).isIPV6);
       canonicalizeHost(resolved, options || {}, resolvedSchemeHandler, resolvedHostIsIP);
-      const encodedASCIIHost = resolvedHost && resolvedHost.indexOf("%") !== -1 && !new RegExp("\\P{ASCII}", "u").test(resolvedHost);
+      const encodedASCIIHost = resolvedHost && resolvedHost.indexOf("%") !== -1 && !/\P{ASCII}/u.test(resolvedHost);
       if (resolved.error && !encodedASCIIHost) {
         throw new Error(resolved.error);
       }
@@ -23614,7 +23614,7 @@ var require_fast_uri2 = __commonJS({
       const resolvedHost = resolved.host;
       const resolvedHostIsIP = resolvedHost !== void 0 && resolvedHost !== "" && (isIPv4(resolvedHost) || normalizeIPv6(resolvedHost).isIPV6);
       canonicalizeHost(resolved, options || {}, resolvedSchemeHandler, resolvedHostIsIP);
-      const encodedASCIIHost = resolvedHost && resolvedHost.indexOf("%") !== -1 && !new RegExp("\\P{ASCII}", "u").test(resolvedHost);
+      const encodedASCIIHost = resolvedHost && resolvedHost.indexOf("%") !== -1 && !/\P{ASCII}/u.test(resolvedHost);
       if (resolved.error && !encodedASCIIHost) {
         throw new Error(resolved.error);
       }
@@ -36883,6 +36883,7 @@ var DEFAULTS = {
   musicRoot: "/srv/music/Music",
   bluetoothState: "/run/musicbox/bluetooth.json",
   bluetoothControl: "/run/musicbox/control",
+  dbPath: "/var/lib/musicbox/data/musicbox.db",
   logLevel: "info"
 };
 function parseConf(text) {
@@ -36927,6 +36928,7 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
     musicRoot: pick("MUSICBOX_MUSIC_ROOT") ?? DEFAULTS.musicRoot,
     bluetoothState: pick("MUSICBOX_BLUETOOTH_STATE") ?? DEFAULTS.bluetoothState,
     bluetoothControl: pick("MUSICBOX_BLUETOOTH_CONTROL") ?? DEFAULTS.bluetoothControl,
+    dbPath: pick("MUSICBOX_DB") ?? DEFAULTS.dbPath,
     logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
   };
 }
@@ -36936,6 +36938,22 @@ var API_VERSION = 1;
 var PLAYBACK_COMMANDS = ["play", "pause", "stop", "next", "previous"];
 var SSE_SNAPSHOT_EVENT = "snapshot";
 var SSE_BUILD_EVENT = "build";
+var SSE_SETTINGS_EVENT = "settings";
+var PANEL_SLEEP_MINUTES = [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  15,
+  20
+];
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -38036,8 +38054,64 @@ async function sendControl(verb, path = DEFAULT_CONTROL_PATH) {
   }
 }
 
+// src/settings.ts
+var SETTINGS_DEFAULTS = {
+  // Never. A screen that goes dark on its own while nobody asked it to is a
+  // box that looks broken, so this is opted into.
+  panelSleepAfterMinutes: 0
+};
+var GUARDS = {
+  panelSleepAfterMinutes: (value) => {
+    if (!/^\d+$/.test(value)) return void 0;
+    const minutes = Number(value);
+    return PANEL_SLEEP_MINUTES.includes(minutes) ? minutes : void 0;
+  }
+};
+var SETTING_KEYS = Object.keys(SETTINGS_DEFAULTS);
+function isSettingKey(key) {
+  return SETTING_KEYS.includes(key);
+}
+function parseSetting(key, value) {
+  if (value === null || value === void 0) return void 0;
+  if (typeof value === "object") return void 0;
+  return GUARDS[key](String(value));
+}
+function createSettings(db) {
+  const listeners = /* @__PURE__ */ new Set();
+  const all = () => {
+    const values = { ...SETTINGS_DEFAULTS };
+    const rows = db.all("SELECT key, value FROM settings");
+    for (const row of rows) {
+      if (!isSettingKey(row.key)) continue;
+      const parsed = parseSetting(row.key, row.value);
+      if (parsed !== void 0) values[row.key] = parsed;
+    }
+    return values;
+  };
+  return {
+    all,
+    set(key, value) {
+      db.run(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        key,
+        String(value)
+      );
+      const values = all();
+      for (const listener of listeners) listener(values);
+      return values;
+    },
+    onChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  };
+}
+
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
+function isLoopback(ip) {
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+}
 var COMMAND_MAP = {
   play: "play",
   pause: "pause 1",
@@ -38062,6 +38136,23 @@ function registerRoutes(app, opts) {
   const { bridge, build, startedAt, musicRoot } = opts;
   const controlPath = opts.bluetoothControl ?? DEFAULT_CONTROL_PATH;
   const streams = /* @__PURE__ */ new Set();
+  const panelStreams = /* @__PURE__ */ new Set();
+  const panel = opts.panel;
+  const settings = opts.settings;
+  const settingsSinks = /* @__PURE__ */ new Set();
+  settings?.onChange((values) => {
+    for (const sink of [...settingsSinks]) sink(values);
+  });
+  const panelState = () => ({
+    supported: panel?.supported ?? false,
+    // Unsupported reads as on: there is no dark screen to report.
+    on: panel?.isOn() ?? true
+  });
+  const restorePanel = () => {
+    if (!panel?.supported || panel.isOn()) return;
+    panel.set(true);
+    app.log.info("panel backlight restored \u2014 no panel client is connected");
+  };
   app.get("/api/health", async () => {
     return {
       ok: true,
@@ -38234,6 +38325,7 @@ function registerRoutes(app, opts) {
     }
   });
   app.get("/api/events", async (request, reply) => {
+    const fromPanel = isLoopback(request.ip);
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
@@ -38245,6 +38337,13 @@ function registerRoutes(app, opts) {
       reply.raw.write(sseFrame(SSE_SNAPSHOT_EVENT, snapshot));
     };
     reply.raw.write(sseFrame(SSE_BUILD_EVENT, { build }));
+    const sendSettings = (values) => {
+      reply.raw.write(sseFrame(SSE_SETTINGS_EVENT, values));
+    };
+    if (settings) {
+      sendSettings(settings.all());
+      settingsSinks.add(sendSettings);
+    }
     await bridge.refresh();
     send(bridge.current);
     const unsubscribe = bridge.onSnapshot(send);
@@ -38256,15 +38355,70 @@ function registerRoutes(app, opts) {
     const cleanup = () => {
       clearInterval(heartbeat);
       unsubscribe();
+      settingsSinks.delete(sendSettings);
       streams.delete(close);
+      if (fromPanel) {
+        panelStreams.delete(close);
+        if (panelStreams.size === 0) restorePanel();
+      }
     };
     const close = () => {
       cleanup();
       reply.raw.end();
     };
     streams.add(close);
+    if (fromPanel) panelStreams.add(close);
     request.raw.on("close", cleanup);
     request.raw.on("error", cleanup);
+  });
+  app.get("/api/panel", async () => panelState());
+  app.post("/api/panel/backlight", async (request, reply) => {
+    if (!panel?.supported) {
+      return reply.code(503).send({ error: "this box has no panel backlight" });
+    }
+    const body = request.body;
+    if (typeof body?.on !== "boolean") {
+      return reply.code(400).send({ error: "on must be true or false" });
+    }
+    if (!body.on && !isLoopback(request.ip)) {
+      return reply.code(409).send({ error: "only the panel itself may sleep the panel" });
+    }
+    if (!body.on && panelStreams.size === 0) {
+      return reply.code(409).send({ error: "no panel client is connected" });
+    }
+    if (!panel.set(body.on)) {
+      return reply.code(503).send({ error: "the backlight could not be written" });
+    }
+    return panelState();
+  });
+  app.get("/api/settings", async (_request, reply) => {
+    if (!settings) return reply.code(503).send({ error: "settings are unavailable" });
+    return settings.all();
+  });
+  app.patch("/api/settings", async (request, reply) => {
+    if (!settings) return reply.code(503).send({ error: "settings are unavailable" });
+    const body = request.body;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return reply.code(400).send({ error: "body must be an object of settings" });
+    }
+    const entries = Object.entries(body);
+    if (entries.length === 0) {
+      return reply.code(400).send({ error: "no settings given" });
+    }
+    const pending = [];
+    for (const [key, value] of entries) {
+      if (!isSettingKey(key)) {
+        return reply.code(400).send({ error: `unknown setting: ${key}` });
+      }
+      const parsed = parseSetting(key, value);
+      if (parsed === void 0) {
+        return reply.code(400).send({ error: `invalid value for ${key}` });
+      }
+      pending.push([key, parsed]);
+    }
+    let values = settings.all();
+    for (const [key, value] of pending) values = settings.set(key, value);
+    return values;
   });
   return {
     closeStreams: () => {
@@ -38279,8 +38433,142 @@ function registerRoutes(app, opts) {
   };
 }
 
+// src/db.ts
+import { DatabaseSync } from "node:sqlite";
+import { dirname as dirname2 } from "node:path";
+import { mkdirSync } from "node:fs";
+var MIGRATIONS = [
+  // v1 — settings. Values are TEXT because that is what survives: a setting
+  // that is a number today may be an enum tomorrow, and the typed layer above
+  // (settings.ts) is where the meaning lives.
+  `CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    ) STRICT;`
+];
+var SCHEMA_VERSION = MIGRATIONS.length;
+function openDb(options) {
+  const { path, onMigrate, migrations = MIGRATIONS } = options;
+  if (path !== ":memory:") mkdirSync(dirname2(path), { recursive: true });
+  const sqlite = new DatabaseSync(path);
+  if (path !== ":memory:") sqlite.exec("PRAGMA journal_mode = WAL;");
+  sqlite.exec("PRAGMA foreign_keys = ON;");
+  sqlite.exec("PRAGMA busy_timeout = 5000;");
+  const db = {
+    get(sql, ...params) {
+      return sqlite.prepare(sql).get(...params);
+    },
+    all(sql, ...params) {
+      return sqlite.prepare(sql).all(...params);
+    },
+    run(sql, ...params) {
+      sqlite.prepare(sql).run(...params);
+    },
+    transaction(fn) {
+      sqlite.exec("BEGIN");
+      try {
+        fn();
+        sqlite.exec("COMMIT");
+      } catch (err) {
+        sqlite.exec("ROLLBACK");
+        throw err;
+      }
+    },
+    close() {
+      sqlite.close();
+    }
+  };
+  migrate(sqlite, migrations, onMigrate);
+  return db;
+}
+function migrate(sqlite, migrations, onMigrate) {
+  const row = sqlite.prepare("PRAGMA user_version").get();
+  let version = row?.user_version ?? 0;
+  if (version > migrations.length) {
+    throw new Error(
+      `database is at schema v${version}, but this build only knows v${migrations.length}`
+    );
+  }
+  while (version < migrations.length) {
+    const next = version + 1;
+    sqlite.exec("BEGIN");
+    try {
+      sqlite.exec(migrations[version]);
+      sqlite.exec(`PRAGMA user_version = ${next}`);
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
+    version = next;
+    onMigrate?.(next);
+  }
+}
+
+// src/panel.ts
+import { readFileSync as readFileSync2, readdirSync, writeFileSync } from "node:fs";
+import { join as join2 } from "node:path";
+var BACKLIGHT_ROOT = "/sys/class/backlight";
+var defaultPanelDeps = {
+  root: BACKLIGHT_ROOT,
+  readFile: (path) => readFileSync2(path, "utf8"),
+  writeFile: (path, data) => writeFileSync(path, data),
+  listDir: (path) => readdirSync(path)
+};
+function findDevice(deps, explicit) {
+  if (explicit) return explicit;
+  try {
+    const entries = deps.listDir(deps.root).sort();
+    return entries.length > 0 ? join2(deps.root, entries[0]) : null;
+  } catch {
+    return null;
+  }
+}
+function createPanel(options = {}) {
+  const deps = { ...defaultPanelDeps, ...options.deps };
+  const device = findDevice(deps, options.device);
+  let max = 0;
+  if (device !== null) {
+    try {
+      max = Number.parseInt(deps.readFile(join2(device, "max_brightness")).trim(), 10);
+    } catch {
+      max = 0;
+    }
+  }
+  const supported = device !== null && Number.isFinite(max) && max > 0;
+  const read = () => {
+    if (!supported) return null;
+    try {
+      const raw = deps.readFile(join2(device, "brightness")).trim();
+      const value = Number.parseInt(raw, 10);
+      return Number.isFinite(value) ? value : null;
+    } catch (err) {
+      options.onError?.(err);
+      return null;
+    }
+  };
+  return {
+    supported,
+    isOn() {
+      if (!supported) return true;
+      const value = read();
+      return value === null ? true : value > 0;
+    },
+    set(on) {
+      if (!supported) return false;
+      try {
+        deps.writeFile(join2(device, "brightness"), String(on ? max : 0));
+        return true;
+      } catch (err) {
+        options.onError?.(err);
+        return false;
+      }
+    }
+  };
+}
+
 // src/server.ts
-var BUILD = true ? "2026-09-14T11:02:26Z" : "dev";
+var BUILD = true ? "2026-09-15T02:52:06Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -38303,13 +38591,25 @@ async function main() {
     connectTimeoutMs: config.mpdConnectTimeoutMs,
     log: (level, msg) => app.log[level](msg)
   });
+  const db = openDb({
+    path: config.dbPath,
+    onMigrate: (to) => app.log.info(`database migrated to schema v${to}`)
+  });
+  const settings = createSettings(db);
+  const panel = createPanel({
+    device: process.env.MUSICBOX_BACKLIGHT,
+    onError: (err) => app.log.warn(`panel backlight: ${err.message}`)
+  });
+  if (panel.supported) panel.set(true);
   registerCors(app);
   const routes = registerRoutes(app, {
     bridge,
     build: BUILD,
     startedAt,
     musicRoot: config.musicRoot,
-    bluetoothControl: config.bluetoothControl
+    bluetoothControl: config.bluetoothControl,
+    panel,
+    settings
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({
@@ -38329,7 +38629,9 @@ async function main() {
     bridge.stop();
     bluetooth.stop();
     routes.closeStreams();
+    if (panel.supported) panel.set(true);
     await app.close();
+    db.close();
     process.exit(0);
   };
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
@@ -38337,7 +38639,7 @@ async function main() {
   try {
     await app.listen({ port: config.port, host: config.host });
     app.log.info(
-      `musicbox build ${BUILD} \u2014 serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}, art from ${config.musicRoot}`
+      `musicbox build ${BUILD} \u2014 serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}, art from ${config.musicRoot}, db ${config.dbPath}` + (panel.supported ? "" : ", no panel backlight")
     );
   } catch (err) {
     app.log.error(err);

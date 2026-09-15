@@ -1,8 +1,11 @@
 import {
     Component,
     ElementRef,
+    Injector,
     OnDestroy,
+    afterNextRender,
     computed,
+    effect,
     inject,
     output,
     signal,
@@ -23,6 +26,7 @@ import {
 } from '@lucide/angular';
 import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
+import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Queue } from '../queue/queue';
 
 /** Seconds as m:ss, or a dash when there is nothing to show. */
@@ -96,6 +100,25 @@ export class NowPlaying implements OnDestroy {
     scrollToQueue(): void {
         const el = this.queueEl()?.nativeElement as HTMLElement | undefined;
         el?.scrollIntoView({ block: 'start' });
+    }
+
+    private readonly sheet = inject(NowPlayingSheet);
+    private readonly injector = inject(Injector);
+
+    constructor() {
+        // Opened on the queue rather than on the track — the Queue button on an
+        // album, when the user has asked for that. Whether this view is SHOWN is
+        // still App's business; this only reads the request.
+        //
+        // It waits for hasQueue() because the album was added a moment ago and
+        // the section does not exist until a snapshot says there is a queue;
+        // scrolling before that lands on a zero-high element. afterNextRender,
+        // because the row it is scrolling to is rendered by this same change.
+        effect(() => {
+            if (!this.sheet.atQueue() || !this.hasQueue()) return;
+            this.sheet.settled();
+            afterNextRender(() => this.scrollToQueue(), { injector: this.injector });
+        });
     }
 
     /** Advanced locally between snapshots so the progress bar moves smoothly. */

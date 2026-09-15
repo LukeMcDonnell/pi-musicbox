@@ -21,8 +21,12 @@ import { join } from 'node:path';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
-import { SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
+import { SSE_SETTINGS_EVENT, SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
+import { isLoopback } from './routes.ts';
+import type { Panel } from './panel.ts';
+import { createSettings, type Settings } from './settings.ts';
+import { openDb } from './db.ts';
 
 /** A phone that is connected and playing, as the arbiter would report it. */
 const PHONE: BluetoothState = {
@@ -52,7 +56,13 @@ function deadBridge(): MpdBridge {
 }
 
 async function startServer(
-    opts: { forceCloseConnections?: boolean; musicRoot?: string; bluetoothControl?: string } = {},
+    opts: {
+        forceCloseConnections?: boolean;
+        musicRoot?: string;
+        bluetoothControl?: string;
+        panel?: Panel;
+        settings?: Settings;
+    } = {},
 ) {
     const app = Fastify({
         logger: false,
@@ -67,6 +77,8 @@ async function startServer(
         // A path that cannot exist, so control attempts fail fast and loudly
         // rather than reaching a real arbiter on a developer's machine.
         bluetoothControl: opts.bluetoothControl ?? '/nonexistent-run-dir/control',
+        panel: opts.panel,
+        settings: opts.settings,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -806,4 +818,213 @@ test('the library index is invalidated by MPD, not by a timer', async () => {
     assert.match(hook, /subsystems\.includes\('database'\)/);
     assert.match(hook, /subsystems\.includes\('update'\)/);
     assert.match(hook, /library\.invalidate\(\)/);
+});
+
+// ---------------------------------------------------------------------------
+// The panel and the box's settings.
+// ---------------------------------------------------------------------------
+
+/** A backlight with no hardware behind it. */
+function fakePanel(supported = true): Panel & { calls: boolean[] } {
+    let on = true;
+    const calls: boolean[] = [];
+    return {
+        supported,
+        calls,
+        isOn: () => on,
+        set(next: boolean) {
+            if (!supported) return false;
+            calls.push(next);
+            on = next;
+            return true;
+        },
+    };
+}
+
+function memorySettings(): Settings {
+    return createSettings(openDb({ path: ':memory:' }));
+}
+
+async function api(
+    port: number,
+    path: string,
+    init?: { method?: string; body?: unknown },
+): Promise<{ status: number; body: any }> {
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: init?.method ?? 'GET',
+        headers: init?.body === undefined ? undefined : { 'content-type': 'application/json' },
+        body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+/** Open an SSE stream and collect the raw text as it arrives. */
+function collectStream(port: number): Promise<{ text: () => string; destroy: () => void }> {
+    return new Promise((resolve, reject) => {
+        let buffer = '';
+        const req = httpRequest(
+            { host: '127.0.0.1', port, path: '/api/events', method: 'GET' },
+            (res) => {
+                res.setEncoding('utf8');
+                res.on('data', (chunk: string) => {
+                    buffer += chunk;
+                });
+                res.on('error', () => {});
+                resolve({ text: () => buffer, destroy: () => req.destroy() });
+            },
+        );
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 60));
+
+/**
+ * startServer, with teardown registered up front.
+ *
+ * The tests below assert before they clean up, and an assertion throws — so
+ * cleanup written at the end of a test never runs when that test fails, leaving
+ * a listening server and a live bridge that keep the runner's event loop open.
+ * One failure then looks like a hung suite, which is a miserable way to find out
+ * something broke.
+ */
+async function serverFor(t: { after: (fn: () => unknown) => void }, opts: Parameters<typeof startServer>[0] = {}) {
+    const started = await startServer(opts);
+    t.after(async () => {
+        started.bridge.stop();
+        started.routes.closeStreams();
+        await started.app.close();
+    });
+    return started;
+}
+
+async function streamFor(t: { after: (fn: () => unknown) => void }, port: number) {
+    const stream = await collectStream(port);
+    t.after(() => stream.destroy());
+    await settle();
+    return stream;
+}
+
+test('isLoopback is what tells the panel apart from a phone', () => {
+    // The kiosk loads http://localhost/, so its stream is the loopback one.
+    assert.equal(isLoopback('127.0.0.1'), true);
+    assert.equal(isLoopback('::1'), true);
+    assert.equal(isLoopback('::ffff:127.0.0.1'), true);
+    assert.equal(isLoopback('192.168.1.42'), false);
+    assert.equal(isLoopback(undefined), false);
+    assert.equal(isLoopback(''), false);
+});
+
+test('a box with no backlight says so instead of pretending', async (t) => {
+    const { port } = await serverFor(t);
+    const state = await api(port, '/api/panel');
+    assert.equal(state.status, 200);
+    assert.deepEqual(state.body, { supported: false, on: true });
+
+    const off = await api(port, '/api/panel/backlight', { method: 'POST', body: { on: false } });
+    assert.equal(off.status, 503);
+});
+
+test('the panel may sleep itself while its own stream is open', async (t) => {
+    const panel = fakePanel();
+    const { port } = await serverFor(t, { panel });
+    await streamFor(t, port);
+
+    const off = await api(port, '/api/panel/backlight', { method: 'POST', body: { on: false } });
+    assert.equal(off.status, 200);
+    assert.deepEqual(off.body, { supported: true, on: false });
+    assert.equal(panel.isOn(), false);
+
+    const on = await api(port, '/api/panel/backlight', { method: 'POST', body: { on: true } });
+    assert.equal(on.status, 200);
+    assert.equal(panel.isOn(), true);
+});
+
+test('with no panel client connected, sleeping is refused', async (t) => {
+    // Nothing would be able to wake it: this is the "box looks dead" case.
+    const panel = fakePanel();
+    const { port } = await serverFor(t, { panel });
+
+    const off = await api(port, '/api/panel/backlight', { method: 'POST', body: { on: false } });
+    assert.equal(off.status, 409);
+    assert.equal(panel.isOn(), true, 'the backlight must be untouched');
+});
+
+test('the backlight comes back when the panel stream dies — a crashed renderer', async (t) => {
+    // The renderer crash is an open issue (roadmap.md). A crash with the screen
+    // dark would leave a box nobody can tell is running.
+    const panel = fakePanel();
+    const { port } = await serverFor(t, { panel });
+    const stream = await streamFor(t, port);
+
+    await api(port, '/api/panel/backlight', { method: 'POST', body: { on: false } });
+    assert.equal(panel.isOn(), false);
+
+    stream.destroy();
+    await settle();
+    assert.equal(panel.isOn(), true, 'the last panel stream closing must restore it');
+});
+
+test('a malformed backlight request is refused before anything is written', async (t) => {
+    const panel = fakePanel();
+    const { port } = await serverFor(t, { panel });
+    for (const body of [{}, { on: 'yes' }, { on: 1 }, { on: null }]) {
+        const res = await api(port, '/api/panel/backlight', { method: 'POST', body });
+        assert.equal(res.status, 400, JSON.stringify(body));
+    }
+    assert.deepEqual(panel.calls, []);
+});
+
+test('GET /api/settings answers the defaults on a fresh box', async (t) => {
+    const { port } = await serverFor(t, { settings: memorySettings() });
+    const res = await api(port, '/api/settings');
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { panelSleepAfterMinutes: 0 });
+});
+
+test('PATCH /api/settings writes, and the next GET agrees', async (t) => {
+    const { port } = await serverFor(t, { settings: memorySettings() });
+    const patched = await api(port, '/api/settings', {
+        method: 'PATCH',
+        body: { panelSleepAfterMinutes: 5 },
+    });
+    assert.equal(patched.status, 200);
+    assert.deepEqual(patched.body, { panelSleepAfterMinutes: 5 });
+    assert.deepEqual((await api(port, '/api/settings')).body, { panelSleepAfterMinutes: 5 });
+});
+
+test('a PATCH the guard rejects changes nothing at all', async (t) => {
+    const settings = memorySettings();
+    const { port } = await serverFor(t, { settings });
+    settings.set('panelSleepAfterMinutes', 10);
+
+    for (const body of [
+        { panelSleepAfterMinutes: 12 },   // not on the list the UI offers
+        { panelSleepAfterMinutes: '7.5' },
+        { panelSleepAfterMinutes: null },
+        { somethingElse: 1 },             // not a setting
+        {},                               // nothing to do
+        [1, 2],                           // not even an object
+    ]) {
+        const res = await api(port, '/api/settings', { method: 'PATCH', body });
+        assert.equal(res.status, 400, JSON.stringify(body));
+    }
+    // Still what it was: a rejected patch must not half-apply.
+    assert.equal(settings.all().panelSleepAfterMinutes, 10);
+});
+
+test('settings arrive on the stream, at connect and again on every change', async (t) => {
+    // A phone changes it; the panel is the thing that has to act on it. Polling
+    // would mean the panel obeying a stale answer until the next poll.
+    const settings = memorySettings();
+    const { port } = await serverFor(t, { settings });
+    const stream = await streamFor(t, port);
+
+    assert.match(stream.text(), new RegExp(`event: ${SSE_SETTINGS_EVENT}`));
+    assert.match(stream.text(), /"panelSleepAfterMinutes":0/);
+
+    await api(port, '/api/settings', { method: 'PATCH', body: { panelSleepAfterMinutes: 15 } });
+    await settle();
+    assert.match(stream.text(), /"panelSleepAfterMinutes":15/);
 });

@@ -50,8 +50,14 @@ step "bluetooth config tests"
 bash tests/test-bluetooth-config.sh || rc=1
 
 step "backend unit tests (node)"
-if command -v node >/dev/null 2>&1 && [[ -d src/backend/node_modules ]]; then
-    ( cd src/backend && node --test --experimental-strip-types "src/**/*.test.ts" 2>&1 \
+# node 24: the backend imports node:sqlite and the tests are .ts run directly.
+# Debian's 20 fails both, and this says so rather than leaving a cryptic error.
+node_major="$(node --version 2>/dev/null || true)"; node_major="${node_major#v}"
+node_major="${node_major%%.*}"
+if [[ -n "$node_major" && "$node_major" -lt 24 ]]; then
+    echo "SKIP: node ${node_major} is too old — needs 24 (try: nvm use 24)"; rc=1
+elif command -v node >/dev/null 2>&1 && [[ -d src/backend/node_modules ]]; then
+    ( cd src/backend && node --test "src/**/*.test.ts" 2>&1 \
         | tail -8 ) || rc=1
 else
     echo "SKIP: node or src/backend/node_modules missing (run tools/build.sh)"

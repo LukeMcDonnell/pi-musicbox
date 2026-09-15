@@ -7,14 +7,14 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/**/*.test.ts",
-    "dev": "node --watch --experimental-strip-types src/server.ts"
+    "test": "node --test src/**/*.test.ts",
+    "dev": "node --watch src/server.ts"
   },
   "dependencies": {
     "fastify": "^5.2.0"
   },
   "devDependencies": {
-    "@types/node": "^20.17.0",
+    "@types/node": "^24.0.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.0"
   }

@@ -114,6 +114,42 @@ check "install.sh installs nodejs" "0" "$(hasre '^[[:space:]]+nodejs[[:space:]]'
 check "install.sh does NOT install npm" "1" "$(hasre '^[[:space:]]+npm[[:space:]]' "$REPO/install/install.sh")"
 check "the npm package-count reason is recorded" "0" "$(has '363' "$REPO/install/install.sh")"
 
+banner "node comes from NodeSource, because the backend needs node:sqlite"
+# Debian trixie stops at node 20 and node:sqlite arrived in 22.5. The whole
+# database layer rests on this apt source being right, and it is one file that
+# nothing else would notice was wrong until a deploy failed to start.
+NOUT="$(mktemp -d)"
+bash "$REPO/install/install.sh" --emit "$NOUT" >/dev/null 2>&1
+check "install.sh emits without root"      "0" "$?"
+check "the apt source was emitted"         "0" \
+    "$(if [[ -f "$NOUT/nodesource.sources" ]]; then echo 0; else echo 1; fi)"
+check "deb822, like the image's own lists" "0" "$(hasre '^Types: deb$' "$NOUT/nodesource.sources")"
+check "it is the 24.x archive"             "0" \
+    "$(hasre '^URIs: https://deb\.nodesource\.com/node_24\.x$' "$NOUT/nodesource.sources")"
+# NodeSource has ONE distribution-agnostic suite. 'trixie' here would 404 at
+# every apt-get update, and apt reports that as a warning, not an error.
+check "the suite is nodistro, not a codename" "0" "$(hasre '^Suites: nodistro$' "$NOUT/nodesource.sources")"
+check "the key is named by Signed-By"      "0" \
+    "$(hasre '^Signed-By: /usr/share/keyrings/nodesource\.pgp$' "$NOUT/nodesource.sources")"
+check "and the pin says which archive wins" "0" \
+    "$(hasre '^Pin: origin deb\.nodesource\.com$' "$NOUT/nodesource.preferences")"
+check "the pin is for nodejs alone"        "0" "$(hasre '^Package: nodejs$' "$NOUT/nodesource.preferences")"
+# 600 beats the 500 every ordinary archive gets, so Debian's node can never win.
+check "priority outranks a plain archive"  "0" "$(hasre '^Pin-Priority: 600$' "$NOUT/nodesource.preferences")"
+sum_node="$(cat "$NOUT"/* | md5sum)"
+bash "$REPO/install/install.sh" --emit "$NOUT" >/dev/null 2>&1
+check "re-emitting is byte-identical"      "$sum_node" "$(cat "$NOUT"/* | md5sum)"
+rm -rf "$NOUT"
+
+# PRESENT is not CURRENT for this one package: the image ships node 20, so a
+# plain have_pkg check would skip the upgrade and leave the box unable to start.
+check "install.sh version-checks node, not just presence" "0" \
+    "$(has 'node_major' "$REPO/install/install.sh")"
+check "setup-server.sh refuses an old node" "0" "$(has 'NODE_MIN_MAJOR' "$SCRIPT")"
+check "and the floor is 24"                 "0" "$(hasre '^readonly NODE_MIN_MAJOR=24$' "$SCRIPT")"
+check "the build targets the same node"     "0" \
+    "$(has "target: 'node24'" "$REPO/src/backend/esbuild.mjs")"
+
 banner "idempotency and CLI"
 sum1="$(cat "$OUT"/* | md5sum)"
 bash "$SCRIPT" --emit "$OUT" >/dev/null 2>&1

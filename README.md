@@ -22,7 +22,7 @@ sudo reboot                             # 3.
 musicbox-bootreport                     # 4. before/after boot timings
 sudo ./install/setup-hardware.sh        # 5. DAC+, DSI panel, HDMI
 sudo reboot                             # 6.
-sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc, node, bluez-alsa)
+sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc, node 24, bluez-alsa)
 sudo ./install/setup-nas.sh             # 8. mount the music share (interactive)
 sudo ./install/setup-mpd.sh             # 9. point MPD at the library and the DAC
 sudo ./install/setup-server.sh          # 10. web server + API
@@ -42,9 +42,9 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
 | `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf`, the `MPDCONF=` line that selects it, and the `mpd.service` drop-in that orders MPD ahead of the share |
-| `setup-server.sh` | the web server units and `/etc/musicbox/server.conf` |
+| `setup-server.sh` | the web server units, `/etc/musicbox/server.conf`, and `/var/lib/musicbox/data/` where the database lives |
 | `setup-bluetooth.sh` | the A2DP sink, the pairing agent and the DAC arbiter |
-| `install.sh` | apt packages — and nothing else |
+| `install.sh` | apt packages, and the NodeSource apt source they need — nothing else |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
 
@@ -439,6 +439,33 @@ PipeWire) — not just dropping the flag.
 The same exclusivity is why Bluetooth needed an arbiter rather than just another
 service; see the Bluetooth section below.
 
+### The panel turns itself off
+
+Settings -> System -> "Turn the panel off after idle". Off by default. When set,
+the panel's backlight goes off after that long with **no touches on the panel**
+and **nothing playing**; touching it, or the music starting from anywhere, brings
+it back.
+
+It is a **backlight** write (`/sys/class/backlight/10-0045/brightness`), not
+DPMS and not `vcgencmd display_power`. Both of those go through the vc4 atomic
+commit or the VideoCore mailbox — the paths that hard-locked this board, see
+[clock-deadlock.md](.claude/docs/clock-deadlock.md). The backlight here is an
+i2c device on the display board (`rpi_touchscreen_attiny`), so scanout keeps
+running and only the LED changes. It saves the panel's light, not the GPU.
+
+Three things keep a dark screen from becoming a box that looks dead:
+
+- the panel's own browser runs the timer, so only touches **on it** count — a
+  phone being used is not somebody standing at the box;
+- the server refuses to sleep the panel unless the panel's own event stream is
+  open, and lights it again the moment that stream drops (a crashed renderer, a
+  reload, a deploy);
+- the server turns the backlight on at its own startup and again on SIGTERM.
+
+The setting lives in the box's database, not in the browser, because there is
+only one panel — so you can change it from a phone on the sofa. Everything on
+the Interface tab is the opposite: per device, in that browser's localStorage.
+
 ### Choosing cage
 
 `cage + chromium` is 129 packages; `labwc + chromium` is 131 and
@@ -674,14 +701,23 @@ pull and a restart.
 
 ### The Pi is never a build machine
 
-`nodejs` is **12 apt packages**. Debian's `npm` is **363**, because it unbundles
-every npm dependency into its own `node-*` package — and it is only `Suggests:`,
-so the device never gets it. Both halves are built here; the Pi receives one
-bundled `server.js` plus static files, and needs no `node_modules`.
+Both halves are built here; the Pi receives one bundled `server.js` plus static
+files, and needs no `node_modules`. That is possible because the backend has
+exactly **one runtime dependency** (Fastify). The MPD protocol client and the
+static file handler are hand-written, roughly 150 lines each.
 
-That is possible because the backend has exactly **one runtime dependency**
-(Fastify). The MPD protocol client and the static file handler are hand-written,
-roughly 150 lines each.
+Node itself comes from **NodeSource, not Debian**: Trixie ships node 20, and the
+backend keeps its state in SQLite through `node:sqlite`, which is part of the
+runtime from 22.5 and needs no flag from 24. The alternatives were a native
+module (breaks the single-file bundle, the same verdict as `sharp`) or a WASM
+engine (a second runtime dependency and a `.wasm` to ship).
+
+It is one package — `nodejs 24.x`, depending only on libc6, libstdc++6 and
+python3, against Debian's 12 — but be aware it **bundles npm**, which it
+`Provides:` and `Conflicts:`. So npm's files are on the disk where Debian's node
+20 left them absent. Debian's own `npm` package, the one that is **363 packages**
+because it unbundles every dependency into its own `node-*`, is still never
+installed. The Pi still builds nothing.
 
 ### The dev loop
 
@@ -829,9 +865,19 @@ GET  /api/library/albums?artist=<name>
 GET  /api/library/album?artist=<name>&album=<title>
 POST /api/library/queue    {albumArtist, album}   append an album
 POST /api/library/play     {albumArtist, album}   replace the queue and play
+
+GET   /api/panel                                   is there a backlight, is it on
+POST  /api/panel/backlight {on}                    409 unless the panel itself asks
+GET   /api/settings                                the box's settings
+PATCH /api/settings        {key: value}            change some of them
 ```
 
 (`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
+
+The stream carries two other events besides the snapshot: `build`, which is how
+the panel notices a deploy and reloads itself, and `settings`, which is how a
+change made on a phone reaches the panel without it polling. Neither belongs on
+the snapshot — that contract is about what the music is doing.
 
 **Every SSE event is a complete snapshot, never a delta.** A dropped, duplicated
 or out-of-order event costs nothing — the client replaces its state and can never

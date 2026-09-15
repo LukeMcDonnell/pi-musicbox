@@ -16,8 +16,15 @@
  */
 
 import { Injectable, computed, effect, signal, DestroyRef, inject } from '@angular/core';
-import type { Snapshot, PlaybackCommand, QueueResponse, Track, BuildInfo } from '@musicbox/shared';
-import { SSE_SNAPSHOT_EVENT, SSE_BUILD_EVENT } from '@musicbox/shared';
+import type {
+    Snapshot,
+    PlaybackCommand,
+    QueueResponse,
+    Track,
+    BuildInfo,
+    SettingsResponse,
+} from '@musicbox/shared';
+import { SSE_SNAPSHOT_EVENT, SSE_BUILD_EVENT, SSE_SETTINGS_EVENT } from '@musicbox/shared';
 import { ApiClient } from './api-client';
 
 /** How the browser is getting on with the server (not with MPD — that is snapshot.status). */
@@ -31,10 +38,21 @@ export class MusicboxApi {
     private readonly _snapshot = signal<Snapshot | null>(null);
     private readonly _stream = signal<StreamState>('connecting');
     private readonly _queue = signal<Track[]>([]);
+    private readonly _settings = signal<SettingsResponse | null>(null);
 
     /** Latest complete state, or null before the first frame arrives. */
     readonly snapshot = this._snapshot.asReadonly();
     readonly stream = this._stream.asReadonly();
+
+    /**
+     * The BOX's settings, or null before the first frame.
+     *
+     * Not the same thing as Preferences, which are this device's and live in
+     * localStorage. These describe the box itself — there is one panel — and so
+     * they arrive on the stream: changed from a phone, they must reach the panel
+     * without it polling. See SSE_SETTINGS_EVENT in src/shared/api.ts.
+     */
+    readonly settings = this._settings.asReadonly();
 
     /**
      * The current queue listing, refetched when `queueVersion` changes.
@@ -190,6 +208,13 @@ export class MusicboxApi {
                 this.reloading = true;
                 location.reload();
             }
+        });
+
+        this.source.addEventListener(SSE_SETTINGS_EVENT, (event) => {
+            const settings = JSON.parse((event as MessageEvent<string>).data) as SettingsResponse;
+            // Replaced wholesale, like the snapshot: the server sends the
+            // complete set every time, so there is nothing to merge.
+            this._settings.set(settings);
         });
 
         this.source.addEventListener('open', () => this._stream.set('live'));

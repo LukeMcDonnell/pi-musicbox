@@ -18,7 +18,7 @@ for whoever is editing the code.
 | Read this | When |
 |---|---|
 | `.claude/docs/architecture.md` | Changing or adding an `install/*.sh` script |
-| `.claude/docs/device.md` | Anything touching the real hardware or the NAS |
+| `.claude/docs/device.md` | Anything touching the real hardware or the NAS — including the panel's backlight |
 | `.claude/docs/decisions.md` | **Before "fixing" something that looks wrong** — it usually isn't |
 | `.claude/docs/testing.md` | Writing or debugging tests |
 | `.claude/docs/roadmap.md` | Picking up the next piece of work |
@@ -65,7 +65,14 @@ for whoever is editing the code.
   Reasoning longer than that belongs in `.claude/docs/decisions.md`, not the
   source. Older files still carry long comments: don't add to them, and it is
   fine to cut them down in code you are already changing.
-- Backups go to `/var/lib/musicbox/`, config to `/etc/musicbox/`.
+- Backups go to `/var/lib/musicbox/`, config to `/etc/musicbox/`, and the box's
+  own state to `/var/lib/musicbox/data/musicbox.db` — **never** under
+  `backend/`, which `dev-push.sh` rsyncs with `--delete`.
+- **Settings are the device's or the box's, and that decides where they live.**
+  Per-device (what this screen does) is `preferences.ts` and localStorage;
+  per-box (what a piece of the hardware does) is the database, reaching clients
+  on the SSE stream. The test is how many of the thing there are — see
+  `decisions.md`.
 - **Text fields get the panel's on-screen keyboard automatically** — no wiring.
   Set `enterkeyhint` to label its Enter key, `type`/`inputmode` numeric to open
   on digits, `inputmode="none"` to opt out. On a phone or `ng serve`, add
@@ -73,8 +80,12 @@ for whoever is editing the code.
 
 ## Commands
 
+Node 24+ is required: the backend imports `node:sqlite` and the tests are `.ts`
+run directly. Debian's node 20 does neither.
+
 ```sh
-bash tests/run-all.sh          # shellcheck + 9 suites (631 asserts) + 124 node tests
+bash tests/run-all.sh          # shellcheck + 9 suites (672 asserts) + 188 node tests
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 121 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s

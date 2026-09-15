@@ -465,3 +465,57 @@ export interface BuildInfo {
     /** Same value as HealthResponse.build. */
     build: string;
 }
+
+/**
+ * The SSE event name carrying the box's settings, sent once per connection and
+ * again whenever they change.
+ *
+ * ON THE STREAM, BUT NOT ON THE SNAPSHOT. The snapshot rule at the top of this
+ * file is about what the music is doing, and a setting is not that — the same
+ * reason SSE_BUILD_EVENT is its own event rather than a Snapshot field. It has
+ * to reach clients promptly, though: the setting can be changed from a phone and
+ * the panel is the thing that has to act on it, so polling would mean the panel
+ * obeying a stale answer for as long as the poll interval.
+ */
+export const SSE_SETTINGS_EVENT = 'settings';
+
+/**
+ * The box's settings. Payload of SSE_SETTINGS_EVENT, and the body of
+ * GET/PATCH /api/settings.
+ *
+ * Distinct from the frontend's own preferences, which are per-device and live in
+ * that browser's localStorage. These describe the BOX: there is one panel, and
+ * its behaviour should not depend on which phone last looked at it.
+ */
+export interface SettingsResponse {
+    /**
+     * Minutes of no interaction before the panel's backlight goes off; 0 is
+     * never. Honoured only while nothing is playing.
+     */
+    panelSleepAfterMinutes: number;
+}
+
+/**
+ * The delays the panel-sleep setting may take, in minutes, 0 being never.
+ *
+ * ONE LIST, SHARED. The dropdown renders it and the backend guard validates
+ * against it, so a value the UI cannot offer is also a value the box will not
+ * store. It matches the frontend's own idle options deliberately — the two
+ * settings read as a pair on screen and would look arbitrary if they differed.
+ */
+export const PANEL_SLEEP_MINUTES: readonly number[] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20,
+];
+
+/**
+ * What the panel's backlight is doing.
+ *
+ * `supported` is false wherever there is no backlight to drive — every dev
+ * machine, and any box whose panel does not expose one. The UI uses it to say
+ * so rather than offering a setting that silently does nothing.
+ */
+export interface PanelState {
+    supported: boolean;
+    /** True when the backlight is on. Always true when `supported` is false. */
+    on: boolean;
+}

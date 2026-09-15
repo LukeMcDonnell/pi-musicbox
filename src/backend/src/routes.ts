@@ -10,12 +10,15 @@ import {
     PLAYBACK_COMMANDS,
     SSE_SNAPSHOT_EVENT,
     SSE_BUILD_EVENT,
+    SSE_SETTINGS_EVENT,
     API_VERSION,
     type AlbumResponse,
     type AlbumsResponse,
     type ArtistsResponse,
     type HealthResponse,
+    type PanelState,
     type PlaybackCommand,
+    type SettingsResponse,
     type Snapshot,
 } from '../../shared/api.ts';
 import type { MpdBridge } from './mpd/bridge.ts';
@@ -28,9 +31,25 @@ import {
     sendControl,
     type ControlVerb,
 } from './bluetooth.ts';
+import type { Panel } from './panel.ts';
+import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
+
+/**
+ * Whether a request came from the box itself — which is how the panel is known.
+ *
+ * The kiosk loads http://localhost/ (install/setup-kiosk.sh), so its stream is
+ * the loopback one and a phone's never is. The frontend decides it is the panel
+ * from exactly the same fact, seen from the other side (on-screen-keyboard.ts).
+ *
+ * Nothing is granted by this — it decides whether the box may darken its OWN
+ * screen, and the worst a spoofed answer achieves is a backlight left on.
+ */
+export function isLoopback(ip: string | undefined): boolean {
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
 
 export interface RouteOptions {
     bridge: MpdBridge;
@@ -40,6 +59,10 @@ export interface RouteOptions {
     musicRoot: string;
     /** The arbiter's control FIFO. See config.bluetoothControl. */
     bluetoothControl?: string;
+    /** The panel's backlight. Absent on a build with no panel support wired up. */
+    panel?: Panel;
+    /** The box's settings store. See settings.ts for what belongs in it. */
+    settings?: Settings;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -89,6 +112,38 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
 
     /** Every live SSE stream, so shutdown can end them. */
     const streams = new Set<() => void>();
+
+    /**
+     * The subset of those streams belonging to the panel itself.
+     *
+     * The backlight may only be held off while at least one of these is open.
+     * The panel's renderer crashing is an open issue (.claude/docs/roadmap.md),
+     * and a crash with the backlight off would leave a box that looks dead; its
+     * stream dies with it, which is the signal to light the screen again.
+     */
+    const panelStreams = new Set<() => void>();
+
+    const panel = opts.panel;
+    const settings = opts.settings;
+
+    /** Sinks for the settings event, one per open stream. */
+    const settingsSinks = new Set<(values: SettingsValues) => void>();
+    settings?.onChange((values) => {
+        for (const sink of [...settingsSinks]) sink(values);
+    });
+
+    const panelState = (): PanelState => ({
+        supported: panel?.supported ?? false,
+        // Unsupported reads as on: there is no dark screen to report.
+        on: panel?.isOn() ?? true,
+    });
+
+    /** Light the panel again because nothing is left that could be looking at it. */
+    const restorePanel = (): void => {
+        if (!panel?.supported || panel.isOn()) return;
+        panel.set(true);
+        app.log.info('panel backlight restored — no panel client is connected');
+    };
 
     // Health must never depend on MPD: it answers whether the SERVER is up.
     // Reporting MPD here is informational, which is what lets the deploy loop
@@ -416,6 +471,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * a fresh full snapshot on every change.
      */
     app.get('/api/events', async (request: FastifyRequest, reply: FastifyReply) => {
+        const fromPanel = isLoopback(request.ip);
         reply.raw.writeHead(200, {
             'content-type': 'text/event-stream; charset=utf-8',
             'cache-control': 'no-cache, no-transform',
@@ -433,6 +489,17 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         // navigates after boot, runs a stale bundle forever after a deploy.
         // See SSE_BUILD_EVENT in src/shared/api.ts.
         reply.raw.write(sseFrame(SSE_BUILD_EVENT, { build }));
+
+        // The box's settings, before the first snapshot. The panel acts on them
+        // and they can be changed from a phone, so they travel on the stream
+        // rather than being polled — see SSE_SETTINGS_EVENT in shared/api.ts.
+        const sendSettings = (values: SettingsValues) => {
+            reply.raw.write(sseFrame(SSE_SETTINGS_EVENT, values));
+        };
+        if (settings) {
+            sendSettings(settings.all());
+            settingsSinks.add(sendSettings);
+        }
 
         // The FIRST frame must be freshly queried, not bridge.current.
         //
@@ -456,16 +523,107 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         const cleanup = () => {
             clearInterval(heartbeat);
             unsubscribe();
+            settingsSinks.delete(sendSettings);
             streams.delete(close);
+            if (fromPanel) {
+                panelStreams.delete(close);
+                // The last thing that could have been looking at a dark screen
+                // has gone: a crashed renderer, a reload, or a shutdown.
+                if (panelStreams.size === 0) restorePanel();
+            }
         };
         const close = () => {
             cleanup();
             reply.raw.end();
         };
         streams.add(close);
+        if (fromPanel) panelStreams.add(close);
 
         request.raw.on('close', cleanup);
         request.raw.on('error', cleanup);
+    });
+
+    // -----------------------------------------------------------------------
+    // The panel and the box's settings.
+    //
+    // APPENDED AFTER /api/events DELIBERATELY. Three tests in routes.test.ts
+    // assert on the SOURCE TEXT of this file, slicing it between route literals;
+    // a route inserted between two existing ones silently changes what they
+    // assert rather than failing. Add new routes here, at the end.
+    // -----------------------------------------------------------------------
+
+    app.get('/api/panel', async (): Promise<PanelState> => panelState());
+
+    /**
+     * Turn the panel's backlight on or off.
+     *
+     * A DUMB ACTUATOR. The decision belongs to the panel's own browser, which is
+     * the only thing that can see a touch; it also knows whether music is
+     * playing, from the snapshot it already has. See panel-sleep on the frontend.
+     */
+    app.post('/api/panel/backlight', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!panel?.supported) {
+            return reply.code(503).send({ error: 'this box has no panel backlight' });
+        }
+        const body = request.body as { on?: unknown } | undefined;
+        if (typeof body?.on !== 'boolean') {
+            return reply.code(400).send({ error: 'on must be true or false' });
+        }
+        // Only the panel may put the panel to sleep, and only while it is still
+        // there to wake it: a phone that darkened a screen it cannot see, or a
+        // renderer that died mid-request, would leave the box looking broken.
+        if (!body.on && !isLoopback(request.ip)) {
+            return reply.code(409).send({ error: 'only the panel itself may sleep the panel' });
+        }
+        if (!body.on && panelStreams.size === 0) {
+            return reply.code(409).send({ error: 'no panel client is connected' });
+        }
+        if (!panel.set(body.on)) {
+            return reply.code(503).send({ error: 'the backlight could not be written' });
+        }
+        return panelState();
+    });
+
+    app.get('/api/settings', async (_request: FastifyRequest, reply: FastifyReply) => {
+        if (!settings) return reply.code(503).send({ error: 'settings are unavailable' });
+        return settings.all() as SettingsResponse;
+    });
+
+    /**
+     * Change one or more settings.
+     *
+     * PATCH, not PUT: a client sends what it is changing, never the whole set,
+     * so two clients editing different settings cannot clobber each other.
+     */
+    app.patch('/api/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!settings) return reply.code(503).send({ error: 'settings are unavailable' });
+        const body = request.body;
+        if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+            return reply.code(400).send({ error: 'body must be an object of settings' });
+        }
+
+        const entries = Object.entries(body as Record<string, unknown>);
+        if (entries.length === 0) {
+            return reply.code(400).send({ error: 'no settings given' });
+        }
+
+        // Validate EVERYTHING before writing ANYTHING: a half-applied patch is a
+        // box in a state no client asked for.
+        const pending: [keyof SettingsValues, SettingsValues[keyof SettingsValues]][] = [];
+        for (const [key, value] of entries) {
+            if (!isSettingKey(key)) {
+                return reply.code(400).send({ error: `unknown setting: ${key}` });
+            }
+            const parsed = parseSetting(key, value);
+            if (parsed === undefined) {
+                return reply.code(400).send({ error: `invalid value for ${key}` });
+            }
+            pending.push([key, parsed]);
+        }
+
+        let values = settings.all();
+        for (const [key, value] of pending) values = settings.set(key, value);
+        return values as SettingsResponse;
     });
 
     return {

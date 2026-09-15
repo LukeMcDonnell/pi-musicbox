@@ -4,6 +4,8 @@ import { Keyboard } from './components/keyboard/keyboard';
 import { Menu } from './components/menu/menu';
 import { NowPlaying } from './components/now-playing/now-playing';
 import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
+import { IdleWatch } from './services/idle-watch';
+import { PanelSleep } from './services/panel-sleep';
 import { NowPlayingSheet } from './services/now-playing-sheet';
 import { OnScreenKeyboard } from './services/on-screen-keyboard';
 import { ScrollFrame } from './services/scroll-frame';
@@ -35,6 +37,18 @@ export class App implements AfterViewInit {
 
     /** Panel only. Injected here so it is listening from boot. */
     readonly keyboard = inject(OnScreenKeyboard);
+
+    /** Same: it watches for inactivity, and does nothing until asked to. */
+    private readonly idle = inject(IdleWatch);
+
+    /**
+     * The panel's backlight. Panel only — the service is inert everywhere else.
+     *
+     * Public because the template needs `asleep()`: while the screen is dark the
+     * page is still live and still receives touches, so it covers itself with a
+     * blocker that turns the first one into "wake up" and nothing else.
+     */
+    readonly panelSleep = inject(PanelSleep);
 
     private readonly frame = inject(ScrollFrame);
 

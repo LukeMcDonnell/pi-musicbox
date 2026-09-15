@@ -669,3 +669,76 @@ gate rather than wifi; it would only widen the mount race margin from ~1.2s to
 The only change that moves `multi-user.target` materially is socket-activating
 MPD (`device.md`), which relocates the cost to first client connect rather than
 removing it.
+
+## The panel sleeps by its backlight, never by DPMS (2026-09-15)
+
+`brightness` on `/sys/class/backlight/10-0045`, written by the backend. Not
+`vcgencmd display_power`, not a compositor blank, not a DRM mode-off.
+
+The reason is `clock-deadlock.md`. The stack that hard-locked this board was
+`vc4_atomic_commit_tail -> clk_set_min_rate -> clk_prepare_lock`, and the
+`performance` governor fix is explicitly *not* proven to cover a deadlock formed
+between vc4 and v3d alone. Every DPMS-shaped approach issues exactly that atomic
+commit; `vcgencmd display_power` is the same VideoCore mailbox from a shell. A
+feature whose entire job is to toggle display power on a timer would have been
+aimed straight at the unresolved gap.
+
+The backlight write avoids all of it. Measured on the device: the driver is
+`rpi_touchscreen_attiny`, an **i2c** device (`7inch-touchscreen-p` under
+`fe205000.i2c`), so the write goes to the ATtiny on the display board. Scanout
+keeps running and the mode is untouched. It saves the LED and not the GPU, which
+is the right trade on a box that has already given up idle power for stability.
+
+Measured, not assumed, before any code was written:
+
+- `brightness` is `0664 root:video`; the service's user is in `video`.
+- `/sys` is **rw** in the unit's mount namespace despite `ProtectKernelTunables=yes`
+  (`/proc/<pid>/mounts`). A write from inside the real sandbox — `ProtectSystem=full`,
+  `NoNewPrivileges=yes` — succeeds. So no root arbiter, no FIFO, no new unit; the
+  Bluetooth pattern in `bluetooth.md` is not needed here.
+- `bl_power` is `0644 root:root` and therefore not an option.
+- `brightness=0` genuinely extinguishes the panel; it does not merely dim.
+
+The one thing not yet proven on hardware is that touch still registers while the
+backlight is off. The digitizer is a separate device (`raspberrypi-ts`, via
+`dtoverlay=rpi-ft5406`) so it should, and the server restoring the backlight when
+the panel's SSE stream drops covers the case where it does not.
+
+## Some settings belong to the box, not to the device (2026-09-15)
+
+`preferences.ts` says settings live in that browser's localStorage, because "the
+panel and a phone are entitled to different answers". That is still right for
+everything on the Interface tab. It is wrong for the System tab, and the
+distinction is worth stating rather than leaving to taste:
+
+- **The device's.** What this screen does — open Now Playing after Play, open the
+  Playlist after Queue. A phone and the panel genuinely differ, and nothing else
+  needs to know. localStorage.
+- **The box's.** What a piece of hardware attached to the box does. There is
+  exactly one panel; its behaviour should not depend on which phone last looked
+  at it, and you want to change it from the sofa. SQLite, and it travels to
+  clients on the SSE stream as its own event.
+
+The test is not "is it a setting" but "how many of the thing are there".
+
+## Node comes from NodeSource, not Debian (2026-09-15)
+
+Trixie ships node 20. `node:sqlite` arrived in 22.5 and is flagless from 24, and
+the database had to be one of: a native module (breaks the single-file esbuild
+bundle — the verdict already recorded for `sharp`), a WASM engine (a second
+runtime dependency and a `.wasm` to ship), a hand-rolled JSON store, or a newer
+node. Taking it from the runtime costs nothing at build or deploy time.
+
+What it costs instead: a third-party apt repo, pinned at 600 in
+`/etc/apt/preferences.d/nodesource`, and NodeSource's `nodejs` **bundles npm** —
+it `Provides:` and `Conflicts:` the Debian package — so npm's files are now on
+the disk where Debian's node 20 left them absent.
+
+Non-negotiable #5's reason survives intact: it is ONE package depending only on
+libc6, libstdc++6 and python3, against Debian's 12, and the Pi still builds
+nothing. But "no npm on the device" is no longer literally true and the README
+should not claim it is.
+
+`have_pkg nodejs` is not enough for this one package: the image already had node
+20 installed, so presence is not currency. `install.sh` compares the major
+version, which is what makes the upgrade happen at all.

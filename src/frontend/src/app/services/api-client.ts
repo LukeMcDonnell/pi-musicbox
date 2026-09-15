@@ -56,6 +56,24 @@ export class ApiClient {
         });
         if (!response.ok) throw new Error(await detail(response, path));
     }
+
+    /**
+     * PATCH with a JSON body, returning the server's answer.
+     *
+     * Unlike post(), the response IS used: the settings routes answer with the
+     * complete set, and the SSE event that follows is the same value. Reading it
+     * here means a client that made the change does not have to wait for its own
+     * event to come back before the UI agrees with it.
+     */
+    async patchJson<T>(path: string, body: unknown): Promise<T> {
+        const response = await fetch(this.resolve(path), {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error(await detail(response, path));
+        return (await response.json()) as T;
+    }
 }
 
 /** The server's own message where there is one, the status code otherwise. */

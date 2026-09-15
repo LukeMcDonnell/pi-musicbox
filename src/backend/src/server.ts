@@ -14,6 +14,9 @@ import { registerCors } from './cors.ts';
 import { registerRoutes } from './routes.ts';
 import { registerStatic } from './static.ts';
 import { createBluetoothWatcher } from './bluetooth.ts';
+import { openDb } from './db.ts';
+import { createSettings } from './settings.ts';
+import { createPanel } from './panel.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -44,6 +47,25 @@ async function main(): Promise<void> {
         log: (level, msg) => app.log[level](msg),
     });
 
+    // The box's own state. Opened before the routes because they take it, and
+    // a failure here is fatal: a server that silently forgets every setting is
+    // worse than one that does not start and says why in the journal.
+    const db = openDb({
+        path: config.dbPath,
+        onMigrate: (to) => app.log.info(`database migrated to schema v${to}`),
+    });
+    const settings = createSettings(db);
+
+    // The panel's backlight. Unsupported everywhere but the box itself, which is
+    // not an error — the routes answer 503 and the UI says so.
+    const panel = createPanel({
+        device: process.env.MUSICBOX_BACKLIGHT,
+        onError: (err) => app.log.warn(`panel backlight: ${err.message}`),
+    });
+    // Whatever happened before this process existed, the screen is on now. A
+    // crash with the backlight off would otherwise survive the restart.
+    if (panel.supported) panel.set(true);
+
     // Before the routes: the onRequest hook must be in place for /api responses,
     // and the preflight route must exist before static.ts claims unknown paths.
     registerCors(app);
@@ -53,6 +75,8 @@ async function main(): Promise<void> {
         startedAt,
         musicRoot: config.musicRoot,
         bluetoothControl: config.bluetoothControl,
+        panel,
+        settings,
     });
     registerStatic(app, config.webRoot);
 
@@ -86,7 +110,11 @@ async function main(): Promise<void> {
         // an SSE stream never finishes, so a single connected client — the kiosk
         // always has one — would wedge shutdown until systemd's stop timeout.
         routes.closeStreams();
+        // Never leave the panel dark across a restart: the browser that asked
+        // for it will reconnect to a server that has forgotten why.
+        if (panel.supported) panel.set(true);
         await app.close();
+        db.close();
         process.exit(0);
     };
     process.on('SIGTERM', () => void shutdown('SIGTERM'));
@@ -95,7 +123,8 @@ async function main(): Promise<void> {
     try {
         await app.listen({ port: config.port, host: config.host });
         app.log.info(
-            `musicbox build ${BUILD} — serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}, art from ${config.musicRoot}`,
+            `musicbox build ${BUILD} — serving ${config.webRoot}, MPD at ${config.mpdHost}:${config.mpdPort}, art from ${config.musicRoot}, db ${config.dbPath}` +
+                (panel.supported ? '' : ', no panel backlight'),
         );
     } catch (err) {
         app.log.error(err);
