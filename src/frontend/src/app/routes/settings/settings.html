@@ -1,0 +1,42 @@
+<section aria-label="Settings">
+  <!-- Header and tablist are one sticky block. On the 480px panel the tabs are
+       what you come back to, and a tablist scrolled off the top would mean a
+       scroll up before every switch. -->
+  <div class="sticky top-0 z-1 bg-bg px-4 pt-2">
+    <!-- justify-between, not a margin on the button: the host is `contents`, so
+         the button is a flex item here and a margin of its own would be dropped. -->
+    <div class="flex items-center justify-between gap-3">
+      <h1 class="text-2xl font-bold">Settings</h1>
+      <app-power-button />
+    </div>
+
+    <!-- Selection is styled through aria-selected rather than a bound class:
+         a variant is always the later rule, so it beats the static text-muted.
+         Same reason the menu styles itself through aria-current. -->
+    <div class="mt-2 flex gap-1 rounded-full bg-surface p-1"
+         role="tablist" aria-label="Settings sections" (keydown)="onKeydown($event)">
+      @for (tab of tabs; track tab.id) {
+        <button #tabButton type="button" role="tab"
+                [id]="'tab-' + tab.id"
+                [attr.aria-controls]="'panel-' + tab.id"
+                [attr.aria-selected]="active() === tab.id"
+                [attr.tabindex]="active() === tab.id ? 0 : -1"
+                class="min-h-11 flex-1 cursor-pointer touch-manipulation rounded-full
+                       text-[0.95rem] font-semibold text-muted select-none active:bg-raised
+                       aria-selected:bg-raised aria-selected:text-accent"
+                (click)="select(tab.id)">
+          {{ tab.label }}
+        </button>
+      }
+    </div>
+  </div>
+
+  <div class="px-4 py-3" role="tabpanel" tabindex="0"
+       [id]="'panel-' + active()" [attr.aria-labelledby]="'tab-' + active()">
+    @switch (active()) {
+      @case ('interface') { <app-interface-settings /> }
+      @case ('library') { <app-library-settings /> }
+      @case ('system') { <app-system-settings /> }
+    }
+  </div>
+</section>

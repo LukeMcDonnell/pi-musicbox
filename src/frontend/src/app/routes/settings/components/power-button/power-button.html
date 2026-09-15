@@ -1,0 +1,49 @@
+<button #trigger type="button"
+        class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+               rounded-full text-muted select-none active:bg-raised"
+        aria-label="Power" aria-haspopup="dialog" [attr.aria-expanded]="open()"
+        (click)="show()">
+  <svg lucidePower class="size-6" aria-hidden="true"></svg>
+</button>
+
+@if (open()) {
+  <!-- z-35: over the menu (20) and the mini bar (30), under the now-playing
+       sheet (40) and the keyboard (50), so neither can be reached from behind
+       it and neither is covered by it. -->
+  <div class="fixed inset-0 z-[35] grid place-items-center bg-black/70 p-4"
+       (click)="hide()">
+    <!-- The backdrop closes; a tap that lands on the card must not. -->
+    <div class="w-full max-w-sm rounded-xl border border-raised bg-surface p-4"
+         role="dialog" aria-modal="true" aria-labelledby="power-title"
+         (click)="$event.stopPropagation()">
+      <h2 id="power-title" class="text-lg font-bold">Power</h2>
+      <p class="pt-1 text-[0.9rem] text-muted">Playback stops either way.</p>
+
+      <div class="flex flex-col gap-2 pt-4">
+        <button type="button"
+                class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center gap-3
+                       rounded-lg border border-muted px-4 text-left text-[1.05rem] font-semibold
+                       select-none active:bg-raised"
+                (click)="choose('restart')">
+          <svg lucideRotateCw class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+          Restart
+        </button>
+        <button type="button"
+                class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center gap-3
+                       rounded-lg bg-warn px-4 text-left text-[1.05rem] font-semibold
+                       text-on-accent select-none active:bg-raised"
+                (click)="choose('shutdown')">
+          <svg lucidePower class="size-5 flex-none" aria-hidden="true"></svg>
+          Shut down
+        </button>
+      </div>
+
+      <button #cancel type="button"
+              class="mt-3 min-h-11 w-full cursor-pointer touch-manipulation rounded-full
+                     text-[0.95rem] font-semibold text-muted select-none active:bg-raised"
+              (click)="hide()">
+        Cancel
+      </button>
+    </div>
+  </div>
+}
