@@ -1,8 +1,15 @@
 import { TestBed } from '@angular/core/testing';
+import { ApiClient } from '../../../../services/api-client';
 import { PowerButton } from './power-button';
 
+let post: jasmine.Spy;
+
 function create() {
-    TestBed.configureTestingModule({ imports: [PowerButton] });
+    post = jasmine.createSpy('post').and.resolveTo(undefined);
+    TestBed.configureTestingModule({
+        imports: [PowerButton],
+        providers: [{ provide: ApiClient, useValue: { post } }],
+    });
     const fixture = TestBed.createComponent(PowerButton);
     fixture.detectChanges();
     return fixture;
@@ -18,6 +25,13 @@ function trigger(fixture: ReturnType<typeof create>): HTMLButtonElement {
 
 function dialog(fixture: ReturnType<typeof create>): HTMLElement | null {
     return host(fixture).querySelector('[role="dialog"]');
+}
+
+/** Press one of the modal's action buttons by its label. */
+function choose(fixture: ReturnType<typeof create>, label: string): void {
+    Array.from(dialog(fixture)!.querySelectorAll('button'))
+        .find((button) => button.textContent!.trim() === label)!
+        .click();
 }
 
 function actions(fixture: ReturnType<typeof create>): string[] {
@@ -69,15 +83,72 @@ describe('PowerButton', () => {
         expect(document.activeElement!.textContent!.trim()).toBe('Cancel');
     });
 
-    it('closes when a choice is made — there is nothing to send it to yet', () => {
+    it('asks the box to shut down, and says so instead of closing', async () => {
         const fixture = create();
         trigger(fixture).click();
         fixture.detectChanges();
-        const shutdown = Array.from(dialog(fixture)!.querySelectorAll('button'))
-            .find((button) => button.textContent!.trim() === 'Shut down')!;
-        shutdown.click();
+        choose(fixture, 'Shut down');
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        expect(post).toHaveBeenCalledWith('/api/power/shutdown');
+        // The modal stays: on a shutdown nothing will ever arrive to replace it,
+        // and a settings screen reappearing would read as "it did not work".
+        expect(dialog(fixture)!.textContent).toContain('Shutting down');
+        expect(dialog(fixture)!.textContent).not.toContain('Playback stops');
+    });
+
+    it('asks the box to restart', async () => {
+        const fixture = create();
+        trigger(fixture).click();
+        fixture.detectChanges();
+        choose(fixture, 'Restart');
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        expect(post).toHaveBeenCalledWith('/api/power/restart');
+        expect(dialog(fixture)!.textContent).toContain('Restarting');
+    });
+
+    it('cannot be dismissed once the box is going down', async () => {
+        const fixture = create();
+        trigger(fixture).click();
+        fixture.detectChanges();
+        choose(fixture, 'Shut down');
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        host(fixture).querySelector<HTMLElement>('.fixed')!.click();
+        fixture.detectChanges();
+        expect(dialog(fixture)).withContext('Escape and the backdrop').not.toBeNull();
+    });
+
+    it('sends the request once, however many times it is pressed', async () => {
+        const fixture = create();
+        trigger(fixture).click();
+        fixture.detectChanges();
+        choose(fixture, 'Shut down');
+        choose(fixture, 'Shut down');
+        await fixture.whenStable();
+        expect(post).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a box that cannot do it, and stays dismissable', async () => {
+        // 503 where setup-server.sh has not installed the power units.
+        const fixture = create();
+        post.and.rejectWith(new Error('power control is not configured'));
+        trigger(fixture).click();
+        fixture.detectChanges();
+        choose(fixture, 'Restart');
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        expect(dialog(fixture)!.querySelector('[role="alert"]')!.textContent)
+            .toContain('not configured');
+        // Nothing is happening, so the way out has to come back.
+        host(fixture).querySelector<HTMLElement>('.fixed')!.click();
         fixture.detectChanges();
         expect(dialog(fixture)).toBeNull();
-        expect(document.activeElement).toBe(trigger(fixture));
     });
 });

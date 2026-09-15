@@ -7990,7 +7990,7 @@ var require_thread_stream = __commonJS({
     var { version } = require_package();
     var { EventEmitter } = __require("events");
     var { Worker } = __require("worker_threads");
-    var { join: join3 } = __require("path");
+    var { join: join4 } = __require("path");
     var { pathToFileURL } = __require("url");
     var { wait } = require_wait();
     var {
@@ -8041,7 +8041,7 @@ var require_thread_stream = __commonJS({
     function createWorker(stream, opts) {
       const { filename, workerData } = opts;
       const bundlerOverrides = "__bundlerPathsOverrides" in globalThis ? globalThis.__bundlerPathsOverrides : {};
-      const toExecute = bundlerOverrides["thread-stream-worker"] || join3(__dirname, "lib", "worker.js");
+      const toExecute = bundlerOverrides["thread-stream-worker"] || join4(__dirname, "lib", "worker.js");
       const worker = new Worker(toExecute, {
         ...opts.workerOpts,
         name: opts.workerOpts?.name || "thread-stream",
@@ -8509,7 +8509,7 @@ var require_transport = __commonJS({
     var { createRequire } = __require("module");
     var { existsSync } = __require("node:fs");
     var getCallers = require_caller();
-    var { join: join3, isAbsolute, sep: sep2 } = __require("node:path");
+    var { join: join4, isAbsolute, sep: sep2 } = __require("node:path");
     var { fileURLToPath } = __require("node:url");
     var sleep = require_atomic_sleep();
     var onExit = require_on_exit_leak_free();
@@ -8662,7 +8662,7 @@ var require_transport = __commonJS({
         throw new Error("only one of target or targets can be specified");
       }
       if (targets) {
-        target = bundlerOverrides["pino-worker"] || join3(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join4(__dirname, "worker.js");
         options.targets = targets.filter((dest) => dest.target).map((dest) => {
           return {
             ...dest,
@@ -8680,7 +8680,7 @@ var require_transport = __commonJS({
           });
         });
       } else if (pipeline) {
-        target = bundlerOverrides["pino-worker"] || join3(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join4(__dirname, "worker.js");
         options.pipelines = [pipeline.map((dest) => {
           return {
             ...dest,
@@ -8703,7 +8703,7 @@ var require_transport = __commonJS({
           return origin;
         }
         if (origin === "pino/file") {
-          return join3(__dirname, "..", "file.js");
+          return join4(__dirname, "..", "file.js");
         }
         let fixTarget2;
         for (const filePath of callers) {
@@ -9683,7 +9683,7 @@ var require_safe_stable_stringify = __commonJS({
               return circularValue;
             }
             let res = "";
-            let join3 = ",";
+            let join4 = ",";
             const originalIndentation = indentation;
             if (Array.isArray(value)) {
               if (value.length === 0) {
@@ -9697,7 +9697,7 @@ var require_safe_stable_stringify = __commonJS({
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join3 = `,
+                join4 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9705,13 +9705,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join3;
+                res += join4;
               }
               const tmp = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join3}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join4}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9732,7 +9732,7 @@ ${originalIndentation}`;
             let separator = "";
             if (spacer !== "") {
               indentation += spacer;
-              join3 = `,
+              join4 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9746,13 +9746,13 @@ ${indentation}`;
               const tmp = stringifyFnReplacer(key2, value, stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join3;
+                separator = join4;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...":${whitespace}"${getItemCount(removedKeys)} not stringified"`;
-              separator = join3;
+              separator = join4;
             }
             if (spacer !== "" && separator.length > 1) {
               res = `
@@ -9793,7 +9793,7 @@ ${originalIndentation}`;
             }
             const originalIndentation = indentation;
             let res = "";
-            let join3 = ",";
+            let join4 = ",";
             if (Array.isArray(value)) {
               if (value.length === 0) {
                 return "[]";
@@ -9806,7 +9806,7 @@ ${originalIndentation}`;
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join3 = `,
+                join4 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9814,13 +9814,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join3;
+                res += join4;
               }
               const tmp = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join3}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join4}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9833,7 +9833,7 @@ ${originalIndentation}`;
             let whitespace = "";
             if (spacer !== "") {
               indentation += spacer;
-              join3 = `,
+              join4 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9842,7 +9842,7 @@ ${indentation}`;
               const tmp = stringifyArrayReplacer(key2, value[key2], stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join3;
+                separator = join4;
               }
             }
             if (spacer !== "" && separator.length > 1) {
@@ -9900,20 +9900,20 @@ ${originalIndentation}`;
               indentation += spacer;
               let res2 = `
 ${indentation}`;
-              const join4 = `,
+              const join5 = `,
 ${indentation}`;
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
               let i = 0;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyIndent(String(i), value[i], stack, spacer, indentation);
                 res2 += tmp2 !== void 0 ? tmp2 : "null";
-                res2 += join4;
+                res2 += join5;
               }
               const tmp = stringifyIndent(String(i), value[i], stack, spacer, indentation);
               res2 += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res2 += `${join4}"... ${getItemCount(removedKeys)} not stringified"`;
+                res2 += `${join5}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               res2 += `
 ${originalIndentation}`;
@@ -9929,16 +9929,16 @@ ${originalIndentation}`;
               return '"[Object]"';
             }
             indentation += spacer;
-            const join3 = `,
+            const join4 = `,
 ${indentation}`;
             let res = "";
             let separator = "";
             let maximumPropertiesToStringify = Math.min(keyLength, maximumBreadth);
             if (isTypedArrayWithEntries(value)) {
-              res += stringifyTypedArray(value, join3, maximumBreadth);
+              res += stringifyTypedArray(value, join4, maximumBreadth);
               keys = keys.slice(value.length);
               maximumPropertiesToStringify -= value.length;
-              separator = join3;
+              separator = join4;
             }
             if (deterministic) {
               keys = sort(keys, comparator);
@@ -9949,13 +9949,13 @@ ${indentation}`;
               const tmp = stringifyIndent(key2, value[key2], stack, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}: ${tmp}`;
-                separator = join3;
+                separator = join4;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...": "${getItemCount(removedKeys)} not stringified"`;
-              separator = join3;
+              separator = join4;
             }
             if (separator !== "") {
               res = `
@@ -36884,6 +36884,7 @@ var DEFAULTS = {
   bluetoothState: "/run/musicbox/bluetooth.json",
   bluetoothControl: "/run/musicbox/control",
   dbPath: "/var/lib/musicbox/data/musicbox.db",
+  powerDir: "/run/musicbox-power",
   logLevel: "info"
 };
 function parseConf(text) {
@@ -36929,6 +36930,7 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
     bluetoothState: pick("MUSICBOX_BLUETOOTH_STATE") ?? DEFAULTS.bluetoothState,
     bluetoothControl: pick("MUSICBOX_BLUETOOTH_CONTROL") ?? DEFAULTS.bluetoothControl,
     dbPath: pick("MUSICBOX_DB") ?? DEFAULTS.dbPath,
+    powerDir: pick("MUSICBOX_POWER_DIR") ?? DEFAULTS.powerDir,
     logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
   };
 }
@@ -38054,6 +38056,43 @@ async function sendControl(verb, path = DEFAULT_CONTROL_PATH) {
   }
 }
 
+// src/power.ts
+import { access, writeFile, constants as fsConstants2 } from "node:fs/promises";
+import { join as join2 } from "node:path";
+var DEFAULT_POWER_DIR = "/run/musicbox-power";
+var POWER_ACTIONS = ["restart", "shutdown"];
+function isPowerAction(value) {
+  return POWER_ACTIONS.includes(value);
+}
+var PowerUnavailableError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PowerUnavailableError";
+  }
+};
+function createPower(dir = DEFAULT_POWER_DIR) {
+  return {
+    async available() {
+      try {
+        await access(dir, fsConstants2.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async request(action) {
+      try {
+        await writeFile(join2(dir, action), "");
+      } catch (err) {
+        const reason = err.code ?? "unknown error";
+        throw new PowerUnavailableError(
+          `cannot request ${action}: ${reason} \u2014 is setup-server.sh installed?`
+        );
+      }
+    }
+  };
+}
+
 // src/settings.ts
 var SETTINGS_DEFAULTS = {
   // Never. A screen that goes dark on its own while nobody asked it to is a
@@ -38139,6 +38178,7 @@ function registerRoutes(app, opts) {
   const panelStreams = /* @__PURE__ */ new Set();
   const panel = opts.panel;
   const settings = opts.settings;
+  const power = opts.power;
   const settingsSinks = /* @__PURE__ */ new Set();
   settings?.onChange((values) => {
     for (const sink of [...settingsSinks]) sink(values);
@@ -38420,6 +38460,25 @@ function registerRoutes(app, opts) {
     for (const [key, value] of pending) values = settings.set(key, value);
     return values;
   });
+  app.post("/api/power/:action", async (request, reply) => {
+    const { action } = request.params;
+    if (!isPowerAction(action)) {
+      return reply.code(400).send({ error: `unknown power action: ${action}` });
+    }
+    if (!power) {
+      return reply.code(503).send({ error: "power control is not configured" });
+    }
+    try {
+      await power.request(action);
+    } catch (err) {
+      if (err instanceof PowerUnavailableError) {
+        return reply.code(503).send({ error: err.message });
+      }
+      throw err;
+    }
+    app.log.warn(`${action} requested over the API`);
+    return reply.code(202).send({ accepted: action });
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -38507,7 +38566,7 @@ function migrate(sqlite, migrations, onMigrate) {
 
 // src/panel.ts
 import { readFileSync as readFileSync2, readdirSync, writeFileSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 var BACKLIGHT_ROOT = "/sys/class/backlight";
 var defaultPanelDeps = {
   root: BACKLIGHT_ROOT,
@@ -38519,7 +38578,7 @@ function findDevice(deps, explicit) {
   if (explicit) return explicit;
   try {
     const entries = deps.listDir(deps.root).sort();
-    return entries.length > 0 ? join2(deps.root, entries[0]) : null;
+    return entries.length > 0 ? join3(deps.root, entries[0]) : null;
   } catch {
     return null;
   }
@@ -38530,7 +38589,7 @@ function createPanel(options = {}) {
   let max = 0;
   if (device !== null) {
     try {
-      max = Number.parseInt(deps.readFile(join2(device, "max_brightness")).trim(), 10);
+      max = Number.parseInt(deps.readFile(join3(device, "max_brightness")).trim(), 10);
     } catch {
       max = 0;
     }
@@ -38539,7 +38598,7 @@ function createPanel(options = {}) {
   const read = () => {
     if (!supported) return null;
     try {
-      const raw = deps.readFile(join2(device, "brightness")).trim();
+      const raw = deps.readFile(join3(device, "brightness")).trim();
       const value = Number.parseInt(raw, 10);
       return Number.isFinite(value) ? value : null;
     } catch (err) {
@@ -38557,7 +38616,7 @@ function createPanel(options = {}) {
     set(on) {
       if (!supported) return false;
       try {
-        deps.writeFile(join2(device, "brightness"), String(on ? max : 0));
+        deps.writeFile(join3(device, "brightness"), String(on ? max : 0));
         return true;
       } catch (err) {
         options.onError?.(err);
@@ -38568,7 +38627,7 @@ function createPanel(options = {}) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-15T02:52:06Z" : "dev";
+var BUILD = true ? "2026-09-15T03:07:18Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -38609,7 +38668,8 @@ async function main() {
     musicRoot: config.musicRoot,
     bluetoothControl: config.bluetoothControl,
     panel,
-    settings
+    settings,
+    power: createPower(config.powerDir)
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({

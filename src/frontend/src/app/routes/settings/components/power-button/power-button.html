@@ -17,7 +17,24 @@
          role="dialog" aria-modal="true" aria-labelledby="power-title"
          (click)="$event.stopPropagation()">
       <h2 id="power-title" class="text-lg font-bold">Power</h2>
+
+      @if (pending(); as action) {
+        <!-- The box is going down. On a shutdown nothing will ever arrive to
+             replace this, which is why it says so plainly rather than spinning. -->
+        <p class="pt-2 text-[0.95rem]" aria-live="polite">
+          {{ action === 'shutdown' ? 'Shutting down…' : 'Restarting…' }}
+        </p>
+        <p class="pt-1 text-[0.85rem] text-muted">
+          {{ action === 'shutdown'
+              ? 'Wait for the screen to go dark before pulling the power.'
+              : 'This screen comes back on its own.' }}
+        </p>
+      } @else {
       <p class="pt-1 text-[0.9rem] text-muted">Playback stops either way.</p>
+
+      @if (error(); as message) {
+        <p class="pt-2 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+      }
 
       <div class="flex flex-col gap-2 pt-4">
         <button type="button"
@@ -44,6 +61,7 @@
               (click)="hide()">
         Cancel
       </button>
+      }
     </div>
   </div>
 }

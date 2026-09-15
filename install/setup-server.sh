@@ -66,6 +66,15 @@ readonly UNIT_DIR="/etc/systemd/system"
 readonly SERVICE="${UNIT_DIR}/musicbox-server.service"
 readonly RESTART_UNIT="${UNIT_DIR}/musicbox-server-restart.service"
 readonly PATH_UNIT="${UNIT_DIR}/musicbox-server.path"
+# Restart and shutdown. The server cannot reboot the box itself — NoNewPrivileges
+# and a capability set of exactly CAP_NET_BIND_SERVICE see to that, and the
+# backend has no child_process by design — so it drops a file and a root path
+# unit acts on it. Same shape as the deploy restart above.
+readonly POWER_HELPER="/usr/local/bin/musicbox-power"
+readonly POWER_UNIT="${UNIT_DIR}/musicbox-power.service"
+readonly POWER_PATH_UNIT="${UNIT_DIR}/musicbox-power.path"
+readonly POWER_TMPFILES="/etc/tmpfiles.d/musicbox-power.conf"
+readonly POWER_DIR="/run/musicbox-power"
 
 DRY_RUN=0
 ASSUME_YES=0
@@ -248,6 +257,90 @@ WantedBy=multi-user.target
 UNIT
 }
 
+gen_power_tmpfiles() {
+    cat <<CONF
+# musicbox: where the server asks for a restart or a shutdown. See setup-server.sh.
+#
+# On /run, which is tmpfs, and that is load-bearing: a request file that survived
+# a power cut would shut the box down again at every boot. systemd-tmpfiles
+# creates it, not RuntimeDirectory= on the server unit, so it does not come and
+# go with each deploy — a path unit whose parent directory is deleted and
+# recreated is exactly the trap decisions.md records for the arbiter watch.
+d ${POWER_DIR} 0750 ${APP_USER} ${APP_USER} -
+CONF
+}
+
+gen_power_helper() {
+    cat <<'HELPER'
+#!/usr/bin/env bash
+#
+# musicbox — act on a power request from the web server.
+#
+# Started by musicbox-power.path when one of the request files appears. Runs as
+# root; the server that asked cannot.
+#
+# THE REQUEST IS THE FILE NAME, NOT ITS CONTENTS. There is nothing to parse and
+# so nothing to inject: either /run/musicbox-power/restart exists or
+# /run/musicbox-power/shutdown does, and anything else is ignored. Compare the
+# Bluetooth arbiter, which does read a verb and therefore has to police a closed
+# set on both sides.
+set -euo pipefail
+
+readonly DIR="/run/musicbox-power"
+
+restart=0
+shutdown=0
+[[ -e "${DIR}/restart" ]] && restart=1
+[[ -e "${DIR}/shutdown" ]] && shutdown=1
+
+# REMOVED BEFORE ACTING, both of them, always. A request left behind would
+# re-trigger the path unit the moment the box came back up, and a box that
+# shuts itself down every boot is not one you can fix over ssh.
+rm -f "${DIR}/restart" "${DIR}/shutdown"
+
+if [[ "$shutdown" -eq 1 ]]; then
+    logger -t musicbox-power "shutdown requested by the web server"
+    exec systemctl poweroff
+elif [[ "$restart" -eq 1 ]]; then
+    logger -t musicbox-power "restart requested by the web server"
+    exec systemctl reboot
+fi
+
+# Triggered with nothing to do: the file went away between the path unit firing
+# and this running. Not an error.
+logger -t musicbox-power "no power request found; nothing to do"
+HELPER
+}
+
+gen_power_unit() {
+    cat <<UNIT
+[Unit]
+Description=musicbox restart/shutdown requested from the web UI
+
+[Service]
+Type=oneshot
+ExecStart=${POWER_HELPER}
+UNIT
+}
+
+gen_power_path_unit() {
+    cat <<UNIT
+[Unit]
+Description=Watch for a restart or shutdown request from the web UI
+
+[Path]
+# Two files rather than one with a verb in it: the request is the NAME, so there
+# is nothing to parse and nothing to inject. Either fires the same helper, which
+# works out which appeared.
+PathExists=${POWER_DIR}/restart
+PathExists=${POWER_DIR}/shutdown
+Unit=musicbox-power.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
 emit_all() {
     local dest="$1"
     mkdir -p "$dest"
@@ -255,6 +348,11 @@ emit_all() {
     gen_service      > "${dest}/musicbox-server.service"
     gen_restart_unit > "${dest}/musicbox-server-restart.service"
     gen_path_unit    > "${dest}/musicbox-server.path"
+    gen_power_tmpfiles  > "${dest}/musicbox-power.conf"
+    gen_power_helper    > "${dest}/musicbox-power"
+    gen_power_unit      > "${dest}/musicbox-power.service"
+    gen_power_path_unit > "${dest}/musicbox-power.path"
+    chmod 0755 "${dest}/musicbox-power"
     printf '  wrote server.conf musicbox-server.service musicbox-server-restart.service musicbox-server.path -> %s\n' "$dest"
 }
 
@@ -317,6 +415,22 @@ do_apply() {
     if install_if_changed "$tmp" "$PATH_UNIT" 0644; then ok "$PATH_UNIT"; changed=1
     else skip "$PATH_UNIT already current"; fi
 
+    tmp="$(mktemp)"; gen_power_tmpfiles > "$tmp"
+    if install_if_changed "$tmp" "$POWER_TMPFILES" 0644; then ok "$POWER_TMPFILES"; changed=1
+    else skip "$POWER_TMPFILES already current"; fi
+
+    tmp="$(mktemp)"; gen_power_helper > "$tmp"
+    if install_if_changed "$tmp" "$POWER_HELPER" 0755; then ok "$POWER_HELPER"; changed=1
+    else skip "$POWER_HELPER already current"; fi
+
+    tmp="$(mktemp)"; gen_power_unit > "$tmp"
+    if install_if_changed "$tmp" "$POWER_UNIT" 0644; then ok "$POWER_UNIT"; changed=1
+    else skip "$POWER_UNIT already current"; fi
+
+    tmp="$(mktemp)"; gen_power_path_unit > "$tmp"
+    if install_if_changed "$tmp" "$POWER_PATH_UNIT" 0644; then ok "$POWER_PATH_UNIT"; changed=1
+    else skip "$POWER_PATH_UNIT already current"; fi
+
     phase "Enabling"
     if dry; then
         printf '    %s[dry-run]%s would enable musicbox-server.service and musicbox-server.path\n' \
@@ -329,6 +443,11 @@ do_apply() {
     systemctl enable musicbox-server.service >/dev/null 2>&1 || true
     systemctl enable musicbox-server.path    >/dev/null 2>&1 || true
     systemctl start  musicbox-server.path    >/dev/null 2>&1 || true
+    # The request directory is on tmpfs, so it has to exist before the first
+    # request rather than only after the next boot.
+    systemd-tmpfiles --create "$POWER_TMPFILES" >/dev/null 2>&1 || true
+    systemctl enable musicbox-power.path >/dev/null 2>&1 || true
+    systemctl start  musicbox-power.path >/dev/null 2>&1 || true
     ok "units enabled"
 
     if [[ ! -f "${DEPLOY_DIR}/backend/server.js" ]]; then
@@ -379,12 +498,13 @@ do_revert() {
     phase "Removing the server"
 
     local u
-    for u in musicbox-server.path musicbox-server.service; do
+    for u in musicbox-power.path musicbox-server.path musicbox-server.service; do
         if systemctl list-unit-files "$u" >/dev/null 2>&1; then
             run systemctl disable --now "$u" >/dev/null 2>&1 || true
         fi
     done
-    run rm -f "$SERVICE" "$RESTART_UNIT" "$PATH_UNIT" "$CONF_FILE"
+    run rm -f "$SERVICE" "$RESTART_UNIT" "$PATH_UNIT" "$CONF_FILE" \
+        "$POWER_UNIT" "$POWER_PATH_UNIT" "$POWER_HELPER" "$POWER_TMPFILES"
     run systemctl daemon-reload
     ok "units and configuration removed"
     # The database is DATA, not configuration. Settings, and later favourites and

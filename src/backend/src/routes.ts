@@ -32,6 +32,7 @@ import {
     type ControlVerb,
 } from './bluetooth.ts';
 import type { Panel } from './panel.ts';
+import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
@@ -63,6 +64,8 @@ export interface RouteOptions {
     panel?: Panel;
     /** The box's settings store. See settings.ts for what belongs in it. */
     settings?: Settings;
+    /** Restart and shutdown, via the root path unit. See power.ts. */
+    power?: Power;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -125,6 +128,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
 
     const panel = opts.panel;
     const settings = opts.settings;
+    const power = opts.power;
 
     /** Sinks for the settings event, one per open stream. */
     const settingsSinks = new Set<(values: SettingsValues) => void>();
@@ -624,6 +628,38 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         let values = settings.all();
         for (const [key, value] of pending) values = settings.set(key, value);
         return values as SettingsResponse;
+    });
+
+    /**
+     * Restart or shut the box down.
+     *
+     * 202, like the Bluetooth commands: the request is written and root acts on
+     * it a moment later. There is no success to report — if it works, this
+     * process is about to be killed by systemd.
+     *
+     * NOT restricted to the panel. The power button is in the settings header on
+     * every client, and shutting the box down from a phone is the point of
+     * having it there. The LAN is the trust boundary for this API, as it is for
+     * every other route here.
+     */
+    app.post('/api/power/:action', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { action } = request.params as { action: string };
+        if (!isPowerAction(action)) {
+            return reply.code(400).send({ error: `unknown power action: ${action}` });
+        }
+        if (!power) {
+            return reply.code(503).send({ error: 'power control is not configured' });
+        }
+        try {
+            await power.request(action);
+        } catch (err) {
+            if (err instanceof PowerUnavailableError) {
+                return reply.code(503).send({ error: err.message });
+            }
+            throw err;
+        }
+        app.log.warn(`${action} requested over the API`);
+        return reply.code(202).send({ accepted: action });
     });
 
     return {

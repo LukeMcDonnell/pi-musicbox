@@ -50,6 +50,11 @@ export interface Config {
      * install/setup-server.sh creates this one owned by the app user.
      */
     dbPath: string;
+    /**
+     * Where a restart or shutdown request is dropped for the root path unit to
+     * pick up. On tmpfs deliberately — see src/backend/src/power.ts.
+     */
+    powerDir: string;
     logLevel: string;
 }
 
@@ -66,6 +71,7 @@ export const DEFAULTS: Config = {
     bluetoothState: '/run/musicbox/bluetooth.json',
     bluetoothControl: '/run/musicbox/control',
     dbPath: '/var/lib/musicbox/data/musicbox.db',
+    powerDir: '/run/musicbox-power',
     logLevel: 'info',
 };
 
@@ -129,6 +135,7 @@ export function loadConfig(
         bluetoothState: pick('MUSICBOX_BLUETOOTH_STATE') ?? DEFAULTS.bluetoothState,
         bluetoothControl: pick('MUSICBOX_BLUETOOTH_CONTROL') ?? DEFAULTS.bluetoothControl,
         dbPath: pick('MUSICBOX_DB') ?? DEFAULTS.dbPath,
+        powerDir: pick('MUSICBOX_POWER_DIR') ?? DEFAULTS.powerDir,
         logLevel: pick('MUSICBOX_LOG_LEVEL') ?? DEFAULTS.logLevel,
     };
 }

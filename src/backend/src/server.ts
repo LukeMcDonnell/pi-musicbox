@@ -17,6 +17,7 @@ import { createBluetoothWatcher } from './bluetooth.ts';
 import { openDb } from './db.ts';
 import { createSettings } from './settings.ts';
 import { createPanel } from './panel.ts';
+import { createPower } from './power.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
         bluetoothControl: config.bluetoothControl,
         panel,
         settings,
+        power: createPower(config.powerDir),
     });
     registerStatic(app, config.webRoot);
 

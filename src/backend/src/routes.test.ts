@@ -15,7 +15,7 @@ import { request as httpRequest } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { open as fsOpen, constants as fsConstants } from 'node:fs/promises';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerRoutes } from './routes.ts';
@@ -27,6 +27,7 @@ import { isLoopback } from './routes.ts';
 import type { Panel } from './panel.ts';
 import { createSettings, type Settings } from './settings.ts';
 import { openDb } from './db.ts';
+import { createPower, type Power } from './power.ts';
 
 /** A phone that is connected and playing, as the arbiter would report it. */
 const PHONE: BluetoothState = {
@@ -62,6 +63,7 @@ async function startServer(
         bluetoothControl?: string;
         panel?: Panel;
         settings?: Settings;
+        power?: Power;
     } = {},
 ) {
     const app = Fastify({
@@ -79,6 +81,7 @@ async function startServer(
         bluetoothControl: opts.bluetoothControl ?? '/nonexistent-run-dir/control',
         panel: opts.panel,
         settings: opts.settings,
+        power: opts.power,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -1027,4 +1030,36 @@ test('settings arrive on the stream, at connect and again on every change', asyn
     await api(port, '/api/settings', { method: 'PATCH', body: { panelSleepAfterMinutes: 15 } });
     await settle();
     assert.match(stream.text(), /"panelSleepAfterMinutes":15/);
+});
+
+test('POST /api/power/<action> writes the request and answers 202', async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-power-routes-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const { port } = await serverFor(t, { power: createPower(dir) });
+
+    const res = await api(port, '/api/power/shutdown', { method: 'POST' });
+    assert.equal(res.status, 202);
+    assert.deepEqual(res.body, { accepted: 'shutdown' });
+    // Root acts on the file; there is nothing else to report, and this process
+    // is about to be killed by systemd if it worked.
+    assert.deepEqual(await readdir(dir), ['shutdown']);
+});
+
+test('an action that is not restart or shutdown is a 400, and writes nothing', async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-power-routes-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const { port } = await serverFor(t, { power: createPower(dir) });
+
+    for (const action of ['poweroff', 'halt', 'reboot', '..%2Fshutdown', 'shutdown%20now']) {
+        const res = await api(port, `/api/power/${action}`, { method: 'POST' });
+        assert.equal(res.status, 400, action);
+    }
+    assert.deepEqual(await readdir(dir), []);
+});
+
+test('a box with no power helper answers 503, not 500', async (t) => {
+    const { port } = await serverFor(t, { power: createPower('/nonexistent-power-dir') });
+    const res = await api(port, '/api/power/restart', { method: 'POST' });
+    assert.equal(res.status, 503);
+    assert.match(res.body.error, /setup-server\.sh/);
 });

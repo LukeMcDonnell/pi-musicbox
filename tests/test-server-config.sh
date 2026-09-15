@@ -114,6 +114,41 @@ check "install.sh installs nodejs" "0" "$(hasre '^[[:space:]]+nodejs[[:space:]]'
 check "install.sh does NOT install npm" "1" "$(hasre '^[[:space:]]+npm[[:space:]]' "$REPO/install/install.sh")"
 check "the npm package-count reason is recorded" "0" "$(has '363' "$REPO/install/install.sh")"
 
+banner "restart and shutdown go through root, because the server cannot"
+# The server runs NoNewPrivileges with one capability and has no child_process by
+# design, so it cannot reboot the box. It drops a file; a root path unit acts.
+check "the power path unit was emitted"  "0" \
+    "$(if [[ -f "$OUT/musicbox-power.path" ]]; then echo 0; else echo 1; fi)"
+check "it watches a restart request"     "0" \
+    "$(hasre '^PathExists=/run/musicbox-power/restart$' "$OUT/musicbox-power.path")"
+check "and a shutdown request"           "0" \
+    "$(hasre '^PathExists=/run/musicbox-power/shutdown$' "$OUT/musicbox-power.path")"
+check "both start the same helper"       "0" \
+    "$(hasre '^Unit=musicbox-power\.service$' "$OUT/musicbox-power.path")"
+check "the helper is valid shell"        "0" "$(bash -n "$OUT/musicbox-power"; echo $?)"
+check "it runs as a oneshot"             "0" "$(hasre '^Type=oneshot$' "$OUT/musicbox-power.service")"
+# ON TMPFS, AND THIS IS THE ONE THAT MATTERS. A request file that survived a
+# power cut would shut the box down again at every boot, and a box that powers
+# off seconds into every boot cannot be fixed over ssh.
+check "the request directory is under /run" "0" \
+    "$(hasre '^d /run/musicbox-power ' "$OUT/musicbox-power.conf")"
+check "nothing under /var or /tmp"       "1" \
+    "$(grep -qE '^d /(var|tmp)/' "$OUT/musicbox-power.conf"; echo $?)"
+check "it is owned by the app user"      "0" \
+    "$(hasre '^d /run/musicbox-power 0750 musicbox musicbox' "$OUT/musicbox-power.conf")"
+# The helper must delete the request BEFORE acting, for the same reason.
+check "the request is removed before acting" "0" \
+    "$(awk '/^rm -f/{seen=1} /systemctl (poweroff|reboot)/{exit seen?0:1}' "$OUT/musicbox-power"; echo $?)"
+check "it can only poweroff or reboot"   "2" \
+    "$(grep -cE 'exec systemctl (poweroff|reboot)$' "$OUT/musicbox-power")"
+# The name IS the request, so there is no verb to parse and none to inject.
+check "the helper parses no file contents" "1" \
+    "$(grep -qE '\$\(cat |read .*<|\$\(<' "$OUT/musicbox-power"; echo $?)"
+# The SHIPPED backend, not the tests — those legitimately execFile a mkfifo.
+check "the backend never shells out"     "1" \
+    "$(grep -rlE "from 'node:child_process'|require\\('child_process'\\)" "$REPO/src/backend/src" \
+        | grep -qv '\.test\.ts$'; echo $?)"
+
 banner "node comes from NodeSource, because the backend needs node:sqlite"
 # Debian trixie stops at node 20 and node:sqlite arrived in 22.5. The whole
 # database layer rests on this apt source being right, and it is one file that

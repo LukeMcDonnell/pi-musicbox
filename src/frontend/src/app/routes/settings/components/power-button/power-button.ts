@@ -3,12 +3,14 @@ import {
     Component,
     ElementRef,
     effect,
+    inject,
     signal,
     viewChild,
 } from '@angular/core';
 import { LucidePower, LucideRotateCw } from '@lucide/angular';
+import { ApiClient } from '../../../../services/api-client';
 
-/** What the modal offers. Nothing acts on it yet — see the header. */
+/** What the modal offers. */
 export type PowerAction = 'restart' | 'shutdown';
 
 /*
@@ -19,8 +21,13 @@ export type PowerAction = 'restart' | 'shutdown';
   accident. This way the second tap is the deliberate one, and both choices get
   a full-width target.
 
-  NOT WIRED. There is no power endpoint on the backend, so choosing either
-  option only closes the modal.
+  THE SERVER CANNOT DO THIS ITSELF. It has NoNewPrivileges and one capability,
+  and no child_process by design, so POST /api/power/<action> drops a file that a
+  root path unit acts on. See src/backend/src/power.ts.
+
+  Once a choice is made the modal stays up and says what is happening, because
+  the alternative is a UI that looks idle while the box is going down — and on
+  shutdown nothing else will ever arrive to correct it.
 */
 @Component({
     selector: 'app-power-button',
@@ -35,7 +42,14 @@ export type PowerAction = 'restart' | 'shutdown';
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PowerButton {
+    private readonly client = inject(ApiClient);
+
     readonly open = signal(false);
+
+    /** The action under way, once one has been chosen. */
+    readonly pending = signal<PowerAction | null>(null);
+
+    readonly error = signal<string | null>(null);
 
     private readonly trigger = viewChild.required<ElementRef<HTMLButtonElement>>('trigger');
     private readonly cancel = viewChild<ElementRef<HTMLButtonElement>>('cancel');
@@ -53,14 +67,25 @@ export class PowerButton {
     }
 
     hide(): void {
-        if (!this.open()) return;
+        // Not while the box is going down: there is nothing to go back to, and
+        // a settings screen that reappears mid-shutdown reads as "it failed".
+        if (!this.open() || this.pending() !== null) return;
         this.open.set(false);
+        this.error.set(null);
         this.trigger().nativeElement.focus();
     }
 
-    /** Inert until the backend has somewhere to send this. */
-    choose(action: PowerAction): void {
-        void action;
-        this.hide();
+    async choose(action: PowerAction): Promise<void> {
+        if (this.pending() !== null) return;
+        this.pending.set(action);
+        this.error.set(null);
+        try {
+            await this.client.post(`/api/power/${action}`);
+        } catch (err) {
+            // 503 on a box where setup-server.sh has not run. Say so and let the
+            // modal be dismissed again — nothing is going to happen.
+            this.error.set((err as Error).message);
+            this.pending.set(null);
+        }
     }
 }
