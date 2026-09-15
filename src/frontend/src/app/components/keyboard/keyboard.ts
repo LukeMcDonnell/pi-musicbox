@@ -6,7 +6,7 @@ import {
     LucideDelete,
     LucideKeyboardOff,
 } from '@lucide/angular';
-import { OnScreenKeyboard, type TextField } from '../../on-screen-keyboard';
+import { OnScreenKeyboard, type TextField } from '../../services/on-screen-keyboard';
 
 /*
   The on-screen keyboard's keys. What they type into, and how, is

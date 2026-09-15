@@ -6,8 +6,8 @@ import {
 } from '@iharbeck/ngx-virtual-scroller';
 import { LucideSearch, LucideUserRound, LucideX } from '@lucide/angular';
 import type { ArtistSummary } from '@musicbox/shared';
-import { LibraryStore } from '../../library-store';
-import { ScrollFrame } from '../../scroll-frame';
+import { LibraryStore } from '../../services/library-store';
+import { ScrollFrame } from '../../services/scroll-frame';
 
 /*
   The Library screen: every artist in the library, in one list.

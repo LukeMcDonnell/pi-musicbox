@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { LucideBluetooth, LucideMusic } from '@lucide/angular';
-import { MusicboxApi } from '../../musicbox-api';
-import { NowPlayingSheet } from '../../now-playing-sheet';
+import { MusicboxApi } from '../../services/musicbox-api';
+import { NowPlayingSheet } from '../../services/now-playing-sheet';
 
 /*
   The micro now-playing: only the album art, carried in the menu on short

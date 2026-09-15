@@ -4,9 +4,9 @@ import { Keyboard } from './components/keyboard/keyboard';
 import { Menu } from './components/menu/menu';
 import { NowPlaying } from './components/now-playing/now-playing';
 import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
-import { NowPlayingSheet } from './now-playing-sheet';
-import { OnScreenKeyboard } from './on-screen-keyboard';
-import { ScrollFrame } from './scroll-frame';
+import { NowPlayingSheet } from './services/now-playing-sheet';
+import { OnScreenKeyboard } from './services/on-screen-keyboard';
+import { ScrollFrame } from './services/scroll-frame';
 
 /**
  * The application frame: menu, routed screen, and the two now-playing views.
@@ -15,7 +15,7 @@ import { ScrollFrame } from './scroll-frame';
  * so opening it costs no component construction and the art is already decoded
  * — and it can be dismissed back to whatever screen was underneath, unchanged.
  *
- * Screens are components under components/, wired up in app.routes.ts.
+ * Screens live under routes/, wired up in app.routes.ts.
  */
 @Component({
     selector: 'app-root',

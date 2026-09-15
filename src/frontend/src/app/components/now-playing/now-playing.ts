@@ -22,7 +22,7 @@ import {
     LucideX,
 } from '@lucide/angular';
 import type { PlaybackCommand } from '@musicbox/shared';
-import { MusicboxApi } from '../../musicbox-api';
+import { MusicboxApi } from '../../services/musicbox-api';
 import { Queue } from '../queue/queue';
 
 /** Seconds as m:ss, or a dash when there is nothing to show. */

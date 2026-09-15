@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, si
 import { Router } from '@angular/router';
 import { LucideChevronLeft, LucideDisc3, LucideUserRound } from '@lucide/angular';
 import type { AlbumSummary } from '@musicbox/shared';
-import { LibraryStore } from '../../../library-store';
+import { LibraryStore } from '../../services/library-store';
 
 /*
   One artist: their picture as a hero, then their albums oldest first.

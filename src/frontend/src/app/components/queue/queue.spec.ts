@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import type { Snapshot, Track } from '@musicbox/shared';
 import { Queue } from './queue';
-import { MusicboxApi } from '../../musicbox-api';
+import { MusicboxApi } from '../../services/musicbox-api';
 
 function track(id: number, title: string): Track {
     return { id, title, file: `x/${title}.flac`, image: null };

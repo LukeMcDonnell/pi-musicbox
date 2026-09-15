@@ -3,8 +3,8 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import type { ArtistSummary } from '@musicbox/shared';
 import { Library, ROW_HEIGHT } from './library';
-import { LibraryStore } from '../../library-store';
-import { ScrollFrame } from '../../scroll-frame';
+import { LibraryStore } from '../../services/library-store';
+import { ScrollFrame } from '../../services/scroll-frame';
 
 function artist(over: Partial<ArtistSummary> = {}): ArtistSummary {
     return {

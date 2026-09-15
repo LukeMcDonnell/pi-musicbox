@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { KEYBOARD_ENABLED, OnScreenKeyboard } from '../../on-screen-keyboard';
+import { KEYBOARD_ENABLED, OnScreenKeyboard } from '../../services/on-screen-keyboard';
 import { Keyboard, type Key } from './keyboard';
 
 function create() {

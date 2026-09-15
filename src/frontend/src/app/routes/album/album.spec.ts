@@ -2,8 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import type { AlbumResponse, Track } from '@musicbox/shared';
 import { Album } from './album';
-import { LibraryStore } from '../../../library-store';
-import { NowPlayingSheet } from '../../../now-playing-sheet';
+import { LibraryStore } from '../../services/library-store';
+import { NowPlayingSheet } from '../../services/now-playing-sheet';
 
 function track(title: string, duration: number | undefined, file: string): Track {
     return { title, duration, file, image: '/api/art?album=x' };

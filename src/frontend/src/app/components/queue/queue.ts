@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LucideMusic } from '@lucide/angular';
 import type { Track } from '@musicbox/shared';
-import { MusicboxApi } from '../../musicbox-api';
+import { MusicboxApi } from '../../services/musicbox-api';
 import { clock } from '../now-playing/now-playing';
 
 /** Which half of the queue is on screen. */

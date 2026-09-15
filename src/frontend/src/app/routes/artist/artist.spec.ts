@@ -3,7 +3,7 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import type { AlbumSummary, ArtistSummary } from '@musicbox/shared';
 import { Artist } from './artist';
-import { LibraryStore } from '../../../library-store';
+import { LibraryStore } from '../../services/library-store';
 
 function album(over: Partial<AlbumSummary> = {}): AlbumSummary {
     return {

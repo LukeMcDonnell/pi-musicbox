@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, si
 import { Router } from '@angular/router';
 import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay } from '@lucide/angular';
 import type { AlbumResponse, Track } from '@musicbox/shared';
-import { LibraryStore } from '../../../library-store';
-import { NowPlayingSheet } from '../../../now-playing-sheet';
-import { clock } from '../../now-playing/now-playing';
+import { LibraryStore } from '../../services/library-store';
+import { NowPlayingSheet } from '../../services/now-playing-sheet';
+import { clock } from '../../components/now-playing/now-playing';
 
 /*
   One album: its cover as a hero, two buttons, and the tracks.

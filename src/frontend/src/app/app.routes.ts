@@ -1,9 +1,9 @@
 import { Routes } from '@angular/router';
-import { Favourites } from './components/favourites/favourites';
-import { Album } from './components/library/album/album';
-import { Artist } from './components/library/artist/artist';
-import { Library } from './components/library/library';
-import { Settings } from './components/settings/settings';
+import { Favourites } from './routes/favourites/favourites';
+import { Album } from './routes/album/album';
+import { Artist } from './routes/artist/artist';
+import { Library } from './routes/library/library';
+import { Settings } from './routes/settings/settings';
 
 /*
   Eager, not loadComponent. Lazy chunks would save nothing worth having — the

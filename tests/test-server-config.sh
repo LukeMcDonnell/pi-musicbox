@@ -199,7 +199,7 @@ rm -rf "$EMIT_DIR"
 check "the server announces its build over SSE" "0" \
     "$(has 'SSE_BUILD_EVENT' "$REPO/src/backend/src/routes.ts")"
 check "the client reloads on a build change"    "0" \
-    "$(has 'location.reload()' "$REPO/src/frontend/src/app/musicbox-api.ts")"
+    "$(has 'location.reload()' "$REPO/src/frontend/src/app/services/musicbox-api.ts")"
 # dev-push used to tell the user to "just reload the page", which is impossible
 # on a panel with no keyboard. It must not say that again.
 check "dev-push does not tell you to reload by hand" "1" \
@@ -212,18 +212,18 @@ banner "every API url goes through the configured origin"
 # bypasses the resolver is fetched from the PAGE's origin instead — which for
 # Track.image (a root-relative path the SERVER sends) meant art 404ing in that
 # setup. The <img> binding must resolve it like every other API call.
-API_TS="$REPO/src/frontend/src/app/musicbox-api.ts"
+API_TS="$REPO/src/frontend/src/app/services/musicbox-api.ts"
 # Transport moved out of musicbox-api.ts when library browse landed: two
 # services now need it (playback state and the browse catalogue) and neither
 # should own it. resolve() lives here; musicbox-api.ts keeps a delegating
 # resolve() because every caller and the Angular spec name it there.
-CLIENT_TS="$REPO/src/frontend/src/app/api-client.ts"
-STORE_TS="$REPO/src/frontend/src/app/library-store.ts"
-# The components, not app.ts: this used to look in app.ts, which stopped holding
-# any of it when now-playing was extracted — so the check silently passed against
-# a file that could never contain a violation. There is more than one art binding
-# now (now-playing and the queue), so it is asked of the whole directory.
-COMPONENTS="$REPO/src/frontend/src/app/components"
+CLIENT_TS="$REPO/src/frontend/src/app/services/api-client.ts"
+STORE_TS="$REPO/src/frontend/src/app/services/library-store.ts"
+# The UI, not app.ts: this used to look in app.ts, which stopped holding any of
+# it when now-playing was extracted — so the check silently passed against a file
+# that could never contain a violation. There is more than one art binding now
+# (now-playing and the queue), so it is asked of both UI directories.
+UI=("$REPO/src/frontend/src/app/components" "$REPO/src/frontend/src/app/routes")
 check "the resolver exists and is public"   "0" "$(grep -qE '^\s+resolve\(path: string\)' "$CLIENT_TS"; echo $?)"
 # It stays reachable under its old name too. Components call api.resolve() for
 # art, and moving it without leaving this behind would break every one silently.
@@ -234,14 +234,14 @@ check "every fetch in the client is resolved" \
     "$(grep -c 'fetch(' "$CLIENT_TS")" \
     "$(grep -c 'fetch(this.resolve(' "$CLIENT_TS")"
 check "no fetch outside the client"         "1" \
-    "$(grep -rqE '\bfetch\(' "$API_TS" "$STORE_TS" "$COMPONENTS"; echo $?)"
+    "$(grep -rqE '\bfetch\(' "$API_TS" "$STORE_TS" "${UI[@]}"; echo $?)"
 check "no private url() helper remains"     "1" "$(grep -q 'this\.url(' "$API_TS"; echo $?)"
 check "the art is resolved, not bound raw"  "0" \
-    "$(grep -rq 'api\.resolve(' "$COMPONENTS"; echo $?)"
+    "$(grep -rq 'api\.resolve(' "${UI[@]}"; echo $?)"
 # The raw field must never reach a template directly — that is the bug this
 # whole block exists for.
 check "no template binds .image"            "1" \
-    "$(grep -rq '\.image' "$COMPONENTS" --include='*.html'; echo $?)"
+    "$(grep -rq '\.image' "${UI[@]}" --include='*.html'; echo $?)"
 # A Bluetooth source answers 409 to GET /api/queue. The snapshot already said so
 # with queueVersion -1, so the client must not ask.
 check "the queue is not fetched without a version" "0" \

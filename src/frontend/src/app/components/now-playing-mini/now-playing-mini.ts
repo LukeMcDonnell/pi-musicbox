@@ -7,7 +7,7 @@ import {
     LucideSkipForward,
 } from '@lucide/angular';
 import type { PlaybackCommand } from '@musicbox/shared';
-import { MusicboxApi } from '../../musicbox-api';
+import { MusicboxApi } from '../../services/musicbox-api';
 
 /*
   The mini now-playing bar along the bottom of every screen: cover, title,
