@@ -1,32 +1,8 @@
-<!-- Off screen until the mini bar is tapped. `translate`, not `transform`, but
-     the effect on this host is the same: it becomes the containing block for
-     now-playing's position: fixed children. That is harmless only because the
-     host is itself fixed to the full viewport — keep the inset-0. inert while
-     hidden, so nothing off screen can take focus. -->
 <app-now-playing class="fixed inset-0 z-40 transition-transform duration-200 ease-linear"
                  [class.translate-y-full]="!sheet.open()"
                  [attr.inert]="sheet.open() ? null : ''"
                  (close)="sheet.hide()" />
 
-<!-- Wide: the menu is a rail beside the page, and the mini bar runs along the
-     bottom under both.
-     Narrow: the menu is fixed to the very bottom, with the mini bar stacked
-     directly above it — the tabs stay where a thumb is, and now-playing sits
-     next to the controls that lead to it. Out of the flow, so the page takes
-     the full width.
-     Short (either width): no mini bar at all — the menu carries just the album
-     art instead. See the `short` variant in styles.scss.
-
-     THE PAGE SCROLLS IN <main>, NOT IN THE WINDOW. The frame is exactly the
-     viewport minus whatever fixed chrome is showing, and main is its scroller.
-     A window scrollbar is laid out beside fixed elements, never under them, so
-     it stayed visible down the edge of the now-playing sheet whatever its
-     z-index; and hiding it while the sheet is open changes the page width, which
-     shifts the sheet's centred content as it opens and closes. main's own
-     scrollbar is covered like anything else. It also ends where the bar begins,
-     rather than running on underneath it, and the page no longer needs bottom
-     padding to keep its last row clear of the chrome. Nothing reads window
-     scroll: there is no router scroll restoration. -->
 <div class="flex h-[calc(100dvh-var(--spacing-bar))] flex-row
             max-[46rem]:h-[calc(100dvh-var(--spacing-bar)-var(--spacing-tabs))]
             short:h-dvh short:max-[46rem]:h-[calc(100dvh-var(--spacing-tabs))]">
@@ -34,9 +10,6 @@
                    max-[46rem]:fixed max-[46rem]:inset-x-0 max-[46rem]:bottom-0 max-[46rem]:h-tabs
                    max-[46rem]:w-auto max-[46rem]:border-t max-[46rem]:border-raised" />
 
-  <!-- overscroll-contain: a fling that reaches the end stops here instead of
-       chaining to a window that has nothing to scroll. Keyboard padding rather
-       than a shorter <main>: see THE RESIZE CONTRACT in library.ts. -->
   <main #scrollFrame class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
         [class.pb-keyboard]="keyboard.open()"
         [class.scroll-pb-keyboard]="keyboard.open()">
@@ -51,15 +24,6 @@
   <app-keyboard class="fixed inset-x-0 bottom-0 z-50 block" />
 }
 
-<!-- The panel, asleep. The backlight is off but this page is still running and
-     still gets touches, so without this the tap that wakes the screen would also
-     press whatever happened to be under the finger — most likely Play, since
-     that is where now-playing puts it.
-
-     Transparent, not black: the backlight is what makes the screen dark, and
-     painting over the page as well would only mean a repaint on the way out. It
-     sits above everything, the keyboard included, and goes away on the first
-     touch. z-60 because the keyboard is 50 — see the stack in this file. -->
 @if (panelSleep.asleep()) {
   <div class="fixed inset-0 z-[60]" aria-hidden="true"
        (pointerdown)="panelSleep.wake()"

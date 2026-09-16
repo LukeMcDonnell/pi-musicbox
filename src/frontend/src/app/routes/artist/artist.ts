@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, si
 import { Router } from '@angular/router';
 import { LucideChevronLeft, LucideDisc3, LucideUserRound } from '@lucide/angular';
 import type { AlbumSummary } from '@musicbox/shared';
+import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 
 /*
@@ -24,6 +25,7 @@ import { LibraryStore } from '../../services/library-store';
 export class Artist {
     private readonly library = inject(LibraryStore);
     private readonly router = inject(Router);
+    private readonly history = inject(AppHistory);
 
     /** Bound from `?name=` by withComponentInputBinding(). */
     readonly name = input<string>('');
@@ -128,8 +130,9 @@ export class Artist {
     }
 
     back(): void {
-        // Up, not back. `location.back()` would follow whatever path led here,
-        // and once favourites can reach an artist that is not predictable.
-        void this.router.navigate(['/library']);
+        // Back, not up — it used to be the other way round. The library is worth
+        // returning to where you left it, filter and scroll position both, and
+        // only real history does that. See decisions.md.
+        this.history.back(['/library']);
     }
 }

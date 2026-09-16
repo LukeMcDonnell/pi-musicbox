@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, si
 import { Router } from '@angular/router';
 import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay } from '@lucide/angular';
 import type { AlbumResponse, Track } from '@musicbox/shared';
+import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
@@ -38,6 +39,7 @@ export class Album {
     private readonly sheet = inject(NowPlayingSheet);
     private readonly prefs = inject(Preferences);
     private readonly router = inject(Router);
+    private readonly history = inject(AppHistory);
 
     /** Bound from `?artist=` and `?album=` by withComponentInputBinding(). */
     readonly artist = input<string>('');
@@ -148,7 +150,9 @@ export class Album {
     }
 
     back(): void {
-        void this.router.navigate(['/library/artist'], { queryParams: { name: this.artist() } });
+        // Real history back, with the artist as the fallback for a screen that
+        // was loaded straight into. See AppHistory.
+        this.history.back(['/library/artist'], { queryParams: { name: this.artist() } });
     }
 }
 

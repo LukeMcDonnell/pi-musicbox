@@ -4,6 +4,7 @@ import { Keyboard } from './components/keyboard/keyboard';
 import { Menu } from './components/menu/menu';
 import { NowPlaying } from './components/now-playing/now-playing';
 import { NowPlayingMini } from './components/now-playing-mini/now-playing-mini';
+import { AppHistory } from './services/app-history';
 import { IdleWatch } from './services/idle-watch';
 import { PanelSleep } from './services/panel-sleep';
 import { NowPlayingSheet } from './services/now-playing-sheet';
@@ -40,6 +41,9 @@ export class App implements AfterViewInit {
 
     /** Same: it watches for inactivity, and does nothing until asked to. */
     private readonly idle = inject(IdleWatch);
+
+    /** Same again: it has to count every navigation, starting with the first. */
+    private readonly history = inject(AppHistory);
 
     /**
      * The panel's backlight. Panel only — the service is inert everywhere else.

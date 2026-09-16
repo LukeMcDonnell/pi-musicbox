@@ -742,3 +742,73 @@ should not claim it is.
 `have_pkg nodejs` is not enough for this one package: the image already had node
 20 installed, so presence is not currency. `install.sh` compares the major
 version, which is what makes the upgrade happen at all.
+
+## Scroll position is the router's to restore, through a scroller of ours (2026-09-16)
+
+The page scrolls in `<main>`, not the window, and the cost of that had gone
+unpaid: every navigation landed at the top of whatever it went to. 487 rows into
+the library, open an artist, come back, start again.
+
+**`withInMemoryScrolling` alone is not a fix, it is a no-op.** Angular's
+`RouterScroller` does all the bookkeeping correctly — it stores a position per
+history entry at `NavigationStart` and replays it on `popstate` — but it replays
+it through `ViewportScroller`, whose stock implementation calls `window.scrollTo`.
+This window never scrolls. Turning the option on and stopping there would have
+looked like a fix and done nothing at all.
+
+`ViewportScroller` is an injectable abstract class and `RouterScroller` takes
+whatever the injector has, so `FrameViewportScroller` is the whole of the change:
+same bookkeeping, different element, read out of `ScrollFrame`. The option and
+the provider are one feature — either alone is inert — which is why they sit
+together in app.config.ts under a comment saying so, and why the test for them is
+an end-to-end one in app.spec.
+
+**The back arrows are real history back now, reversing "up, not back".** Artist
+and album used to navigate to a fixed parent, with a comment turning
+`location.back()` down because the path that led here is not predictable once
+favourites can reach an artist. Restoration is what changed the balance:
+`RouterScroller` restores on `popstate` and nothing else, so an arrow that pushes
+a new entry can never bring a screen back to where it was — and "up" also
+discarded the `?filter=` term the library was left under, which back preserves.
+Unpredictable is also what a back button is for. `AppHistory` counts the in-app
+entries behind the current one so a cold load — a bookmarked artist, a panel
+reloaded onto one — still falls back to the parent instead of walking out of the
+app. `history.length` cannot answer that: the router's initial navigation, every
+popstate and every filter keystroke are all `replaceUrl`.
+
+**`NavigationEnd` is too early to write a scroll position, on every screen, for
+two unrelated reasons.** Artist, album and settings are still fetching their
+content; the library is short because its virtual scroller sizes the spacer in
+its own `requestAnimationFrame`, outside the zone. A write into a frame that is
+still short clamps and reports nothing — the same shape of silent failure as a
+virtual scroller with no frame. So `settle` waits for `scrollHeight` to be able
+to hold the target, one read per frame, and writes once.
+
+**The budget is 60 frames or 1000ms, and both numbers are guesses.** What would
+replace them is an artist page's cold-cache round trip timed on the Pi. They are
+affordable for now because the loop only runs on a real restore, and because a
+touch or a wheel on the frame ends it immediately — that interruption is what
+makes a generous cap safe. It is deliberately not "did `scrollTop` change": the
+virtual scroller writes `scrollTop` itself when its content grows, which would
+abandon every restore of the one list this matters most for. Out of budget it
+writes the clamped position anyway; landing part-way beats landing at the top.
+Every path names its outcome in `landing()`, so a restore that did nothing is
+visible rather than merely disappointing. If `'clamped'` turns out common on the
+device, raise the budget or move to a `ResizeObserver` on the frame's content,
+whose callbacks land after layout and make the `scrollHeight` read free.
+
+**The library is restored by writing `frame.scrollTop`, never by the scroller's
+own `scrollToPosition`.** That method adds `getElementsOffset()` to whatever it
+is given — the sticky header, the filter row, the count line — and part of that
+offset is itself a function of the current scroll, so it and a recorded
+`scrollTop` are different coordinate systems and the error is a variable header
+height. It would also animate by default, and an animation is a `scrollTop` write
+per frame, which on the DSI panel is a vc4 atomic commit per frame. Beyond both:
+a viewport scroller must not know that one screen in four is virtualised. Writing
+`scrollTop` reaches the list anyway — the scroller listens for `scroll` on the
+element it was pointed at, so a restore takes the same path a fling does.
+
+**A replaced URL is the same place under a new name.** The filter's per-keystroke
+`replaceUrl` navigations are forward navigations, so the router scrolls to the
+top a frame after each one — which is what `setQuery` already did itself, hence
+no fight. They are also why `AppHistory` counts pushes rather than navigations.

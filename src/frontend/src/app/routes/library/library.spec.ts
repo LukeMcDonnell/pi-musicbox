@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { signal } from '@angular/core';
 import type { ArtistSummary } from '@musicbox/shared';
 import { Library, ROW_HEIGHT } from './library';
@@ -59,13 +59,21 @@ async function frames(count = 3): Promise<void> {
 function create(
     store: ReturnType<typeof fakeStore>,
     frame: ReturnType<typeof fakeFrame> = fakeFrame(),
+    params: Record<string, string> = {},
 ) {
     TestBed.configureTestingModule({
         imports: [Library],
         providers: [
-            provideRouter([]),
+            // A real route, so the navigation setQuery makes has something to match.
+            provideRouter([{ path: 'library', component: Library }]),
             { provide: LibraryStore, useValue: store },
             { provide: ScrollFrame, useValue: frame },
+            // The component reads `?filter=` from the snapshot, which in a test
+            // is whatever this says it is.
+            {
+                provide: ActivatedRoute,
+                useValue: { snapshot: { queryParamMap: convertToParamMap(params) } },
+            },
         ],
     });
     return TestBed.createComponent(Library);
@@ -187,6 +195,39 @@ describe('Library', () => {
             expect(cmp.countLabel()).toBe('1 of 5 Artists');
         });
 
+        it('starts filtered when the URL arrived with a term', () => {
+            const cmp = create(fakeStore(list()), fakeFrame(), { filter: 'radio' }).componentInstance;
+            // Coming back from an artist recreates this component, and the
+            // filter the list was left under has to survive that.
+            expect(cmp.query()).toBe('radio');
+            expect(shown(cmp)).toEqual(['Radiohead']);
+        });
+
+        it('starts unfiltered when the URL carries no term', () => {
+            const cmp = create(fakeStore(list())).componentInstance;
+            expect(cmp.query()).toBe('');
+            expect(shown(cmp)).toEqual(names);
+        });
+
+        it('puts the term in the URL, and takes it out again when cleared', async () => {
+            const cmp = create(fakeStore(list())).componentInstance;
+            const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+            cmp.setQuery('radio');
+            expect(navigate).toHaveBeenCalledWith(
+                ['/library'],
+                // replaceUrl: a keystroke is not a place to go back to.
+                { queryParams: { filter: 'radio' }, replaceUrl: true },
+            );
+
+            cmp.setQuery('');
+            // Null, not '', or a cleared field would leave `?filter=` behind.
+            expect(navigate).toHaveBeenCalledWith(
+                ['/library'],
+                { queryParams: { filter: null }, replaceUrl: true },
+            );
+        });
+
         it('returns to the top of the frame when the filter changes', () => {
             const element = realFrame();
             const tall = document.createElement('div');
@@ -222,6 +263,26 @@ describe('Library', () => {
         // No scroller mounted in this fixture, so the offset falls back to 0
         // rather than throwing; aria-posinset is the only thing that reads it.
         expect(cmp.firstIndex()).toBe(0);
+    });
+
+    it('follows a scrollTop written straight onto the frame', async () => {
+        // How FrameViewportScroller restores this screen: it writes scrollTop on
+        // <main> and nothing else. If the scroller did not follow that, a restore
+        // would land at the right offset with the list still showing row 1.
+        const element = realFrame();
+        const many = Array.from({ length: 200 }, (_, i) => artist({ name: `Artist ${i}` }));
+        const fixture = create(fakeStore(many), fakeFrame(element));
+        // The rows have to live inside the frame for its geometry to be real.
+        element.appendChild(fixture.nativeElement);
+        fixture.detectChanges();
+        await frames();
+
+        element.scrollTop = ROW_HEIGHT * 50;
+        await frames(6);
+        fixture.detectChanges();
+
+        expect(fixture.componentInstance.firstIndex()).toBeGreaterThan(40);
+        element.remove();
     });
 
     it('renders a row exactly ROW_HEIGHT tall', async () => {

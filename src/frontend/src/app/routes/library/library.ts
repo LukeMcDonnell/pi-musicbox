@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
     VirtualScrollerComponent,
     VirtualScrollerModule,
@@ -77,6 +77,9 @@ import { ScrollFrame } from '../../services/scroll-frame';
  */
 export const ROW_HEIGHT = 64;
 
+/** The query parameter carrying the filter term. */
+export const FILTER_PARAM = 'filter';
+
 @Component({
     selector: 'app-library',
     imports: [LucideSearch, LucideUserRound, LucideX, VirtualScrollerModule],
@@ -92,6 +95,7 @@ export const ROW_HEIGHT = 64;
 export class Library {
     private readonly library = inject(LibraryStore);
     private readonly router = inject(Router);
+    private readonly route = inject(ActivatedRoute);
 
     /**
      * The list, from the store's cache.
@@ -105,7 +109,17 @@ export class Library {
 
     readonly loading = computed(() => this.artists() === null && this.error() === null);
 
-    readonly query = signal('');
+    /**
+     * The filter term, seeded from `?filter=` once, when the screen loads.
+     *
+     * READ FROM THE SNAPSHOT, not bound as an input like artist's `name`: this
+     * screen WRITES the parameter too, and a bound input would feed every
+     * keystroke's navigation back into the signal it came from. The read happens
+     * at construction because that is the only time the term arrives from
+     * outside — coming back from an artist recreates this component, and
+     * navigating within `/library` does not.
+     */
+    readonly query = signal(this.route.snapshot.queryParamMap.get(FILTER_PARAM) ?? '');
 
     // Separate computed so `Rad` -> `rad` doesn't hand the scroller a new array.
     private readonly needle = computed(() => fold(this.query().trim()));
@@ -172,6 +186,14 @@ export class Library {
         const frame = this.frame();
         if (frame && frame.scrollTop > 0) frame.scrollTop = 0;
         this.query.set(value);
+        // replaceUrl: a keystroke is not a place to go back to. Null drops the
+        // parameter rather than leaving `?filter=` on a cleared field. The
+        // router scrolls to the top a frame after this lands, which is what the
+        // line above already did — see FrameViewportScroller.
+        void this.router.navigate(['/library'], {
+            queryParams: { [FILTER_PARAM]: value === '' ? null : value },
+            replaceUrl: true,
+        });
     }
 
     /** See THE RESIZE CONTRACT above. The scroller is absent while loading. */

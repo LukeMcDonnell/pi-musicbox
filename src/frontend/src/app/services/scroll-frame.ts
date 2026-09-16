@@ -22,6 +22,10 @@
  *
  * Null until App's view exists, and for the life of a component mounted outside
  * the frame. Callers must handle that rather than assert it.
+ *
+ * TWO CONSUMERS NOW: the library's virtual scroller, and FrameViewportScroller,
+ * which reads and writes scrollTop across navigations so the router can put a
+ * screen back where it was left.
  */
 
 import { Injectable, signal } from '@angular/core';
