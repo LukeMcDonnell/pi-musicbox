@@ -338,6 +338,147 @@ check "it never touches the output toggle" "1" \
 check "disconnect routes to ctl_disconnect, not take_for_mpd" "1" \
     "$(sed -n '/^handle_ctl()/,/^}/p' "$ARBITER" | grep -qE 'disconnect\).*take_for_mpd'; echo $?)"
 
+banner "A SECOND DEVICE TAKES THE SPEAKER FROM THE FIRST"
+# hw:0,0 is exclusive, so two phones cannot share it and the only question is
+# which one holds it. The newest connection wins. Before this, a second phone was
+# dropped on the floor: connected as far as BlueZ, a transport as far as BlueALSA,
+# and invisible to the arbiter — with bluealsa-aplay --single-audio then choosing
+# between two PCMs by its own rules rather than ours.
+check "take_over_from exists" "0" "$(hasre '^take_over_from\(\)' "$ARBITER")"
+check "wait_for_pcm_gone exists" "0" "$(hasre '^wait_for_pcm_gone\(\)' "$ARBITER")"
+check "the newcomer is no longer dropped on the floor" "1" \
+    "$(sed -n '/^handle_bt()/,/^}/p' "$ARBITER" | grep -qE '\[\[ -z "\$ACTIVE_ADDR" \]\] \|\| return'; echo $?)"
+check "PCMAdded evicts the incumbent" "0" \
+    "$(sed -n '/^handle_bt()/,/^}/p' "$ARBITER" | grep -q 'take_over_from'; echo $?)"
+# The evicted phone's own PCMRemoved is still queued behind the takeover, so
+# without an address comparison every takeover would immediately tear itself down
+# — and a second phone merely visiting would take the speaker from whoever is
+# actually playing, which it did before this.
+check "PCMRemoved only ends the ACTIVE device's session" "0" \
+    "$(sed -n '/^handle_bt()/,/^}/p' "$ARBITER" | grep -qF 'addr_from_path "$path")" == "$ACTIVE_ADDR"'; echo $?)"
+# Publishing {} mid-takeover would flash "disconnected" on the panel in the moment
+# before the newcomer publishes itself. release_bluetooth is the obvious thing to
+# reach for here and it does exactly that, so it has to be excluded by name —
+# grepping only for publish_none passes on a take_over_from that calls it.
+check "the takeover never publishes a disconnected state" "1" \
+    "$(sed -n '/^take_over_from()/,/^}/p' "$ARBITER" | grep -q 'publish_none'; echo $?)"
+check "and does not route through release_bluetooth to do it" "1" \
+    "$(sed -n '/^take_over_from()/,/^}/p' "$ARBITER" | grep -q 'release_bluetooth'; echo $?)"
+check "nor does it resume MPD" "1" \
+    "$(sed -n '/^take_over_from()/,/^}/p' "$ARBITER" | grep -qE 'mpc (play|toggle)'; echo $?)"
+check "it waits for our player to exit" "0" \
+    "$(sed -n '/^take_over_from()/,/^}/p' "$ARBITER" | grep -q 'wait_for_aplay'; echo $?)"
+# bluealsa-aplay --single-audio picks its own PCM, so restarting it while the
+# evicted transport still exists can reattach it to the phone we just kicked off.
+check "and for the outgoing transport to actually go" "0" \
+    "$(sed -n '/^take_over_from()/,/^}/p' "$ARBITER" | grep -q 'wait_for_pcm_gone'; echo $?)"
+# It was set, cleared, and read nowhere — and it is exactly the value a naive
+# PCMRemoved guard would reach for instead of the address.
+check "the dead ACTIVE_PATH is gone, not left as a trap" "1" "$(has 'ACTIVE_PATH' "$ARBITER")"
+
+# Everything above is text. This RUNS handle_bt, which nothing did before — both
+# of the bugs this section fixes lived in its decisions rather than in its words.
+#
+# The arbiter is sourced minus its trailing `main "$@"`, with recording stubs for
+# every external command ahead of it on PATH, so nothing here touches BlueZ,
+# systemd or the card.
+BIN="$WORK/bin"; mkdir -p "$BIN"
+export STUB_CALLS="$WORK/calls"; : > "$STUB_CALLS"
+export STUB_PCMS="$WORK/pcms";   : > "$STUB_PCMS"
+
+cat > "$BIN/bluetoothctl" <<'STUB'
+#!/usr/bin/env bash
+printf 'bluetoothctl %s\n' "$*" >> "$STUB_CALLS"
+case "$1" in
+    info) printf '\tAlias: Phone-%s\n' "${2%%:*}" ;;
+    # A real disconnect returns BEFORE BlueZ has torn the transport down, which is
+    # the whole reason wait_for_pcm_gone exists. Leave one behind for it to find.
+    disconnect) printf 'dev_%s\n' "${2//:/_}" >> "$STUB_PCMS" ;;
+esac
+exit 0
+STUB
+cat > "$BIN/bluealsa-cli" <<'STUB'
+#!/usr/bin/env bash
+printf 'bluealsa-cli %s\n' "$*" >> "$STUB_CALLS"
+case "$1" in
+    info)      printf '  Selected codec: SBC\n' ;;
+    list-pcms) cat "$STUB_PCMS" 2>/dev/null; : > "$STUB_PCMS" ;;
+esac
+exit 0
+STUB
+cat > "$BIN/systemctl" <<'STUB'
+#!/usr/bin/env bash
+printf 'systemctl %s\n' "$*" >> "$STUB_CALLS"
+exit 0
+STUB
+cat > "$BIN/mpc" <<'STUB'
+#!/usr/bin/env bash
+printf 'mpc %s\n' "$*" >> "$STUB_CALLS"
+exit 0
+STUB
+# Nothing is holding the card, and no player of ours is running.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$BIN/pgrep"
+# busctl failing means no AVRCP player, so avrcp_publish takes its bare branch.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$BIN/busctl"
+chmod +x "$BIN"/*
+
+DRIVEDIR="$WORK/drive"; mkdir -p "$DRIVEDIR"
+printf 'closed\n' > "$DRIVEDIR/pcm-status"
+sed -e '$ d' "$ARBITER" > "$DRIVEDIR/lib.sh"
+export ARB_LIB="$DRIVEDIR/lib.sh"
+export ARB_STATE="$DRIVEDIR/bluetooth.json"
+export ARB_LOG="$DRIVEDIR/log"
+export ARB_PCM_STATUS="$DRIVEDIR/pcm-status"
+cat > "$DRIVEDIR/drive.sh" <<'DRIVE'
+#!/usr/bin/env bash
+# shellcheck source=/dev/null
+source "$ARB_LIB"
+STATE_FILE="$ARB_STATE"
+RUN_DIR="$(dirname "$ARB_STATE")"
+PCM_STATUS="$ARB_PCM_STATUS"
+publish_none
+# handle_bt logs to stdout, so keep that out of the state lines we print back.
+for line in "$@"; do
+    handle_bt "$line" >> "$ARB_LOG" 2>&1
+    cat "$STATE_FILE"
+done
+DRIVE
+
+A="/org/bluealsa/hci0/dev_AA_BB_CC_DD_EE_FF/a2dpsnk/source"
+B="/org/bluealsa/hci0/dev_11_22_33_44_55_66/a2dpsnk/source"
+PHONE_A='{"name":"Phone-AA","address":"AA:BB:CC:DD:EE:FF","codec":"SBC"}'
+PHONE_B='{"name":"Phone-11","address":"11:22:33:44:55:66","codec":"SBC"}'
+# One A2DP session, then a second phone, then BOTH removals — the second one
+# belonging to the phone that was evicted, arriving after the takeover as it does
+# on the device.
+mapfile -t STATES < <(PATH="$BIN:$PATH" bash "$DRIVEDIR/drive.sh" \
+    "PCMAdded $A" "PCMAdded $B" "PCMRemoved $A" "PCMRemoved $B")
+
+check "the first phone takes the card"            "$PHONE_A" "${STATES[0]:-}"
+check "the second phone takes it from the first"  "$PHONE_B" "${STATES[1]:-}"
+# THE REGRESSION. Without the address comparison this line publishes {}, and the
+# takeover cancels itself a fraction of a second after it happened.
+check "the evicted phone's removal is a no-op"    "$PHONE_B" "${STATES[2]:-}"
+check "the active phone's removal ends it"        '{}'       "${STATES[3]:-}"
+
+check "the incumbent is disconnected, not left connected and silent" "0" \
+    "$(grep -qF 'bluetoothctl disconnect AA:BB:CC:DD:EE:FF' "$STUB_CALLS"; echo $?)"
+check "the newcomer is never disconnected" "1" \
+    "$(grep -qF 'bluetoothctl disconnect 11:22:33:44:55:66' "$STUB_CALLS"; echo $?)"
+# Stopped before it is started again, so it cannot be holding the evicted phone's
+# stream when it comes back.
+check "the audio unit is restarted across the takeover" "2" \
+    "$(grep -cF 'systemctl start musicbox-bt-audio.service' "$STUB_CALLS")"
+check "and stopped each time" "2" \
+    "$(grep -cF 'systemctl stop musicbox-bt-audio.service' "$STUB_CALLS")"
+check "MPD is never resumed anywhere in this" "1" \
+    "$(grep -qE '^mpc (play|toggle)' "$STUB_CALLS"; echo $?)"
+check "the takeover is logged by name" "0" \
+    "$(grep -qF 'superseded: Phone-AA (AA:BB:CC:DD:EE:FF)' "$ARB_LOG"; echo $?)"
+# It named $ACTIVE_ADDR for an event about another device before this.
+check "the disconnect log names the phone that actually left" "1" \
+    "$(grep -qF 'disconnected: AA:BB:CC:DD:EE:FF' "$ARB_LOG"; echo $?)"
+
 banner "AVRCP metadata"
 check "the player path is discovered, not assumed to be player0" "0" \
     "$(sed -n '/^avrcp_path()/,/^}/p' "$ARBITER" | grep -qF 'player[0-9]*'; echo $?)"

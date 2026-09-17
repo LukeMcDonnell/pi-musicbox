@@ -107,6 +107,17 @@ the server should not have. So the arbiter decides and the server only reads
 `/run/musicbox/bluetooth.json`. A bug on the server side can make the UI wrong; it
 cannot make the audio wrong.
 
+**A second Bluetooth device takes the speaker; the newest connection wins.**
+`hw:0,0` is exclusive, so two phones cannot share it and the only question is
+which one holds it. Incumbent-wins was the alternative and is worse in the room:
+the person who just connected gets silence with nothing on the box to say why,
+and the arbiter has no way to tell them. So the incumbent is disconnected rather
+than left connected and mute — "connected but nothing comes out" is exactly the
+confusing state this replaced. **No reconnect cooldown**: an evicted phone that
+auto-reconnects has made a new connection and legitimately wins, and a timer that
+silently refuses a connection the user just made is worse than the ping-pong it
+speculates about. Revisit if a ping-pong is ever actually observed.
+
 **The Bluetooth radio was rfkill soft-blocked, and nothing in this repo did it.**
 `bluetoothctl show` reported `PowerState: off-blocked` and `bluetoothd` logged
 `Failed to set mode: Failed (0x03)` at every boot, with the hardware otherwise
@@ -273,6 +284,33 @@ Two fixes, because one was not enough:
   `mpd` restart never reaches the UI at all.
 
 After: one connection in 215s, where there had been three.
+
+**A second phone connecting and leaving took the speaker from the first.**
+`handle_bt`'s `PCMRemoved` arm checked only that *something* was active, never
+that the transport that had just gone belonged to it. So a phone that connected
+and left — while a different phone was mid-song — stopped the audio unit and
+published `{}`, and the log line named `$ACTIVE_ADDR` for an event about another
+device, which is the kind of log that sends you looking in the wrong place.
+
+It was invisible for as long as it was because the matching `PCMAdded` arm
+*dropped* second devices entirely, so the only way to reach the bug was to
+connect a second phone and then disconnect it — which is not something a single
+tester does. The lesson is that **an event handler keyed on a shared resource
+must identify which instance the event is about**, even when the design says
+there is only ever one of them; "only ever one" was an assumption about the
+world, not something enforced anywhere.
+
+Both arms are fixed together, because they are the same assumption: the newcomer
+now takes the speaker (above) and `PCMRemoved` compares the address. The
+comparison is load-bearing for the takeover too — the evicted phone's own
+removal is still queued behind it, so without the check every takeover would
+cancel itself a moment after it happened.
+
+The suite had **no assertion that ran `handle_bt` at all**; it was tested only
+through `musicbox-bt publish`, which bypasses the dispatcher. It now sources the
+generated arbiter with recording stubs on `PATH` and drives the four events in
+order. Both bugs lived in the dispatcher's decisions, and no amount of grepping
+its text would have found either.
 
 **The server could not shut down while anything was watching it.** Fastify's
 `close()` waits for open connections to finish and an SSE stream never finishes,

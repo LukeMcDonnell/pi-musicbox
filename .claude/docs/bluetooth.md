@@ -117,11 +117,14 @@ A PHONE CONNECTS                       MPD STARTS PLAYING BY ANY OTHER ROUTE
   read the codec, publish again          mpc play
                                          publish {}
 
-DISCONNECT IS PRESSED IN THE UI
-  POST /api/bluetooth/disconnect -> "disconnect" into the control FIFO
-  bluetoothctl disconnect <addr>
-  release_bluetooth: stop the audio unit, publish {}
-  MPD IS NOT TOUCHED — it stays paused where it was
+DISCONNECT IS PRESSED IN THE UI       A SECOND PHONE CONNECTS
+  POST /api/bluetooth/disconnect        bluealsa-cli monitor: PCMAdded, new addr
+    -> "disconnect" into the FIFO       take_over_from: disconnect the incumbent
+  bluetoothctl disconnect <addr>        stop the audio unit
+  release_bluetooth: stop the audio     wait for bluealsa-aplay to be GONE
+    unit, publish {}                    wait for the OLD TRANSPORT to be gone
+  MPD IS NOT TOUCHED — it stays         take_for_bluetooth, as on first connect
+    paused where it was                 MPD IS NOT TOUCHED — already paused
 ```
 
 **Pressing play no longer takes the speaker back.** It controls the phone, which
@@ -155,6 +158,72 @@ battery or leaving the house must not start the speaker playing to an empty room
 than assumed: MPD caches the failed open and does not retry promptly. Verified by
 hand on the device — a toggle followed by `mpc play` resumed a stuck MPD at its
 saved position in about 1.5s, where doing nothing left it paused indefinitely.
+
+## A second phone takes the speaker
+
+**The newest connection wins.** A second phone connecting disconnects the first
+and takes the DAC. There is no sharing to arrange — `hw:0,0` is exclusive, so the
+only question is which phone holds it, and the one somebody just connected is the
+one that means it.
+
+What it replaced was worse than a missing feature. The second phone was dropped on
+the floor at `handle_bt`'s `PCMAdded` arm: connected as far as BlueZ, holding a
+transport as far as BlueALSA, and entirely invisible to the arbiter — no log line,
+no publish, no audio. `bluealsa-aplay --single-audio` was then choosing between two
+PCMs by its own rules rather than ours, which is what "Bluetooth is a bit flaky"
+turned out to mean.
+
+**`PCMRemoved` now compares the address, and that is load-bearing twice over.** It
+did not before, which was a bug on its own: a second phone that connected and left
+stopped the audio unit and published `{}` while the *first* phone was still
+connected and playing — the log even named the wrong device. It is also what makes
+the takeover survivable, because the evicted phone's own `PCMRemoved` is still
+queued behind it and arrives after the newcomer has taken over. Without the
+comparison every takeover would cancel itself a moment after it happened.
+
+**Three waits, three different questions.** `take_over_from` uses two of them:
+
+| | |
+|---|---|
+| `wait_for_dac` | has the current owner let go of the card? |
+| `wait_for_aplay` | has *our* player exited? |
+| `wait_for_pcm_gone` | has the outgoing phone's transport actually left BlueALSA? |
+
+The third is new and specific to the takeover. `bluealsa-aplay --single-audio`
+picks which PCM to play by itself, so restarting it while the evicted phone's
+transport still exists can reattach it to the phone we just disconnected — the
+newcomer connects and the old one keeps playing. `bluetoothctl disconnect`
+returning is not the same as BlueZ having torn the transport down.
+
+**It does not go through `release_bluetooth`**, which is the obvious thing to reach
+for. That publishes `{}`, which would flash "disconnected" on the panel in the
+moment before the newcomer publishes itself, and re-asserts the adapter, which is
+for a session ending rather than for one phone handing over to another.
+
+**There is no reconnect cooldown.** An evicted phone that auto-reconnects has made
+a new connection and legitimately wins. Guarding against a ping-pong between two
+phones that both retry was considered and left out: it is speculative, and a
+timer that silently refuses a connection the user just made is worse than the
+behaviour it prevents. Revisit if it is ever actually observed.
+
+`ctl_disconnect` and `take_for_mpd` still disconnect only `$ACTIVE_ADDR`. With at
+most one A2DP device connected at a time that is correct by construction, and
+enumerating every connected device would be more BlueZ surface for no measured
+gain.
+
+`tests/test-bluetooth-config.sh` drives `handle_bt` for real for this — sourcing
+the generated arbiter with recording stubs on `PATH` — because both of the bugs
+above lived in its decisions rather than in its words.
+
+**NOT YET MEASURED ON REAL HARDWARE.** The arbiter is deployed and the stubbed
+event sequence is proven, but no two-phone takeover has been timed on the device.
+Everything else in this file carries a figure; this does not, and the gap is the
+point — several confident predictions in this project were wrong on the real
+board. What to record when it is exercised: the time from the second phone's
+`PCMAdded` to audio actually coming out of it, whether the panel flashes anything
+between the two devices, and whether `wait_for_pcm_gone` ever hits its 5s timeout
+(if it does, the transport teardown is slower than the budget and the timeout is
+the number to revisit, not the design).
 
 ## There is no cover art, and that is settled
 

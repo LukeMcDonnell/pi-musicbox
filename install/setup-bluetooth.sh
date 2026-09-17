@@ -473,8 +473,10 @@ readonly RELEASE_TIMEOUT_S=5
 # The phone currently holding the DAC, or empty. Name and codec are kept
 # alongside the address because the 1Hz AVRCP tick republishes the whole document
 # and would otherwise have to re-derive them from BlueZ every second.
+#
+# There is only ever ONE. hw:0,0 is exclusive, so two phones cannot share it, and
+# a second one connecting takes the speaker rather than queueing behind the first.
 ACTIVE_ADDR=""
-ACTIVE_PATH=""
 ACTIVE_NAME=""
 ACTIVE_CODEC=""
 
@@ -585,6 +587,27 @@ wait_for_aplay() {
     while pgrep -x bluealsa-aplay >/dev/null 2>&1; do
         if (( waited >= RELEASE_TIMEOUT_S * 10 )); then
             log "WARNING: bluealsa-aplay still running after ${RELEASE_TIMEOUT_S}s"
+            return 1
+        fi
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    return 0
+}
+
+# Wait for one device's transport to actually leave BlueALSA.
+#
+# A THIRD distinct question, asked only when one phone is replacing another.
+# bluealsa-aplay --single-audio picks which PCM to play by itself, so starting it
+# again while the evicted phone's transport still exists can reattach it to the
+# phone we just disconnected — the newcomer connects and the old one keeps
+# playing. Asking BlueZ to disconnect is not the same as the transport being gone.
+wait_for_pcm_gone() {
+    local addr="$1" dev waited=0
+    dev="dev_${addr//:/_}"
+    while bluealsa-cli list-pcms 2>/dev/null | grep -qF "$dev"; do
+        if (( waited >= RELEASE_TIMEOUT_S * 10 )); then
+            log "WARNING: ${addr} still has a transport after ${RELEASE_TIMEOUT_S}s"
             return 1
         fi
         sleep 0.1
@@ -778,7 +801,6 @@ take_for_bluetooth() {
     [[ -n "$addr" ]] || { log "could not read an address out of ${path}"; return 1; }
 
     ACTIVE_ADDR="$addr"
-    ACTIVE_PATH="$path"
     name="$(device_name "$addr")"
     ACTIVE_NAME="$name"
     ACTIVE_CODEC=""
@@ -816,12 +838,38 @@ take_for_bluetooth() {
 release_bluetooth() {
     systemctl stop "$AUDIO_UNIT" >/dev/null 2>&1
     ACTIVE_ADDR=""
-    ACTIVE_PATH=""
     ACTIVE_NAME=""
     ACTIVE_CODEC=""
     LAST_AVRCP=""
     publish_none
     assert_adapter
+}
+
+# A second phone connected while one was already playing. The newcomer wins.
+#
+# There is no sharing to arrange: hw:0,0 is exclusive, so the only question is
+# which phone holds it, and the one somebody just connected is the one that means
+# it. The incumbent is disconnected rather than left connected and silent —
+# "connected but nothing comes out" is the confusing state this replaces.
+#
+# NOT release_bluetooth, for two reasons. It publishes {}, which would flash
+# "disconnected" on the panel in the moment before the newcomer publishes itself;
+# and it re-asserts the adapter, which is for a session ending, not for one phone
+# handing over to another. MPD is not touched at all here — it is already paused
+# and stays that way, so the no-auto-resume rule is untouched.
+take_over_from() {
+    local old="$ACTIVE_ADDR"
+    log "superseded: ${ACTIVE_NAME} (${old}) makes way for ${1}"
+    bluetoothctl disconnect "$old" >/dev/null 2>&1
+    systemctl stop "$AUDIO_UNIT" >/dev/null 2>&1
+    ACTIVE_ADDR=""
+    ACTIVE_NAME=""
+    ACTIVE_CODEC=""
+    LAST_AVRCP=""
+    # Both waits, and they ask different things: that our player has exited, and
+    # that the outgoing transport is gone so the restarted player cannot pick it.
+    wait_for_aplay || log "WARNING: handing ${ALSA_DEVICE} over anyway"
+    wait_for_pcm_gone "$old" || log "WARNING: handing ${ALSA_DEVICE} over anyway"
 }
 
 # MPD started playing while a phone held the card. Bluetooth loses.
@@ -877,7 +925,7 @@ ctl_disconnect() {
 # --- event handling ---------------------------------------------------------
 
 handle_bt() {
-    local line="$1" event path
+    local line="$1" event path addr
     event="${line%% *}"
     path="${line#* }"
     case "$event" in
@@ -885,12 +933,23 @@ handle_bt() {
             # Only A2DP. The same daemon also publishes HFP/HSP PCMs for hands-free
             # profiles, which are 8kHz voice and must never reach the DAC.
             [[ "$path" == *a2dp* ]] || return 0
-            [[ -z "$ACTIVE_ADDR" ]] || return 0
+            addr="$(addr_from_path "$path")"
+            [[ -n "$addr" ]] || return 0
+            # The phone that already holds the card, re-announcing a transport.
+            [[ "$addr" == "$ACTIVE_ADDR" ]] && return 0
+            [[ -n "$ACTIVE_ADDR" ]] && take_over_from "$addr"
             take_for_bluetooth "$path"
             ;;
         PCMRemoved)
             [[ "$path" == *a2dp* ]] || return 0
             [[ -n "$ACTIVE_ADDR" ]] || return 0
+            # ONLY the active phone's transport ends the session, and this
+            # comparison is load-bearing twice over. A second phone that connected
+            # and left would otherwise take the speaker away from whoever is
+            # actually playing — and the phone we just evicted is still queued to
+            # announce its own removal, so without this every takeover would
+            # immediately tear itself down.
+            [[ "$(addr_from_path "$path")" == "$ACTIVE_ADDR" ]] || return 0
             log "disconnected: ${ACTIVE_ADDR}"
             release_bluetooth
             ;;

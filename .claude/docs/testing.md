@@ -1,6 +1,6 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**685 assertions**)
+`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**713 assertions**)
 and the backend's 256 `node:test` cases. All green, shellcheck clean (2026-09-16). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 

@@ -488,6 +488,13 @@ what the *phone* is playing — title, artist, album, a moving progress bar — 
 the transport buttons control the phone. A **Disconnect** button hands the speaker
 back; MPD stays paused where it was, so the next press of play resumes in place.
 
+**Connect a second phone and it takes over**, and the first is disconnected. The
+card can only be held by one thing at a time, so the alternative would be a phone
+that pairs, connects, says "connected" on its own screen, and plays to nobody —
+with nothing on the box able to explain why. Whoever just connected gets the
+speaker. Nothing stops the first phone connecting straight back and taking it
+again; that is the same rule, not an exception to it.
+
 ### One source owns the DAC at a time
 
 MPD opens `hw:0,0` raw, so the card is exclusive and **both directions of the
