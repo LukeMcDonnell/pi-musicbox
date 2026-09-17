@@ -5,6 +5,7 @@ import { ApiClient } from './api-client';
 import { IS_PANEL } from './panel-client';
 import { MusicboxApi } from './musicbox-api';
 import { PanelSleep } from './panel-sleep';
+import { boxSettings } from '../testing/fixtures';
 
 const MINUTE = 60_000;
 
@@ -30,9 +31,9 @@ function snapshot(state: PlaybackState): Snapshot {
 }
 
 function setup(opts: { isPanel?: boolean; minutes?: number; state?: PlaybackState } = {}) {
-    const settings = signal<SettingsResponse | null>({
-        panelSleepAfterMinutes: opts.minutes ?? 1,
-    });
+    const settings = signal<SettingsResponse | null>(
+        boxSettings({ panelSleepAfterMinutes: opts.minutes ?? 1 }),
+    );
     const snap = signal<Snapshot | null>(snapshot(opts.state ?? 'pause'));
     const post = jasmine.createSpy('post').and.resolveTo(undefined);
 
@@ -163,7 +164,7 @@ describe('PanelSleep', () => {
     it('takes a new delay from the box without waiting out the old one', async () => {
         const { post, settings } = setup({ minutes: 20 });
         jasmine.clock().tick(5 * MINUTE);
-        settings.set({ panelSleepAfterMinutes: 1 });
+        settings.set(boxSettings({ panelSleepAfterMinutes: 1 }));
         TestBed.tick();
 
         jasmine.clock().tick(MINUTE);
@@ -173,7 +174,7 @@ describe('PanelSleep', () => {
 
     it('stops when the box is set back to Never', async () => {
         const { post, settings } = setup({ minutes: 1 });
-        settings.set({ panelSleepAfterMinutes: 0 });
+        settings.set(boxSettings({ panelSleepAfterMinutes: 0 }));
         TestBed.tick();
         jasmine.clock().tick(60 * MINUTE);
         await flush();

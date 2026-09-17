@@ -36956,6 +36956,34 @@ var PANEL_SLEEP_MINUTES = [
   15,
   20
 ];
+var SSE_LIBRARY_EVENT = "library";
+var LIBRARY_SCAN_HOURS = [
+  -1,
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23
+];
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -36979,6 +37007,27 @@ function groupBy(reply, key) {
     if (current) current.set(k, v);
   }
   return groups;
+}
+function groupByMulti(reply, key) {
+  const groups = [];
+  let current = null;
+  for (const [k, v] of reply.pairs) {
+    if (k === key) {
+      current = /* @__PURE__ */ new Map();
+      groups.push(current);
+    }
+    if (current) {
+      const existing = current.get(k);
+      if (existing === void 0) current.set(k, [v]);
+      else existing.push(v);
+    }
+  }
+  return groups;
+}
+function firstOf(tags) {
+  const out = /* @__PURE__ */ new Map();
+  for (const [k, values] of tags) if (values.length > 0) out.set(k, values[0]);
+  return out;
 }
 var DEFAULT_REPLY_TIMEOUT_MS = 1e4;
 var MpdConnection = class {
@@ -37308,10 +37357,19 @@ function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : void 0;
 }
+function encodingOf(file) {
+  const name = file.slice(file.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return void 0;
+  const ext = name.slice(dot + 1);
+  return /^[A-Za-z0-9]{1,5}$/.test(ext) ? ext.toUpperCase() : void 0;
+}
 function trackFromTags(tags) {
   const file = tags.get("file");
   if (!file) return null;
   const track = { file, image: artUriFor(file) };
+  const encoding = encodingOf(file);
+  if (encoding !== void 0) track.encoding = encoding;
   const id = num(tags.get("Id"));
   const pos = num(tags.get("Pos"));
   if (id !== void 0) track.id = id;
@@ -37321,12 +37379,39 @@ function trackFromTags(tags) {
   if (tags.get("Album")) track.album = tags.get("Album");
   if (tags.get("AlbumArtist")) track.albumArtist = tags.get("AlbumArtist");
   if (tags.get("Track")) track.track = tags.get("Track");
+  if (tags.get("Disc")) track.disc = tags.get("Disc");
   if (tags.get("Date")) track.date = tags.get("Date");
   if (tags.get("OriginalDate")) track.originalDate = tags.get("OriginalDate");
-  if (tags.get("Genre")) track.genre = tags.get("Genre");
+  if (tags.get("Format")) track.format = tags.get("Format");
+  if (tags.get("Added")) track.addedAt = tags.get("Added");
   const dur = num(tags.get("duration") ?? tags.get("Time"));
   if (dur !== void 0) track.duration = dur;
   return track;
+}
+function cleanGenres(values) {
+  const out = [];
+  for (const value of values) {
+    for (const part of value.split(";")) {
+      const genre = part.trim();
+      if (genre !== "" && !/^\d+$/.test(genre)) out.push(genre);
+    }
+  }
+  return out;
+}
+function songFromTags(tags) {
+  const track = trackFromTags(firstOf(tags));
+  if (track === null) return null;
+  const song = { track, genres: cleanGenres(tags.get("Genre") ?? []) };
+  const first = (key) => tags.get(key)?.[0];
+  const label = first("Label");
+  const albumId = first("MUSICBRAINZ_ALBUMID");
+  const groupId = first("MUSICBRAINZ_RELEASEGROUPID");
+  const artistId = first("MUSICBRAINZ_ALBUMARTISTID");
+  if (label) song.label = label;
+  if (albumId) song.mbAlbumId = albumId;
+  if (groupId) song.mbReleaseGroupId = groupId;
+  if (artistId) song.mbArtistId = artistId;
+  return song;
 }
 function trackFromBluetooth(bt) {
   if (bt.title === null && bt.artist === null && bt.album === null) return null;
@@ -37420,6 +37505,9 @@ var MpdBridge = class {
   idler;
   listeners = /* @__PURE__ */ new Set();
   idleListeners = /* @__PURE__ */ new Set();
+  updatingListeners = /* @__PURE__ */ new Set();
+  /** MPD's `updating_db`, as of the last refresh. Null when nothing is scanning. */
+  updating = null;
   snapshot;
   stopped = false;
   commandBackoff = BACKOFF_MIN_MS;
@@ -37464,6 +37552,24 @@ var MpdBridge = class {
   onIdle(fn) {
     this.idleListeners.add(fn);
     return () => this.idleListeners.delete(fn);
+  }
+  /** MPD's current update job id, or null when it is not scanning. */
+  get updatingDb() {
+    return this.updating;
+  }
+  /**
+   * Told when a scan starts or ends.
+   *
+   * NOT onIdle: that is announced BEFORE the refresh that reads the new
+   * status, so a listener there sees the previous job id and never sees a
+   * scan end at all. This fires from refresh(), where the value is parsed.
+   *
+   * The listener must not call refresh(), command() or runAll() — it is
+   * already inside one.
+   */
+  onUpdating(fn) {
+    this.updatingListeners.add(fn);
+    return () => this.updatingListeners.delete(fn);
   }
   start() {
     void this.runCommandLoop();
@@ -37577,6 +37683,12 @@ var MpdBridge = class {
       const status = await this.commands.send("status");
       const song = await this.commands.send("currentsong");
       this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth));
+      const job = num(firstValue(status, "updating_db")) ?? null;
+      if (job !== this.updating) {
+        const was = this.updating;
+        this.updating = job;
+        this.announceUpdating(was, job);
+      }
     } catch (err) {
       this.opts.log("warn", `refresh failed: ${err.message}`);
     }
@@ -37598,6 +37710,15 @@ var MpdBridge = class {
       await this.refresh();
     } else {
       this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
+    }
+  }
+  announceUpdating(was, job) {
+    for (const fn of this.updatingListeners) {
+      try {
+        fn(was, job);
+      } catch (err) {
+        this.opts.log("error", `updating listener threw: ${err.message}`);
+      }
     }
   }
   announceIdle(subsystems) {
@@ -37665,6 +37786,30 @@ var MpdBridge = class {
     return groups.length > 0 ? trackFromTags(groups[0]) : null;
   }
   /**
+   * `find`, keeping the album tags a Track drops. Same command, same cost —
+   * MPD was already sending the genres and the MusicBrainz ids.
+   */
+  async findSongs(...pairs) {
+    const reply = await this.send(`find ${filterArgs(pairs)}`);
+    return groupByMulti(reply, "file").map(songFromTags).filter((s) => s !== null);
+  }
+  /** `findFirst`, keeping the album tags. See findSongs. */
+  async findFirstSong(...pairs) {
+    const reply = await this.send(`find ${filterArgs(pairs)} window 0:1`);
+    const groups = groupByMulti(reply, "file");
+    return groups.length > 0 ? songFromTags(groups[0]) : null;
+  }
+  /**
+   * `count group <tag>` — song count and playtime for every value of a tag.
+   *
+   * One command for the whole library: `count group albumartist` answers for
+   * all 488 artists in 35ms, measured. The alternative is a `find` per artist
+   * at 11.4ms each. Raw Reply, for the reason `list` gives above.
+   */
+  async count(group) {
+    return this.send(`count group ${quoteArg(group)}`);
+  }
+  /**
    * `list <tag> [group <tag>]` — distinct tag values, optionally grouped.
    *
    * Returns the raw Reply rather than something parsed: a grouped reply is a
@@ -37679,6 +37824,28 @@ var MpdBridge = class {
   /** `lsinfo <path>` — one level of MPD's directory tree. '' is the root. */
   async lsinfo(path) {
     return this.send(`lsinfo ${quoteArg(path)}`);
+  }
+  /**
+   * Ask MPD to scan the library, returning its job id.
+   *
+   * RETURNS IMMEDIATELY, which is the only reason this is safe: a scan on this
+   * library runs for the better part of an hour, and a reply timeout would
+   * destroy the connection. MPD answers `updating_db: <job>` and gets on with it.
+   */
+  async update(uri) {
+    return this.startScan("update", uri);
+  }
+  /** As `update`, but re-reads every tag rather than only what changed. */
+  async rescan(uri) {
+    return this.startScan("rescan", uri);
+  }
+  async startScan(verb, uri) {
+    const reply = await this.send(uri === void 0 ? verb : `${verb} ${quoteArg(uri)}`);
+    return num(firstValue(reply, "updating_db")) ?? null;
+  }
+  /** MPD's `stats`: the library's counts, and its own uptime. */
+  async stats() {
+    return this.send("stats");
   }
   /** Shared guard-and-send for the read-only queries above. */
   async send(command) {
@@ -37730,11 +37897,18 @@ function artistDirOf(file) {
   const slash = file.indexOf("/");
   return slash === -1 ? "" : file.slice(0, slash);
 }
-function albumsFromTracks(albumArtist, tracks) {
+function albumsFromSongs(albumArtist, songs) {
   const byAlbum = /* @__PURE__ */ new Map();
-  for (const track of tracks) {
+  const discs = /* @__PURE__ */ new Map();
+  const undurated = /* @__PURE__ */ new Set();
+  for (const song of songs) {
+    const track = song.track;
     const album = track.album;
     if (album === void 0) continue;
+    if (track.duration === void 0) undurated.add(album);
+    let seenDiscs = discs.get(album);
+    if (seenDiscs === void 0) discs.set(album, seenDiscs = /* @__PURE__ */ new Set());
+    if (track.disc !== void 0) seenDiscs.add(track.disc);
     const existing = byAlbum.get(album);
     if (existing === void 0) {
       byAlbum.set(album, {
@@ -37742,12 +37916,33 @@ function albumsFromTracks(albumArtist, tracks) {
         albumArtist,
         date: releaseDateOf(track),
         trackCount: 1,
+        genres: song.genres,
+        discCount: 1,
+        duration: track.duration ?? 0,
+        ...song.label === void 0 ? {} : { label: song.label },
+        ...song.mbAlbumId === void 0 ? {} : { mbAlbumId: song.mbAlbumId },
+        ...song.mbReleaseGroupId === void 0 ? {} : { mbReleaseGroupId: song.mbReleaseGroupId },
         image: track.image
       });
       continue;
     }
     existing.trackCount += 1;
+    if (existing.duration !== null) existing.duration += track.duration ?? 0;
     if (existing.date === null) existing.date = releaseDateOf(track);
+    if (existing.genres.length === 0) existing.genres = song.genres;
+    if (existing.label === void 0 && song.label !== void 0) {
+      existing.label = song.label;
+    }
+    if (existing.mbAlbumId === void 0 && song.mbAlbumId !== void 0) {
+      existing.mbAlbumId = song.mbAlbumId;
+    }
+    if (existing.mbReleaseGroupId === void 0 && song.mbReleaseGroupId !== void 0) {
+      existing.mbReleaseGroupId = song.mbReleaseGroupId;
+    }
+  }
+  for (const summary of byAlbum.values()) {
+    summary.discCount = Math.max(1, discs.get(summary.album)?.size ?? 1);
+    if (undurated.has(summary.album)) summary.duration = null;
   }
   return [...byAlbum.values()].sort(compareAlbums);
 }
@@ -37772,16 +37967,20 @@ function yearOf(date) {
   const match = /^(\d{4})/.exec(date);
   return match ? Number(match[1]) : null;
 }
-function sortAlbumTracks(tracks) {
-  return [...tracks].sort((a, b) => {
-    const da = dirOf(a.file);
-    const db = dirOf(b.file);
-    if (da !== db) return da.localeCompare(db);
-    const ta = trackNo(a.track);
-    const tb = trackNo(b.track);
-    if (ta !== tb) return ta - tb;
-    return (a.file ?? "").localeCompare(b.file ?? "");
-  });
+function sortAlbumSongs(songs) {
+  return [...songs].sort((a, b) => comparePlayingOrder(a.track, b.track));
+}
+function comparePlayingOrder(a, b) {
+  const da = dirOf(a.file);
+  const db = dirOf(b.file);
+  if (da !== db) return da.localeCompare(db);
+  const ca = trackNo(a.disc);
+  const cb = trackNo(b.disc);
+  if (ca !== cb) return ca - cb;
+  const ta = trackNo(a.track);
+  const tb = trackNo(b.track);
+  if (ta !== tb) return ta - tb;
+  return (a.file ?? "").localeCompare(b.file ?? "");
 }
 function dirOf(file) {
   if (file === void 0) return "";
@@ -37793,8 +37992,8 @@ function trackNo(track) {
   const n = parseInt(track, 10);
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 }
-function artistImageOf(tracks) {
-  const file = tracks.find((t) => t.file !== void 0)?.file;
+function artistImageOf(songs) {
+  const file = songs.find((s) => s.track.file !== void 0)?.track.file;
   if (file === void 0) return null;
   const dir = artistDirOf(file);
   return dir === "" ? null : artUriForDir(dir);
@@ -37802,6 +38001,7 @@ function artistImageOf(tracks) {
 function createLibrary(bridge) {
   let cached = null;
   let building = null;
+  let generation = 0;
   let builds = 0;
   async function build() {
     builds += 1;
@@ -37819,20 +38019,44 @@ function createLibrary(bridge) {
         counts.set(current, (counts.get(current) ?? 0) + 1);
       }
     }
+    const totals = /* @__PURE__ */ new Map();
+    let group = null;
+    for (const [key, value] of (await bridge.count("albumartist")).pairs) {
+      if (key === "AlbumArtist") {
+        group = value === "" ? null : value;
+        if (group !== null) totals.set(group, { songs: 0, playtime: 0 });
+      } else if (group !== null) {
+        const into = totals.get(group);
+        if (into === void 0) continue;
+        if (key === "songs") into.songs = Number(value) || 0;
+        else if (key === "playtime") into.playtime = Number(value) || 0;
+      }
+    }
     const dirs = /* @__PURE__ */ new Map();
-    for (const group of groupBy(await bridge.lsinfo(""), "directory")) {
-      const dir = group.get("directory");
+    const mbids = /* @__PURE__ */ new Map();
+    for (const entry of groupBy(await bridge.lsinfo(""), "directory")) {
+      const dir = entry.get("directory");
       if (dir === void 0 || JUNK_DIRS.includes(dir)) continue;
-      const track = await bridge.findFirst(["base", dir]);
-      const name = track?.albumArtist ?? track?.artist;
-      if (name !== void 0 && !dirs.has(name)) dirs.set(name, dir);
+      const song = await bridge.findFirstSong(["base", dir]);
+      const name = song?.track.albumArtist ?? song?.track.artist;
+      if (name !== void 0 && !dirs.has(name)) {
+        dirs.set(name, dir);
+        if (song?.mbArtistId !== void 0) mbids.set(name, song.mbArtistId);
+      }
     }
     return order.map((name) => {
       const directory = dirs.get(name);
+      const total = totals.get(name);
+      const mbArtistId = mbids.get(name);
       return {
         name,
         directory: directory ?? "",
         albumCount: counts.get(name) ?? 0,
+        trackCount: total?.songs ?? 0,
+        // Null, not 0, when MPD reports nothing: an artist whose
+        // playtime is unknown has not been listened to for no seconds.
+        duration: total === void 0 || total.playtime === 0 ? null : total.playtime,
+        ...mbArtistId === void 0 ? {} : { mbArtistId },
         // Null rather than a guessed URI when no directory was found.
         // The client shows its placeholder, which is the same thing it
         // does for the 16 artists whose directory has no image file.
@@ -37845,30 +38069,32 @@ function createLibrary(bridge) {
     invalidate: () => {
       cached = null;
       building = null;
+      generation += 1;
     },
     artists: async () => {
       if (cached !== null) return cached;
       if (building === null) {
+        const mine = generation;
         building = build().then((artists) => {
-          cached = artists;
+          if (mine === generation) cached = artists;
           return artists;
         }).finally(() => {
-          building = null;
+          if (mine === generation) building = null;
         });
       }
       return building;
     },
     albumsOf: async (albumArtist) => {
-      const tracks = await bridge.find(["albumartist", albumArtist]);
+      const songs = await bridge.findSongs(["albumartist", albumArtist]);
       return {
         // From a track we already have, so this costs no MPD command and
         // does not touch the index. `artistDirOf` is the first path
         // segment — see its note for why not two dirnames.
-        image: artistImageOf(tracks),
-        albums: albumsFromTracks(albumArtist, tracks)
+        image: artistImageOf(songs),
+        albums: albumsFromSongs(albumArtist, songs)
       };
     },
-    tracksOf: async (albumArtist, album) => sortAlbumTracks(await bridge.find(["albumartist", albumArtist], ["album", album]))
+    songsOf: async (albumArtist, album) => sortAlbumSongs(await bridge.findSongs(["albumartist", albumArtist], ["album", album]))
   };
 }
 
@@ -38097,14 +38323,25 @@ function createPower(dir = DEFAULT_POWER_DIR) {
 var SETTINGS_DEFAULTS = {
   // Never. A screen that goes dark on its own while nobody asked it to is a
   // box that looks broken, so this is opted into.
-  panelSleepAfterMinutes: 0
+  panelSleepAfterMinutes: 0,
+  // Both opted into for the same reason: a scan takes the better part of an
+  // hour, and one nobody asked for looks like the box has seized up.
+  libraryScanHour: -1,
+  libraryScanOnBoot: false
 };
 var GUARDS = {
   panelSleepAfterMinutes: (value) => {
     if (!/^\d+$/.test(value)) return void 0;
     const minutes = Number(value);
     return PANEL_SLEEP_MINUTES.includes(minutes) ? minutes : void 0;
-  }
+  },
+  libraryScanHour: (value) => {
+    if (!/^-?\d+$/.test(value)) return void 0;
+    const hour = Number(value);
+    return LIBRARY_SCAN_HOURS.includes(hour) ? hour : void 0;
+  },
+  // `set` stores String(value), so a boolean arrives back as 'true'/'false'.
+  libraryScanOnBoot: (value) => value === "true" ? true : value === "false" ? false : void 0
 };
 var SETTING_KEYS = Object.keys(SETTINGS_DEFAULTS);
 function isSettingKey(key) {
@@ -38117,13 +38354,16 @@ function parseSetting(key, value) {
 }
 function createSettings(db) {
   const listeners = /* @__PURE__ */ new Set();
+  const apply = (values, key, raw) => {
+    const parsed = parseSetting(key, raw);
+    if (parsed !== void 0) values[key] = parsed;
+  };
   const all = () => {
     const values = { ...SETTINGS_DEFAULTS };
     const rows = db.all("SELECT key, value FROM settings");
     for (const row of rows) {
       if (!isSettingKey(row.key)) continue;
-      const parsed = parseSetting(row.key, row.value);
-      if (parsed !== void 0) values[row.key] = parsed;
+      apply(values, row.key, row.value);
     }
     return values;
   };
@@ -38142,6 +38382,343 @@ function createSettings(db) {
     onChange(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    }
+  };
+}
+
+// src/library-scan.ts
+import { stat as stat4 } from "node:fs/promises";
+var TICK_MS = 6e4;
+var BOOT_DELAY_MS = 12e4;
+var BOOT_RETRY_MS = 3e4;
+var BOOT_RETRIES = 5;
+var MAX_LATE_MS = 60 * 60 * 1e3;
+var HISTORY_LIMIT = 20;
+var PROBE_TIMEOUT_MS = 4e3;
+var ScanRefusedError = class extends Error {
+  code;
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+};
+function atHour(hour, now) {
+  const d = new Date(now);
+  d.setHours(hour, 0, 0, 0);
+  return d.getTime();
+}
+function nextScanAt(hour, now) {
+  if (hour < 0) return null;
+  const today = atHour(hour, now);
+  if (today > now) return today;
+  const d = new Date(now);
+  d.setDate(d.getDate() + 1);
+  d.setHours(hour, 0, 0, 0);
+  return d.getTime();
+}
+function scanIsDue(hour, now, lastTick) {
+  if (hour < 0 || lastTick === null) return false;
+  const target = atHour(hour, now);
+  return lastTick < target && now >= target && now - target < MAX_LATE_MS;
+}
+function statsFromReply(reply) {
+  const n = (key) => {
+    const v = Number(firstValue(reply, key));
+    return Number.isFinite(v) ? v : 0;
+  };
+  const updated = Number(firstValue(reply, "db_update"));
+  return {
+    songs: n("songs"),
+    albums: n("albums"),
+    artists: n("artists"),
+    playtimeSeconds: n("db_playtime"),
+    lastUpdatedAt: Number.isFinite(updated) && updated > 0 ? updated * 1e3 : null
+  };
+}
+function outcomeOf(uptimeSeconds, startedAt, finishedAt) {
+  if (uptimeSeconds === null) return "completed";
+  return uptimeSeconds * 1e3 < finishedAt - startedAt ? "interrupted" : "completed";
+}
+async function probeRoot(root) {
+  let timer;
+  try {
+    const timeout = new Promise((resolve2) => {
+      timer = setTimeout(() => resolve2(false), PROBE_TIMEOUT_MS);
+    });
+    return await Promise.race([
+      stat4(root).then(
+        (s) => s.isDirectory(),
+        () => false
+      ),
+      timeout
+    ]);
+  } finally {
+    if (timer !== void 0) clearTimeout(timer);
+  }
+}
+function scanFromRow(row) {
+  return {
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    trigger: row.trigger,
+    outcome: row.outcome,
+    songsBefore: row.songs_before,
+    songsAfter: row.songs_after
+  };
+}
+function createLibraryScanner(opts) {
+  const { bridge, db, settings, musicRoot } = opts;
+  const log = opts.log ?? (() => {
+  });
+  const now = opts.now ?? Date.now;
+  const tickMs = opts.tickMs ?? TICK_MS;
+  const bootDelayMs = opts.bootDelayMs ?? BOOT_DELAY_MS;
+  const probe = opts.probe ?? probeRoot;
+  const listeners = /* @__PURE__ */ new Set();
+  const timers = /* @__PURE__ */ new Set();
+  const unsubscribes = [];
+  let stopped = false;
+  let scanning = false;
+  let rowId = null;
+  let startedAt = null;
+  let trigger = null;
+  let lastTick = null;
+  let stats = null;
+  let lastScan = null;
+  let rootReadable = null;
+  let probing = null;
+  const state = () => ({
+    scanning,
+    scanStartedAt: startedAt,
+    scanTrigger: trigger,
+    lastScan,
+    stats,
+    musicRoot,
+    musicRootReadable: rootReadable,
+    nextScanAt: nextScanAt(settings.all().libraryScanHour, now())
+  });
+  const emit = () => {
+    if (stopped) return;
+    const value = state();
+    for (const fn of [...listeners]) {
+      try {
+        fn(value);
+      } catch (err) {
+        log("error", `library listener threw: ${err.message}`);
+      }
+    }
+  };
+  const checkRoot = async () => {
+    if (probing === null) {
+      probing = probe(musicRoot).finally(() => {
+        probing = null;
+      });
+    }
+    const ok = await probing;
+    rootReadable = ok;
+    return ok;
+  };
+  const readStats = async () => {
+    try {
+      return await bridge.stats();
+    } catch (err) {
+      log("warn", `library stats failed: ${err.message}`);
+      return null;
+    }
+  };
+  const loadLastScan = () => {
+    const row = db.get("SELECT * FROM library_scan ORDER BY started_at DESC, id DESC LIMIT 1");
+    lastScan = row === void 0 ? null : scanFromRow(row);
+  };
+  const openScan = (at, why, songsBefore) => {
+    db.transaction(() => {
+      db.run(
+        "INSERT INTO library_scan (started_at, trigger, songs_before) VALUES (?, ?, ?)",
+        at,
+        why,
+        songsBefore
+      );
+      db.run(
+        "DELETE FROM library_scan WHERE id NOT IN (SELECT id FROM library_scan ORDER BY started_at DESC, id DESC LIMIT ?)",
+        HISTORY_LIMIT
+      );
+    });
+    const row = db.get("SELECT MAX(id) AS id FROM library_scan");
+    rowId = row?.id ?? null;
+    startedAt = at;
+    trigger = why;
+    loadLastScan();
+  };
+  const closeScan = (finishedAt, outcome, songsAfter) => {
+    if (rowId !== null) {
+      db.run(
+        "UPDATE library_scan SET finished_at = ?, outcome = ?, songs_after = ? WHERE id = ?",
+        finishedAt,
+        outcome,
+        songsAfter,
+        rowId
+      );
+    }
+    rowId = null;
+    startedAt = null;
+    trigger = null;
+    scanning = false;
+    loadLastScan();
+  };
+  const finish = async () => {
+    const at = now();
+    const began = startedAt;
+    const reply = await readStats();
+    if (reply !== null) stats = statsFromReply(reply);
+    const uptime = reply === null ? null : Number(firstValue(reply, "uptime"));
+    const outcome = began === null ? "completed" : outcomeOf(Number.isFinite(uptime) ? uptime : null, began, at);
+    closeScan(at, outcome, stats?.songs ?? null);
+    void checkRoot().then(emit, () => emit());
+    log("info", `library scan ${outcome} in ${began === null ? "?" : Math.round((at - began) / 1e3)}s`);
+  };
+  const adopt = (why) => {
+    openScan(now(), why, stats?.songs ?? null);
+    scanning = true;
+  };
+  unsubscribes.push(
+    bridge.onUpdating((was, job) => {
+      if (stopped) return;
+      if (was !== null && job !== was) {
+        void finish().then(() => {
+          if (job !== null) adopt("external");
+          emit();
+        });
+        return;
+      }
+      if (was === null && job !== null && !scanning) {
+        adopt("external");
+        emit();
+      }
+    })
+  );
+  unsubscribes.push(settings.onChange(() => emit()));
+  const canScan = async () => {
+    if (scanning) throw new ScanRefusedError("a scan is already running", 409);
+    if (bridge.status !== "ok") throw new ScanRefusedError("MPD is unavailable", 503);
+    if (!await checkRoot()) {
+      throw new ScanRefusedError("the music share is not reachable", 503);
+    }
+  };
+  const scan = async (why) => {
+    await canScan();
+    const reply = await readStats();
+    if (reply !== null) stats = statsFromReply(reply);
+    try {
+      if (why === "rescan") await bridge.rescan();
+      else await bridge.update();
+    } catch (err) {
+      throw new ScanRefusedError(err.message, 503);
+    }
+    openScan(now(), why, stats?.songs ?? null);
+    scanning = true;
+    log("info", `library scan started (${why})`);
+    emit();
+  };
+  const reconcile = () => {
+    const open = db.get("SELECT * FROM library_scan WHERE finished_at IS NULL ORDER BY id DESC LIMIT 1");
+    const job = bridge.updatingDb;
+    if (open !== void 0) {
+      rowId = open.id;
+      startedAt = open.started_at;
+      trigger = open.trigger;
+      if (job !== null) {
+        scanning = true;
+        log("info", "adopted a library scan that was already running");
+      } else {
+        closeScan(null, "interrupted", null);
+        log("warn", "a library scan ended unobserved; recorded as interrupted");
+      }
+    } else if (job !== null) {
+      adopt("external");
+    }
+    loadLastScan();
+  };
+  const armBoot = (attempt) => {
+    const timer = setTimeout(
+      () => {
+        timers.delete(timer);
+        if (stopped) return;
+        void (async () => {
+          if (!settings.all().libraryScanOnBoot) return;
+          if (scanning) return;
+          if (bridge.status !== "ok") {
+            if (attempt >= BOOT_RETRIES) {
+              log("warn", "boot scan skipped: MPD never became available");
+              return;
+            }
+            armBoot(attempt + 1);
+            return;
+          }
+          try {
+            await scan("boot");
+          } catch (err) {
+            log("warn", `boot scan skipped: ${err.message}`);
+          }
+        })();
+      },
+      attempt === 0 ? bootDelayMs : BOOT_RETRY_MS
+    );
+    timers.add(timer);
+  };
+  return {
+    state,
+    async refresh() {
+      await checkRoot();
+      if (bridge.status === "ok") {
+        const reply = await readStats();
+        if (reply !== null) stats = statsFromReply(reply);
+      }
+      return state();
+    },
+    scan,
+    start() {
+      reconcile();
+      const tick = setInterval(() => {
+        if (stopped) return;
+        const at = now();
+        const hour = settings.all().libraryScanHour;
+        const due = scanIsDue(hour, at, lastTick);
+        lastTick = at;
+        if (scanning && bridge.status === "ok" && bridge.updatingDb === null) {
+          if (startedAt !== null && at - startedAt > tickMs) void finish().then(emit);
+          return;
+        }
+        if (!due || scanning) return;
+        void scan("scheduled").catch((err) => {
+          log("warn", `scheduled scan skipped: ${err.message}`);
+        });
+      }, tickMs);
+      timers.add(tick);
+      if (settings.all().libraryScanOnBoot) armBoot(0);
+      void (async () => {
+        if (bridge.status === "ok") {
+          const reply = await readStats();
+          if (reply !== null) stats = statsFromReply(reply);
+        }
+        await checkRoot();
+        emit();
+      })();
+      emit();
+    },
+    stop() {
+      stopped = true;
+      for (const t of timers) {
+        clearTimeout(t);
+        clearInterval(t);
+      }
+      timers.clear();
+      for (const off of unsubscribes) off();
+      unsubscribes.length = 0;
+      listeners.clear();
+    },
+    onChange(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
     }
   };
 }
@@ -38182,6 +38759,11 @@ function registerRoutes(app, opts) {
   const settingsSinks = /* @__PURE__ */ new Set();
   settings?.onChange((values) => {
     for (const sink of [...settingsSinks]) sink(values);
+  });
+  const librarySinks = /* @__PURE__ */ new Set();
+  const scanner = opts.scanner;
+  scanner?.onChange((state) => {
+    for (const sink of [...librarySinks]) sink(state);
   });
   const panelState = () => ({
     supported: panel?.supported ?? false,
@@ -38312,12 +38894,12 @@ function registerRoutes(app, opts) {
       return reply.code(400).send({ error: "missing 'album' query parameter" });
     }
     try {
-      const tracks = await library.tracksOf(artist, album);
-      if (tracks.length === 0) {
+      const songs = await library.songsOf(artist, album);
+      if (songs.length === 0) {
         return reply.code(404).send({ error: "no such album" });
       }
-      const [summary] = albumsFromTracks(artist, tracks);
-      const body = { album: summary, tracks };
+      const [summary] = albumsFromSongs(artist, songs);
+      const body = { album: summary, tracks: songs.map((s) => s.track) };
       return body;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
@@ -38329,10 +38911,13 @@ function registerRoutes(app, opts) {
       return "missing 'albumArtist'";
     }
     if (typeof ref.album !== "string" || ref.album === "") return "missing 'album'";
-    return { albumArtist: ref.albumArtist, album: ref.album };
+    if (ref.disc === void 0) return { albumArtist: ref.albumArtist, album: ref.album };
+    if (typeof ref.disc !== "string" || ref.disc === "") return "invalid 'disc'";
+    return { albumArtist: ref.albumArtist, album: ref.album, disc: ref.disc };
   }
   function findaddFor(ref) {
-    return `findadd ${quoteArg("albumartist")} ${quoteArg(ref.albumArtist)} ${quoteArg("album")} ${quoteArg(ref.album)}`;
+    const album = `findadd ${quoteArg("albumartist")} ${quoteArg(ref.albumArtist)} ${quoteArg("album")} ${quoteArg(ref.album)}`;
+    return ref.disc === void 0 ? album : `${album} ${quoteArg("disc")} ${quoteArg(ref.disc)}`;
   }
   app.post("/api/library/queue", async (request, reply) => {
     const ref = albumRefFrom(request.body);
@@ -38384,6 +38969,13 @@ function registerRoutes(app, opts) {
       sendSettings(settings.all());
       settingsSinks.add(sendSettings);
     }
+    const sendLibrary = (state) => {
+      reply.raw.write(sseFrame(SSE_LIBRARY_EVENT, state));
+    };
+    if (scanner) {
+      sendLibrary(scanner.state());
+      librarySinks.add(sendLibrary);
+    }
     await bridge.refresh();
     send(bridge.current);
     const unsubscribe = bridge.onSnapshot(send);
@@ -38396,6 +38988,7 @@ function registerRoutes(app, opts) {
       clearInterval(heartbeat);
       unsubscribe();
       settingsSinks.delete(sendSettings);
+      librarySinks.delete(sendLibrary);
       streams.delete(close);
       if (fromPanel) {
         panelStreams.delete(close);
@@ -38479,6 +39072,34 @@ function registerRoutes(app, opts) {
     app.log.warn(`${action} requested over the API`);
     return reply.code(202).send({ accepted: action });
   });
+  app.get("/api/library/state", async (_request, reply) => {
+    if (!scanner) return reply.code(503).send({ error: "library scanning is unavailable" });
+    return scanner.refresh();
+  });
+  app.post("/api/library/scan", async (_request, reply) => {
+    if (!scanner) return reply.code(503).send({ error: "library scanning is unavailable" });
+    try {
+      await scanner.scan("manual");
+    } catch (err) {
+      if (err instanceof ScanRefusedError) {
+        return reply.code(err.code).send({ error: err.message });
+      }
+      throw err;
+    }
+    return reply.code(202).send({ accepted: "scan" });
+  });
+  app.post("/api/library/rescan", async (_request, reply) => {
+    if (!scanner) return reply.code(503).send({ error: "library scanning is unavailable" });
+    try {
+      await scanner.scan("rescan");
+    } catch (err) {
+      if (err instanceof ScanRefusedError) {
+        return reply.code(err.code).send({ error: err.message });
+      }
+      throw err;
+    }
+    return reply.code(202).send({ accepted: "rescan" });
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -38503,6 +39124,20 @@ var MIGRATIONS = [
   `CREATE TABLE settings (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
+    ) STRICT;`,
+  // v2 — library scan history. The row is written when a scan STARTS, because
+  // a scan runs for the better part of an hour and this server is restarted by
+  // every deploy; recording it at the end would lose `started_at` entirely.
+  // `finished_at` therefore stays NULL both while it runs and for one whose end
+  // was never seen — a duration we did not measure is not one to invent.
+  `CREATE TABLE library_scan (
+        id           INTEGER PRIMARY KEY,
+        started_at   INTEGER NOT NULL,
+        finished_at  INTEGER,
+        trigger      TEXT NOT NULL,
+        outcome      TEXT,
+        songs_before INTEGER,
+        songs_after  INTEGER
     ) STRICT;`
 ];
 var SCHEMA_VERSION = MIGRATIONS.length;
@@ -38627,7 +39262,7 @@ function createPanel(options = {}) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-16T04:00:23Z" : "dev";
+var BUILD = true ? "2026-09-17T03:03:30Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -38655,6 +39290,13 @@ async function main() {
     onMigrate: (to) => app.log.info(`database migrated to schema v${to}`)
   });
   const settings = createSettings(db);
+  const scanner = createLibraryScanner({
+    bridge,
+    db,
+    settings,
+    musicRoot: config.musicRoot,
+    log: (level, msg) => app.log[level](msg)
+  });
   const panel = createPanel({
     device: process.env.MUSICBOX_BACKLIGHT,
     onError: (err) => app.log.warn(`panel backlight: ${err.message}`)
@@ -38669,7 +39311,8 @@ async function main() {
     bluetoothControl: config.bluetoothControl,
     panel,
     settings,
-    power: createPower(config.powerDir)
+    power: createPower(config.powerDir),
+    scanner
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({
@@ -38684,9 +39327,11 @@ async function main() {
   });
   void bluetooth.poll();
   bridge.start();
+  scanner.start();
   const shutdown = async (signal) => {
     app.log.info(`${signal} received, shutting down`);
     bridge.stop();
+    scanner.stop();
     bluetooth.stop();
     routes.closeStreams();
     if (panel.supported) panel.set(true);

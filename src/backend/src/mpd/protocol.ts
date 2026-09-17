@@ -55,6 +55,44 @@ export function groupBy(reply: Reply, key: string): Array<Map<string, string>> {
     return groups;
 }
 
+/**
+ * As `groupBy`, but keeps every value of a repeated key rather than the last.
+ *
+ * MPD sends one line per value of a multi-valued tag, and 91% of this library's
+ * songs carry more than one `Genre` — "Burn the Witch" has twelve. A Map keyed
+ * by tag name silently keeps whichever came last, which is how `Track.genre`
+ * came to report "Orchestral" for a song tagged Art Rock through Krautrock.
+ */
+export function groupByMulti(reply: Reply, key: string): Array<Map<string, string[]>> {
+    const groups: Array<Map<string, string[]>> = [];
+    let current: Map<string, string[]> | null = null;
+    for (const [k, v] of reply.pairs) {
+        if (k === key) {
+            current = new Map();
+            groups.push(current);
+        }
+        if (current) {
+            const existing = current.get(k);
+            if (existing === undefined) current.set(k, [v]);
+            else existing.push(v);
+        }
+    }
+    return groups;
+}
+
+/**
+ * Collapse a multi-value record to one value per key, FIRST wins.
+ *
+ * First rather than last so it agrees with `firstValue` above. Only `Genre` is
+ * repeated often enough for the choice to matter (`Date` on about 1% of songs);
+ * everything else in this library is single-valued, measured.
+ */
+export function firstOf(tags: Map<string, string[]>): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const [k, values] of tags) if (values.length > 0) out.set(k, values[0]);
+    return out;
+}
+
 interface Pending {
     resolve: (reply: Reply) => void;
     reject: (err: Error) => void;

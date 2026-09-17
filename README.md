@@ -615,7 +615,7 @@ parameter as a fatal duplicate.
 |---|---|
 | `music_directory "/srv/music/Music"` | **Not** `/srv/music`. The share root also holds `#recycle`, and Synology scatters `@eaDir` thumbnail directories through the tree. |
 | `mixer_control "Digital"` | **Not** `"PCM"`, which is what most MPD examples show and does not exist on a pcm512x. Check with `amixer -c 0 scontrols`. |
-| `auto_update "no"` | MPD's auto-update is inotify-based, and inotify cannot see changes made on the far side of an NFS mount. It would watch ~50,000 files and never fire. Run `mpc update --wait`. Note this does **not** disable the *initial* scan — MPD builds the database itself on startup when `tag_cache` is absent. |
+| `auto_update "no"` | MPD's auto-update is inotify-based, and inotify cannot see changes made on the far side of an NFS mount. It would watch ~50,000 files and never fire. Scans are explicit: Settings → Library, or `mpc update --wait`. Note this does **not** disable the *initial* scan — MPD builds the database itself on startup when `tag_cache` is absent. |
 
 An unreadable library is a **warning, not an error**. MPD has to tolerate the
 share being down and pick it up on first access — refusing to configure would
@@ -623,6 +623,36 @@ contradict the whole point of the lazy automount.
 
 The script does not run the first scan. 49,711 files over NFS takes minutes, and
 burying that in a config script makes a re-run look hung.
+
+### Scanning, from the screen
+
+Because `auto_update` is off, the box has to be told when to look. Settings →
+Library does that:
+
+- **Scan for new music daily at** — an hour, or Never. Local wall clock, so it
+  can be set to a time nobody is listening. Not a systemd timer: the server is
+  already running, and this keeps the schedule in the same place as the setting.
+- **Scan after starting up** — one scan a couple of minutes after boot, skipped
+  if MPD is not up yet or the share cannot be read. It never gates boot.
+- **Scan now** (`update`, what changed, ~8 minutes) and **Full rescan**
+  (`rescan`, every tag re-read, ~49 minutes, for music that was retagged in
+  place). The second asks first.
+
+Eight minutes is why both routes answer 202 and the result comes back on the SSE
+stream rather than on the response, and why the schedule is daily rather than
+hourly: `update` still stats all 49,711 files to find what changed.
+
+It also shows what the library holds, when the last scan ran, and how long it
+took. Every scan is gated on the share being readable first, because `update`
+prunes songs it cannot see: a scan run while the NAS is asleep would empty the
+tag cache and cost 48 minutes to rebuild.
+
+A scan that mpd was restarted under is recorded as **interrupted** rather than as
+a success — MPD's own `uptime`, off the same `stats` call, is shorter than the
+scan we were timing. The scan history lives in the box's database
+(`library_scan`, schema v2), and the row is written when a scan *starts*: a
+deploy restarts the server, and recording at the end would lose the start time
+of every scan a deploy landed on top of.
 
 ### What it costs at boot
 
@@ -646,7 +676,9 @@ sudo systemctl disable mpd.service     # keep mpd.socket enabled
 ```
 
 The initial scan took **48m40s** over NFS for 49,711 files. One-time; the
-database survives reboots.
+database survives reboots. A later `update` against a warm database is **~8
+minutes** — it still stats all 49,711 files to find what changed, and only skips
+reading tags. A full `rescan` is back to the initial figure.
 
 ### Proven: the NAS can be off
 
@@ -870,14 +902,25 @@ GET   /api/panel                                   is there a backlight, is it o
 POST  /api/panel/backlight {on}                    409 unless the panel itself asks
 GET   /api/settings                                the box's settings
 PATCH /api/settings        {key: value}            change some of them
+
+GET   /api/library/state                           counts, last scan, is one running
+POST  /api/library/scan                            look for what changed
+POST  /api/library/rescan                          re-read every tag
 ```
 
 (`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
 
-The stream carries two other events besides the snapshot: `build`, which is how
-the panel notices a deploy and reloads itself, and `settings`, which is how a
-change made on a phone reaches the panel without it polling. Neither belongs on
-the snapshot — that contract is about what the music is doing.
+The stream carries three other events besides the snapshot: `build`, which is how
+the panel notices a deploy and reloads itself; `settings`, which is how a change
+made on a phone reaches the panel without it polling; and `library`, which is how
+a running scan and the last one's result do the same. None belongs on the
+snapshot — that contract is about what the music is doing.
+
+The two scan routes answer 202, not 200: a scan on this library runs for the
+better part of an hour, so there is no result to wait for. They are two routes
+rather than one with a flag, because a boolean would make the expensive one the
+easier thing to reach by accident. 409 if a scan is already running; 503 if MPD
+is unavailable or the music share cannot be read.
 
 **Every SSE event is a complete snapshot, never a delta.** A dropped, duplicated
 or out-of-order event costs nothing — the client replaces its state and can never
@@ -940,8 +983,9 @@ mounted `noauto` with a 10 minute idle timeout and is routinely not mounted at
 all. Cover art is the one exception, and it is allowed to 404 for exactly that
 reason.
 
-**Measured against the real library** — 37,289 songs, 2,757 albums, 487 artists.
-Several plausible designs died here:
+**Measured against the real library** — 38,978 songs, 2,876 albums, 488 artists
+(37,289 / 2,757 / 487 when the browse screens were first built; the timings below
+were taken then and have not been retaken). Several plausible designs died here:
 
 | Command | |
 |---|---|
@@ -978,6 +1022,89 @@ carry it and **940 of those disagree with `Date`**. AC/DC's entire catalogue is
 stamped 2020 by `Date`; `Back in Black` is 2003 against 1980. Sorting an artist's
 albums on `Date` is wrong for a third of this library and visibly contradicts the
 year in the folder name on disk.
+
+### What the tags actually hold
+
+Every tag MPD indexes, counted across all 38,978 songs. This is what decides
+which fields the API carries — the answer was measured, not guessed, and most of
+it went the other way from what looked obvious.
+
+| Tag | Coverage | Distinct | |
+|---|---|---|---|
+| `Genre` | 99.9% | 499 | **Multi-valued on 91% of songs.** Exposed, as an array, on the album |
+| `Disc` | 100% | 1–6 | **313 of 2,876 albums span more than one disc** |
+| `Label` | 97.5% | 614 | Exposed on the album |
+| `MUSICBRAINZ_*` | ~100% | — | Exposed. 6 songs of 38,978 carry none |
+| `Format` | 100% | — | Exposed on the track. Half the library is above CD quality |
+| *(no codec tag)* | — | — | **MPD reports none.** The container comes from the file extension |
+| `Added`, `Last-Modified` | 100% | — | `Added` exposed; free on every `find` |
+| `Composer` | 3.4% | 529 | **Not exposed** |
+| `Performer`, `Conductor`, `Work`, `Ensemble` | 0.3–1.4% | — | **Not exposed** |
+| `Movement`, `Grouping`, `Mood`, `Name` | 0% | 0 | **Not exposed** |
+| `ArtistSort`, `AlbumSort`, `AlbumArtistSort` | 100% | — | **Not exposed — see below** |
+
+**Genre is an array because the tag is one.** MPD sends one `Genre:` line per
+value and 91% of these songs carry more than one — "Burn the Witch" has twelve,
+and the per-song count runs to sixteen. A parser that folds a record into a map
+keyed by tag name keeps whichever line came last, so Art Rock through Krautrock
+arrived on the wire as `"Orchestral"`. It is on the **album** rather than the
+track because that is what it describes here: OK Computer's 23 tracks carry an
+identical 13 genres, and repeating them per track is real weight — Pink Floyd's
+309 songs carry 4,027 `Genre` lines between them.
+
+**The sort tags do not answer the sorting question.** The artist list is in MPD's
+own `AlbumArtist` order and deliberately has no second opinion about whether The
+Panics belong under T. The tags were the obvious way to buy one, and they are
+empty of information here: **1 of 489** `AlbumArtistSort` values differs from the
+plain tag (`Neko Case` → `Case, Neko`), and the two `AlbumSort` differences are a
+case-typo pair. Measured so the idea does not have to be revisited.
+
+**Classical metadata is absent, not pending.** Composer reaches 3.4% and
+everything else below 1.5%, so a composer or work view would be empty for 36 of
+every 37 songs.
+
+**The encoding is not MPD's to give.** The song record carries the DECODED
+`Format` and nothing about how the bytes were stored, and `readcomments` — which
+reads the container's own tags — names no codec either, costs 132ms a file, and
+needs the NFS share mounted. So `Track.encoding` is the file extension,
+upper-cased, derived from `file` alone at no I/O cost, exactly as `image` is.
+
+It is the **container, not the codec**: `.m4a` answers `M4A`, never `AAC`, since
+that container holds ALAC just as happily. This library has nothing ambiguous —
+**38,402 FLAC, 556 MP3, 20 APE**, and that is all 38,978 — but the rule does not
+depend on that.
+
+It is worth carrying beside `format` because `format` cannot tell lossy from
+lossless: **all 556 MP3s here report `44100:16:2`**, identical to a CD rip. The
+now-playing badge would otherwise show *Greatest Hits* as `16/44.1` exactly as it
+shows a lossless one.
+
+**Everything above was already arriving.** `find albumartist "X"` returns the
+complete song record, so the genres, the disc, the label and the MusicBrainz ids
+cost no extra command — they were being parsed and dropped. The one addition is
+`count group albumartist`, which gives songs and playtime for all 488 artists in
+**35ms**; the artist index measures 520ms cold and 29ms warm with it in place.
+
+**The album screen groups by disc, and numbers rows from the `Track` tag.** 313
+albums span more than one disc and each disc restarts at 1, so numbering rows by
+their position in the list ran *Music Bank* from 1 to 48. The 2,562 single-disc
+albums get no heading at all.
+
+The ordering needed the `Disc` tag too, which was not obvious: only **149** of
+those 313 keep their discs in separate directories, so sorting on directory then
+track number collapses to track number alone for the other 164 and interleaves
+them — three tracks numbered 1, then three numbered 2. The sort is directory,
+then disc, then track. That was caught in a screenshot of the panel, not by a
+test, which is the second time that has been true of these screens.
+
+**Each disc heading carries its own Play and Queue**, which is the same two POSTs
+with a `disc` on the `AlbumRef` and one more filter pair on the same `findadd`.
+Verified against MPD: `disc "1"`, `"2"`, `"3"` give 17 + 17 + 14 against 48 for
+the whole of *Music Bank*, and it works for both layouts — Blur's *13* keeps all
+27 tracks in one directory and still splits 13/14 by tag. A disc that does not
+exist matches nothing rather than erroring, so a stale request is inert. It earns
+its place on the big sets: the Dylan *Basement Tapes Complete* is 139 tracks over
+six discs.
 
 Adding an album is MPD's own `findadd` — one command, not a track at a time, which
 would bump `queueVersion` once per track and make every client refetch the whole

@@ -11,11 +11,14 @@ import {
     SSE_SNAPSHOT_EVENT,
     SSE_BUILD_EVENT,
     SSE_SETTINGS_EVENT,
+    SSE_LIBRARY_EVENT,
     API_VERSION,
     type AlbumResponse,
+    type AlbumRef,
     type AlbumsResponse,
     type ArtistsResponse,
     type HealthResponse,
+    type LibraryState,
     type PanelState,
     type PlaybackCommand,
     type SettingsResponse,
@@ -24,7 +27,7 @@ import {
 import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
-import { albumsFromTracks, createLibrary } from './library.ts';
+import { albumsFromSongs, createLibrary } from './library.ts';
 import {
     BluetoothUnavailableError,
     DEFAULT_CONTROL_PATH,
@@ -34,6 +37,7 @@ import {
 import type { Panel } from './panel.ts';
 import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
+import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -66,6 +70,8 @@ export interface RouteOptions {
     settings?: Settings;
     /** Restart and shutdown, via the root path unit. See power.ts. */
     power?: Power;
+    /** Library scanning and its history. See library-scan.ts. */
+    scanner?: LibraryScanner;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -134,6 +140,13 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
     const settingsSinks = new Set<(values: SettingsValues) => void>();
     settings?.onChange((values) => {
         for (const sink of [...settingsSinks]) sink(values);
+    });
+
+    /** The same, for the library event. */
+    const librarySinks = new Set<(state: LibraryState) => void>();
+    const scanner = opts.scanner;
+    scanner?.onChange((state) => {
+        for (const sink of [...librarySinks]) sink(state);
     });
 
     const panelState = (): PanelState => ({
@@ -372,15 +385,15 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             return reply.code(400).send({ error: "missing 'album' query parameter" });
         }
         try {
-            const tracks = await library.tracksOf(artist, album);
-            if (tracks.length === 0) {
+            const songs = await library.songsOf(artist, album);
+            if (songs.length === 0) {
                 return reply.code(404).send({ error: 'no such album' });
             }
             // Built from the tracks just fetched rather than by asking again:
-            // the header's date, cover and count are all facts about these very
-            // rows, and a second query could disagree with them.
-            const [summary] = albumsFromTracks(artist, tracks);
-            const body: AlbumResponse = { album: summary, tracks };
+            // the header's date, cover, count, genres and running time are all
+            // facts about these very rows, and a second query could disagree.
+            const [summary] = albumsFromSongs(artist, songs);
+            const body: AlbumResponse = { album: summary, tracks: songs.map((s) => s.track) };
             return body;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -396,13 +409,18 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * match nothing, which looks to a user like a button that does not work.
      * Same standard as the `/^\d+$/` on a song id.
      */
-    function albumRefFrom(body: unknown): { albumArtist: string; album: string } | string {
-        const ref = (body ?? {}) as { albumArtist?: unknown; album?: unknown };
+    function albumRefFrom(body: unknown): AlbumRef | string {
+        const ref = (body ?? {}) as { albumArtist?: unknown; album?: unknown; disc?: unknown };
         if (typeof ref.albumArtist !== 'string' || ref.albumArtist === '') {
             return "missing 'albumArtist'";
         }
         if (typeof ref.album !== 'string' || ref.album === '') return "missing 'album'";
-        return { albumArtist: ref.albumArtist, album: ref.album };
+        // Optional, but held to the same standard once supplied: `disc: 1` would
+        // reach quoteArg as "1" and happen to work, and `disc: {}` as
+        // "[object Object]" and silently match nothing.
+        if (ref.disc === undefined) return { albumArtist: ref.albumArtist, album: ref.album };
+        if (typeof ref.disc !== 'string' || ref.disc === '') return "invalid 'disc'";
+        return { albumArtist: ref.albumArtist, album: ref.album, disc: ref.disc };
     }
 
     /**
@@ -414,8 +432,13 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * listing a dozen times for one button press. MusicboxApi has a sequence
      * guard against exactly that, and this makes it unnecessary.
      */
-    function findaddFor(ref: { albumArtist: string; album: string }): string {
-        return `findadd ${quoteArg('albumartist')} ${quoteArg(ref.albumArtist)} ${quoteArg('album')} ${quoteArg(ref.album)}`;
+    function findaddFor(ref: AlbumRef): string {
+        const album = `findadd ${quoteArg('albumartist')} ${quoteArg(ref.albumArtist)} ${quoteArg('album')} ${quoteArg(ref.album)}`;
+        // One more filter pair narrows it to a disc. MPD indexes `Disc`, so this
+        // is the same one command whether it adds 48 tracks or 17.
+        return ref.disc === undefined
+            ? album
+            : `${album} ${quoteArg('disc')} ${quoteArg(ref.disc)}`;
     }
 
     /**
@@ -505,6 +528,17 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             settingsSinks.add(sendSettings);
         }
 
+        // The library, on the same terms. The CACHED state deliberately: the
+        // fresh one probes the music share, and an unreachable NAS would then
+        // hold up every client's first frame for as long as the probe takes.
+        const sendLibrary = (state: LibraryState) => {
+            reply.raw.write(sseFrame(SSE_LIBRARY_EVENT, state));
+        };
+        if (scanner) {
+            sendLibrary(scanner.state());
+            librarySinks.add(sendLibrary);
+        }
+
         // The FIRST frame must be freshly queried, not bridge.current.
         //
         // MPD's `idle` never fires merely because elapsed time advanced, so the
@@ -528,6 +562,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             clearInterval(heartbeat);
             unsubscribe();
             settingsSinks.delete(sendSettings);
+            librarySinks.delete(sendLibrary);
             streams.delete(close);
             if (fromPanel) {
                 panelStreams.delete(close);
@@ -660,6 +695,53 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
         app.log.warn(`${action} requested over the API`);
         return reply.code(202).send({ accepted: action });
+    });
+
+    // -----------------------------------------------------------------------
+    // Scanning the library. APPENDED AT THE END for the reason given above the
+    // panel routes: routes.test.ts slices this file's source text between route
+    // literals, so a route inserted higher up silently changes what it asserts.
+    // -----------------------------------------------------------------------
+
+    /** What the library holds, when it was last scanned, and whether one is running. */
+    app.get('/api/library/state', async (_request: FastifyRequest, reply: FastifyReply) => {
+        if (!scanner) return reply.code(503).send({ error: 'library scanning is unavailable' });
+        // The fresh state, unlike the one on the stream: this is a client asking
+        // the question, so it can wait for the share to be probed.
+        return scanner.refresh();
+    });
+
+    /**
+     * Scan for what changed.
+     *
+     * 202: this runs for the better part of an hour on the real library, so
+     * there is nothing to wait for. Progress arrives on the SSE stream.
+     */
+    app.post('/api/library/scan', async (_request: FastifyRequest, reply: FastifyReply) => {
+        if (!scanner) return reply.code(503).send({ error: 'library scanning is unavailable' });
+        try {
+            await scanner.scan('manual');
+        } catch (err) {
+            if (err instanceof ScanRefusedError) {
+                return reply.code(err.code).send({ error: err.message });
+            }
+            throw err;
+        }
+        return reply.code(202).send({ accepted: 'scan' });
+    });
+
+    /** Re-read every tag, not just what changed. Its own route, not a flag on the above. */
+    app.post('/api/library/rescan', async (_request: FastifyRequest, reply: FastifyReply) => {
+        if (!scanner) return reply.code(503).send({ error: 'library scanning is unavailable' });
+        try {
+            await scanner.scan('rescan');
+        } catch (err) {
+            if (err instanceof ScanRefusedError) {
+                return reply.code(err.code).send({ error: err.message });
+            }
+            throw err;
+        }
+        return reply.code(202).send({ accepted: 'rescan' });
     });
 
     return {

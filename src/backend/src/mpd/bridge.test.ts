@@ -6,7 +6,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSnapshot, trackFromBluetooth, trackFromTags, unavailableSnapshot } from './bridge.ts';
+import {
+    buildSnapshot,
+    songFromTags,
+    trackFromBluetooth,
+    trackFromTags,
+    unavailableSnapshot,
+} from './bridge.ts';
+import { firstOf, groupBy, groupByMulti } from './protocol.ts';
 import type { BluetoothState } from '../bluetooth.ts';
 import type { Reply } from './protocol.ts';
 
@@ -158,10 +165,14 @@ test('a stream without duration does not invent one', () => {
 });
 
 test('absent tags are omitted rather than set to undefined keys', () => {
-    // `image` is the one field that is always present: it is derived from `file`
-    // rather than from a tag, so there is no "absent" case for it.
+    // `image` and `encoding` are the two that are not tags at all: both are
+    // derived from `file`, so neither has an "absent because untagged" case.
     const t = trackFromTags(new Map([['file', 'a.flac']]));
-    assert.deepEqual(t, { file: 'a.flac', image: '/api/art?album=' });
+    assert.deepEqual(t, { file: 'a.flac', image: '/api/art?album=', encoding: 'FLAC' });
+
+    // And a file with no extension really does omit the key.
+    const bare = trackFromTags(new Map([['file', 'a']]));
+    assert.deepEqual(bare, { file: 'a', image: '/api/art?album=' });
 });
 
 test('every track carries an art URI derived from its own directory', () => {
@@ -377,4 +388,167 @@ test('trackFromTags still refuses a tag map with no file', () => {
      * Bluetooth track gets its own constructor precisely so this stays strict.
      */
     assert.equal(trackFromTags(new Map([['Title', 'orphan']])), null);
+});
+
+test('updating_db is on the status reply but never reaches the snapshot', () => {
+    // MPD reports a running scan on the very reply buildSnapshot reads. It is
+    // ignored on purpose: the snapshot rule is about what the music is doing, and
+    // bridge.test.ts pins its key set. Scan state travels on its own SSE event.
+    const scanning = reply(
+        'volume: 74',
+        'state: stop',
+        'playlist: 2',
+        'playlistlength: 0',
+        'updating_db: 7',
+    );
+    const snapshot = buildSnapshot(scanning, reply(), 1000);
+    assert.ok(!('updatingDb' in snapshot));
+    assert.ok(!('scanning' in snapshot));
+    assert.ok(!('updating_db' in snapshot));
+    // And it changes nothing else about the snapshot either.
+    const idle = reply('volume: 74', 'state: stop', 'playlist: 2', 'playlistlength: 0');
+    assert.deepEqual(snapshot, buildSnapshot(idle, reply(), 1000));
+});
+
+test('trackFromTags carries disc, audio format and the added date', () => {
+    const track = trackFromTags(
+        new Map([
+            ['file', 'Blur/13 (1999)/CD 02/01.flac'],
+            ['Disc', '2'],
+            ['Format', '96000:24:2'],
+            ['Added', '2026-09-11T16:47:30Z'],
+        ]),
+    );
+    assert.equal(track?.disc, '2');
+    // Raw, not parsed: MPD also emits `dsd64:2` and `*` for a component it does
+    // not know, so a {sampleRate, bits, channels} object would have to invent a
+    // representation for both.
+    assert.equal(track?.format, '96000:24:2');
+    assert.equal(track?.addedAt, '2026-09-11T16:47:30Z');
+});
+
+test('trackFromTags names the container from the file extension', () => {
+    // MPD reports no codec anywhere, and readcomments would need the NFS share.
+    // The extension is derived from `file` alone, so it costs no I/O.
+    const of = (file: string) => trackFromTags(new Map([['file', file]]))?.encoding;
+    assert.equal(of('Radiohead/OK Computer/01 Airbag.flac'), 'FLAC');
+    assert.equal(of('Alice in Chains/Greatest Hits/01 Man in the Box.mp3'), 'MP3');
+    assert.equal(of('David Bowie/Let’s Dance/01 Modern Love.ape'), 'APE');
+    // The CONTAINER, not the codec: .m4a holds ALAC as happily as AAC.
+    assert.equal(of('x/y.m4a'), 'M4A');
+});
+
+test('trackFromTags leaves the container absent rather than guessing one', () => {
+    const of = (file: string) => trackFromTags(new Map([['file', file]]))?.encoding;
+    // A stream has no extension to read.
+    assert.equal(of('http://example.com/stream'), undefined);
+    assert.equal(of('noextension'), undefined);
+    // A dot in a directory name is not the file's extension.
+    assert.equal(of('Andrew W.K./album/track'), undefined);
+    // A dotfile is not an extension either.
+    assert.equal(of('x/.hidden'), undefined);
+});
+
+test('trackFromTags no longer carries a genre at all', () => {
+    // It moved to AlbumSummary.genres, as an array. A single string could only
+    // ever report one of the twelve below.
+    const track = trackFromTags(new Map([['file', 'a.flac'], ['Genre', 'Rock']]));
+    assert.ok(track);
+    assert.ok(!('genre' in track));
+});
+
+test('groupByMulti keeps every value of a repeated tag', () => {
+    // The real "Burn the Witch" record, abridged. groupBy() builds a Map, so the
+    // twelve Genre lines collapse to whichever came last — "Orchestral".
+    const record = reply(
+        'file: Radiohead/A Moon Shaped Pool (2016)/01.flac',
+        'Title: Burn the Witch',
+        'Genre: Art Rock',
+        'Genre: Art Pop',
+        'Genre: Krautrock',
+        'Genre: Orchestral',
+    );
+    const [single] = groupBy(record, 'file');
+    assert.equal(single.get('Genre'), 'Orchestral');
+
+    const [multi] = groupByMulti(record, 'file');
+    assert.deepEqual(multi.get('Genre'), ['Art Rock', 'Art Pop', 'Krautrock', 'Orchestral']);
+    assert.deepEqual(multi.get('Title'), ['Burn the Witch']);
+});
+
+test('groupByMulti starts a new record on each delimiter, as groupBy does', () => {
+    const records = groupByMulti(
+        reply('file: a.flac', 'Genre: Rock', 'file: b.flac', 'Genre: Jazz', 'Genre: Bebop'),
+        'file',
+    );
+    assert.equal(records.length, 2);
+    assert.deepEqual(records[0].get('Genre'), ['Rock']);
+    assert.deepEqual(records[1].get('Genre'), ['Jazz', 'Bebop']);
+});
+
+test('firstOf collapses first-wins, agreeing with firstValue', () => {
+    const collapsed = firstOf(
+        new Map([
+            ['file', ['a.flac']],
+            ['Genre', ['Jazz', 'Bebop']],
+            ['Empty', []],
+        ]),
+    );
+    assert.equal(collapsed.get('Genre'), 'Jazz');
+    // A key MPD sent no value for does not become undefined-as-a-string.
+    assert.ok(!collapsed.has('Empty'));
+});
+
+test('songFromTags keeps the album tags a Track deliberately drops', () => {
+    const song = songFromTags(
+        new Map([
+            ['file', ['Radiohead/OK Computer/01.flac']],
+            ['Album', ['OK Computer']],
+            ['Genre', ['Alternative Rock', 'Art Rock', 'Britpop']],
+            ['Label', ['Parlophone']],
+            ['MUSICBRAINZ_ALBUMID', ['album-id']],
+            ['MUSICBRAINZ_RELEASEGROUPID', ['group-id']],
+            ['MUSICBRAINZ_ALBUMARTISTID', ['artist-id']],
+        ]),
+    );
+    assert.deepEqual(song?.genres, ['Alternative Rock', 'Art Rock', 'Britpop']);
+    assert.equal(song?.label, 'Parlophone');
+    assert.equal(song?.mbAlbumId, 'album-id');
+    assert.equal(song?.mbReleaseGroupId, 'group-id');
+    assert.equal(song?.mbArtistId, 'artist-id');
+    // The Track still comes from the one chokepoint, so `image` is real.
+    assert.equal(song?.track.image, '/api/art?album=Radiohead%2FOK%20Computer');
+});
+
+test('songFromTags splits a semicolon run-on and drops ID3v1 index numbers', () => {
+    // Both real: 39 values here hold a `;`-joined list inside one tag, and three
+    // albums carry bare ID3v1 indices, so a genre reads "17".
+    const song = songFromTags(
+        new Map([
+            ['file', ['a.flac']],
+            ['Genre', ['Alternative Metal;17;40;Sludge Metal; Glam Rock ;;9']],
+        ]),
+    );
+    assert.deepEqual(song?.genres, ['Alternative Metal', 'Sludge Metal', 'Glam Rock']);
+});
+
+test('songFromTags leaves a genre containing a comma alone', () => {
+    // Only `;` is split. One album uses ", " the same way, and splitting on a
+    // comma would break every genuine name that has one in it.
+    const song = songFromTags(
+        new Map([['file', ['a.flac']], ['Genre', ['Electronic, Rock, Shoegaze']]]),
+    );
+    assert.deepEqual(song?.genres, ['Electronic, Rock, Shoegaze']);
+});
+
+test('songFromTags refuses a record with no file, as trackFromTags does', () => {
+    assert.equal(songFromTags(new Map([['Title', ['orphan']]])), null);
+});
+
+test('songFromTags leaves absent album tags absent rather than empty', () => {
+    const song = songFromTags(new Map([['file', ['a.flac']]]));
+    assert.ok(song);
+    assert.deepEqual(song.genres, []);
+    assert.ok(!('label' in song));
+    assert.ok(!('mbAlbumId' in song));
 });

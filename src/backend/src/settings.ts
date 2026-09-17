@@ -19,7 +19,7 @@
  */
 
 import type { Db } from './db.ts';
-import { PANEL_SLEEP_MINUTES } from '../../shared/api.ts';
+import { LIBRARY_SCAN_HOURS, PANEL_SLEEP_MINUTES } from '../../shared/api.ts';
 
 export interface SettingsValues {
     /**
@@ -28,12 +28,23 @@ export interface SettingsValues {
      * frontend, which owns the timer because it is the thing that sees touches.
      */
     panelSleepAfterMinutes: number;
+    /**
+     * Hour of the day the library is scanned at, local time, or -1 for never.
+     * Local rather than UTC because the point is "while nobody is listening".
+     */
+    libraryScanHour: number;
+    /** Scan once a couple of minutes after startup. */
+    libraryScanOnBoot: boolean;
 }
 
 export const SETTINGS_DEFAULTS: Readonly<SettingsValues> = {
     // Never. A screen that goes dark on its own while nobody asked it to is a
     // box that looks broken, so this is opted into.
     panelSleepAfterMinutes: 0,
+    // Both opted into for the same reason: a scan takes the better part of an
+    // hour, and one nobody asked for looks like the box has seized up.
+    libraryScanHour: -1,
+    libraryScanOnBoot: false,
 };
 
 /** One per key, and the only way a stored row becomes a setting. */
@@ -48,6 +59,15 @@ const GUARDS: { [K in keyof SettingsValues]: (value: string) => SettingsValues[K
         // this can hold however it came to be in the table.
         return PANEL_SLEEP_MINUTES.includes(minutes) ? minutes : undefined;
     },
+    libraryScanHour: (value) => {
+        // As above, but -1 is a legal answer here, so the sign is allowed.
+        if (!/^-?\d+$/.test(value)) return undefined;
+        const hour = Number(value);
+        return LIBRARY_SCAN_HOURS.includes(hour) ? hour : undefined;
+    },
+    // `set` stores String(value), so a boolean arrives back as 'true'/'false'.
+    libraryScanOnBoot: (value) =>
+        value === 'true' ? true : value === 'false' ? false : undefined,
 };
 
 export type SettingsListener = (values: SettingsValues) => void;
@@ -85,13 +105,23 @@ export function parseSetting<K extends keyof SettingsValues>(
 export function createSettings(db: Db): Settings {
     const listeners = new Set<SettingsListener>();
 
+    // Generic so the key and its value stay correlated: `values[k] = parse(k)`
+    // with k a union of keys narrows the target to `never`.
+    const apply = <K extends keyof SettingsValues>(
+        values: SettingsValues,
+        key: K,
+        raw: string,
+    ): void => {
+        const parsed = parseSetting(key, raw);
+        if (parsed !== undefined) values[key] = parsed;
+    };
+
     const all = (): SettingsValues => {
         const values: SettingsValues = { ...SETTINGS_DEFAULTS };
         const rows = db.all<{ key: string; value: string }>('SELECT key, value FROM settings');
         for (const row of rows) {
             if (!isSettingKey(row.key)) continue; // a key this build retired
-            const parsed = parseSetting(row.key, row.value);
-            if (parsed !== undefined) values[row.key] = parsed;
+            apply(values, row.key, row.value);
         }
         return values;
     };

@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
+import {
+    ChangeDetectionStrategy,
+    Component,
+    computed,
+    effect,
+    inject,
+    signal,
+    viewChild,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
     VirtualScrollerComponent,
@@ -204,7 +212,16 @@ export class Library {
     constructor() {
         // Cached after the first visit, so coming back from an album is instant
         // and costs the backend nothing. See LibraryStore.
-        void this.load();
+        //
+        // In an effect on the store's generation rather than a plain call, so a
+        // scan finishing while this screen is open refetches instead of leaving
+        // it on "Reading the library…" — the cache being dropped is the only
+        // signal of that, since `artists` was already null if the first fetch
+        // had not landed yet.
+        effect(() => {
+            this.library.generation();
+            void this.load();
+        });
     }
 
     async load(): Promise<void> {

@@ -23,8 +23,14 @@ import type {
     Track,
     BuildInfo,
     SettingsResponse,
+    LibraryState,
 } from '@musicbox/shared';
-import { SSE_SNAPSHOT_EVENT, SSE_BUILD_EVENT, SSE_SETTINGS_EVENT } from '@musicbox/shared';
+import {
+    SSE_SNAPSHOT_EVENT,
+    SSE_BUILD_EVENT,
+    SSE_SETTINGS_EVENT,
+    SSE_LIBRARY_EVENT,
+} from '@musicbox/shared';
 import { ApiClient } from './api-client';
 
 /** How the browser is getting on with the server (not with MPD — that is snapshot.status). */
@@ -39,6 +45,7 @@ export class MusicboxApi {
     private readonly _stream = signal<StreamState>('connecting');
     private readonly _queue = signal<Track[]>([]);
     private readonly _settings = signal<SettingsResponse | null>(null);
+    private readonly _library = signal<LibraryState | null>(null);
 
     /** Latest complete state, or null before the first frame arrives. */
     readonly snapshot = this._snapshot.asReadonly();
@@ -53,6 +60,15 @@ export class MusicboxApi {
      * without it polling. See SSE_SETTINGS_EVENT in src/shared/api.ts.
      */
     readonly settings = this._settings.asReadonly();
+
+    /**
+     * The library and its scanning, or null before the first frame.
+     *
+     * On the stream for the same reason as the settings: a scan started from a
+     * phone runs for the better part of an hour, and the panel should say so
+     * without being asked.
+     */
+    readonly library = this._library.asReadonly();
 
     /**
      * The current queue listing, refetched when `queueVersion` changes.
@@ -171,6 +187,21 @@ export class MusicboxApi {
         }
     }
 
+    /**
+     * Ask for the library state directly, which re-probes the music share.
+     *
+     * Swallows errors like loadQueue: nothing here is worth a message, and a
+     * transport problem already shows as the stream going offline. Errors from
+     * a scan someone asked for belong to the component that asked.
+     */
+    async refreshLibrary(): Promise<void> {
+        try {
+            this._library.set(await this.api.getJson<LibraryState>('/api/library/state'));
+        } catch {
+            // Keep the last known state; the stream will correct it.
+        }
+    }
+
     private connect(): void {
         this.source = new EventSource(this.api.resolve('/api/events'));
 
@@ -215,6 +246,12 @@ export class MusicboxApi {
             // Replaced wholesale, like the snapshot: the server sends the
             // complete set every time, so there is nothing to merge.
             this._settings.set(settings);
+        });
+
+        this.source.addEventListener(SSE_LIBRARY_EVENT, (event) => {
+            const state = JSON.parse((event as MessageEvent<string>).data) as LibraryState;
+            // Wholesale again. Every event here is a complete picture.
+            this._library.set(state);
         });
 
         this.source.addEventListener('open', () => this._stream.set('live'));

@@ -19,13 +19,15 @@ import { mkdtemp, mkdir, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerRoutes } from './routes.ts';
+import type { LibraryState } from '../../shared/api.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
 import { SSE_SETTINGS_EVENT, SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
 import { isLoopback } from './routes.ts';
 import type { Panel } from './panel.ts';
-import { createSettings, type Settings } from './settings.ts';
+import { createSettings, SETTINGS_DEFAULTS, type Settings } from './settings.ts';
+import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { openDb } from './db.ts';
 import { createPower, type Power } from './power.ts';
 
@@ -64,6 +66,7 @@ async function startServer(
         panel?: Panel;
         settings?: Settings;
         power?: Power;
+        scanner?: LibraryScanner;
     } = {},
 ) {
     const app = Fastify({
@@ -82,6 +85,7 @@ async function startServer(
         panel: opts.panel,
         settings: opts.settings,
         power: opts.power,
+        scanner: opts.scanner,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -757,6 +761,13 @@ test('an album reference is validated as strings before it can reach a command l
             { albumArtist: { toString: () => 'x' }, album: 'Kid A' },
             { albumArtist: 1, album: 2 },
             { albumArtist: ['Radiohead'], album: 'Kid A' },
+            // `disc` is optional, but held to the same standard once supplied.
+            // `1` would reach quoteArg as "1" and happen to work; `{}` as
+            // "[object Object]" and silently match nothing.
+            { albumArtist: 'Radiohead', album: 'Kid A', disc: 1 },
+            { albumArtist: 'Radiohead', album: 'Kid A', disc: '' },
+            { albumArtist: 'Radiohead', album: 'Kid A', disc: {} },
+            { albumArtist: 'Radiohead', album: 'Kid A', disc: null },
         ];
         for (const body of bodies) {
             for (const path of ['/api/library/queue', '/api/library/play']) {
@@ -801,6 +812,42 @@ test('playing an album clears the queue first, and queueing does not', async () 
         !queue.includes("'clear'"),
         'queueing an album must APPEND — it must never clear the queue',
     );
+});
+
+test('a valid disc is accepted, and reaches MPD rather than being rejected', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        for (const path of ['/api/library/queue', '/api/library/play']) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    albumArtist: 'Alice in Chains',
+                    album: 'Music Bank',
+                    disc: '2',
+                }),
+            });
+            // 503 because this bridge has no MPD, which is the point: the ref
+            // passed validation and got as far as the wire. A 400 would mean
+            // `disc` was rejected before it ever reached MPD.
+            assert.equal(res.status, 503, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('a disc narrows the findadd with one more quoted pair', async () => {
+    // Measured on the real library: `disc "1"` + `"2"` + `"3"` is 17 + 17 + 14
+    // against 48 for the whole album. Asserted on the source for the same reason
+    // the test below is — a dead bridge shows nothing of what was sent.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const helper = src.slice(src.indexOf('function findaddFor('));
+    assert.match(helper, /\$\{quoteArg\('disc'\)\} \$\{quoteArg\(ref\.disc\)\}/);
+    // And it must stay OPTIONAL: a whole album carries no disc filter at all.
+    assert.match(helper, /ref\.disc === undefined/);
 });
 
 test('an album is added with one findadd, not a track at a time', async () => {
@@ -983,7 +1030,8 @@ test('GET /api/settings answers the defaults on a fresh box', async (t) => {
     const { port } = await serverFor(t, { settings: memorySettings() });
     const res = await api(port, '/api/settings');
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body, { panelSleepAfterMinutes: 0 });
+    // Against the constant, not a literal, so a new setting is no churn here.
+    assert.deepEqual(res.body, SETTINGS_DEFAULTS);
 });
 
 test('PATCH /api/settings writes, and the next GET agrees', async (t) => {
@@ -992,9 +1040,10 @@ test('PATCH /api/settings writes, and the next GET agrees', async (t) => {
         method: 'PATCH',
         body: { panelSleepAfterMinutes: 5 },
     });
+    const expected = { ...SETTINGS_DEFAULTS, panelSleepAfterMinutes: 5 };
     assert.equal(patched.status, 200);
-    assert.deepEqual(patched.body, { panelSleepAfterMinutes: 5 });
-    assert.deepEqual((await api(port, '/api/settings')).body, { panelSleepAfterMinutes: 5 });
+    assert.deepEqual(patched.body, expected);
+    assert.deepEqual((await api(port, '/api/settings')).body, expected);
 });
 
 test('a PATCH the guard rejects changes nothing at all', async (t) => {
@@ -1062,4 +1111,194 @@ test('a box with no power helper answers 503, not 500', async (t) => {
     const res = await api(port, '/api/power/restart', { method: 'POST' });
     assert.equal(res.status, 503);
     assert.match(res.body.error, /setup-server\.sh/);
+});
+
+// ---------------------------------------------------------------------------
+// Scanning the library.
+// ---------------------------------------------------------------------------
+
+/** A scanner with no MPD and no filesystem behind it. */
+function fakeScanner(
+    over: { scanning?: boolean; refuse?: ScanRefusedError } = {},
+): LibraryScanner & { asked: string[] } {
+    const asked: string[] = [];
+    const state = (): LibraryState => ({
+        scanning: over.scanning ?? false,
+        scanStartedAt: over.scanning ? 1000 : null,
+        scanTrigger: over.scanning ? 'manual' : null,
+        lastScan: null,
+        stats: { songs: 37289, albums: 2731, artists: 535, playtimeSeconds: 10, lastUpdatedAt: 5 },
+        musicRoot: '/srv/music/Music',
+        musicRootReadable: true,
+        nextScanAt: null,
+    });
+    return {
+        asked,
+        state,
+        refresh: async () => state(),
+        scan: async (trigger) => {
+            asked.push(trigger);
+            if (over.refuse) throw over.refuse;
+        },
+        start: () => {},
+        stop: () => {},
+        onChange: () => () => {},
+    };
+}
+
+/** Read an SSE stream until `breaks` frames have arrived. */
+async function sseFrames(port: number, breaks: number): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+        const req = httpRequest(
+            { host: '127.0.0.1', port, path: '/api/events', method: 'GET' },
+            (res) => {
+                let buf = '';
+                res.on('data', (chunk) => {
+                    buf += chunk.toString('utf8');
+                    if (buf.split('\n\n').length > breaks) {
+                        req.destroy();
+                        resolve(buf);
+                    }
+                });
+                res.on('error', () => {});
+                res.on('close', () => resolve(buf));
+            },
+        );
+        req.on('error', (err) => reject(err));
+        req.end();
+    }).catch(() => '');
+}
+
+test('the library routes answer 503 on a box with no scanner wired up', async (t) => {
+    const { port } = await serverFor(t);
+    assert.equal((await api(port, '/api/library/state')).status, 503);
+    assert.equal((await api(port, '/api/library/scan', { method: 'POST' })).status, 503);
+    assert.equal((await api(port, '/api/library/rescan', { method: 'POST' })).status, 503);
+});
+
+test('GET /api/library/state answers the complete state', async (t) => {
+    const { port } = await serverFor(t, { scanner: fakeScanner() });
+    const res = await api(port, '/api/library/state');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.scanning, false);
+    assert.equal(res.body.stats.songs, 37289);
+    assert.equal(res.body.musicRoot, '/srv/music/Music');
+    // Every key present, null being the empty value — as everywhere else here.
+    for (const key of [
+        'scanning',
+        'scanStartedAt',
+        'scanTrigger',
+        'lastScan',
+        'stats',
+        'musicRoot',
+        'musicRootReadable',
+        'nextScanAt',
+    ]) {
+        assert.ok(key in res.body, `missing ${key}`);
+    }
+});
+
+test('POST /api/library/scan is accepted with a 202, because a scan takes an hour', async (t) => {
+    const scanner = fakeScanner();
+    const { port } = await serverFor(t, { scanner });
+    const res = await api(port, '/api/library/scan', { method: 'POST' });
+    assert.equal(res.status, 202);
+    assert.deepEqual(scanner.asked, ['manual']);
+});
+
+test('POST /api/library/rescan asks for a rescan, not an update', async (t) => {
+    const scanner = fakeScanner();
+    const { port } = await serverFor(t, { scanner });
+    const res = await api(port, '/api/library/rescan', { method: 'POST' });
+    assert.equal(res.status, 202);
+    // Two routes rather than one with a flag: the expensive one should not be
+    // the easy thing to reach by accident.
+    assert.deepEqual(scanner.asked, ['rescan']);
+});
+
+test('a second scan is refused with 409 while one is running', async (t) => {
+    const scanner = fakeScanner({
+        scanning: true,
+        refuse: new ScanRefusedError('a scan is already running', 409),
+    });
+    const { port } = await serverFor(t, { scanner });
+    const res = await api(port, '/api/library/scan', { method: 'POST' });
+    assert.equal(res.status, 409);
+    assert.match(res.body.error, /already running/);
+});
+
+test('a scan is refused with 503 when the share cannot be read, and says so', async (t) => {
+    const scanner = fakeScanner({
+        refuse: new ScanRefusedError('the music share is not reachable', 503),
+    });
+    const { port } = await serverFor(t, { scanner });
+    const res = await api(port, '/api/library/scan', { method: 'POST' });
+    assert.equal(res.status, 503);
+    assert.match(res.body.error, /not reachable/);
+});
+
+test('/api/events sends the library event after the settings and before the snapshot', async (t) => {
+    const { port } = await serverFor(t, {
+        settings: memorySettings(),
+        scanner: fakeScanner(),
+    });
+    const frames = await sseFrames(port, 3);
+
+    const buildAt = frames.indexOf('event: build');
+    const settingsAt = frames.indexOf('event: settings');
+    const libraryAt = frames.indexOf('event: library');
+    assert.ok(buildAt !== -1 && settingsAt !== -1 && libraryAt !== -1, frames);
+    assert.ok(buildAt < settingsAt, 'build first');
+    assert.ok(settingsAt < libraryAt, 'then the settings');
+    assert.match(frames, /"musicRoot":"\/srv\/music\/Music"/);
+});
+
+test('the library frame on a new stream does NOT probe the music share', async (t) => {
+    // The probe stats an NFS automount and can block for as long as the mount
+    // timeout. Doing it here would hold up the first frame for every client.
+    const scanner = fakeScanner();
+    let refreshed = 0;
+    const counting: LibraryScanner = {
+        ...scanner,
+        refresh: async () => {
+            refreshed += 1;
+            return scanner.state();
+        },
+    };
+    const { port } = await serverFor(t, { scanner: counting });
+    await sseFrames(port, 2);
+    assert.equal(refreshed, 0, 'the stream must use the cached state');
+});
+
+test('a library sink is removed when its stream closes', async (t) => {
+    const scanner = fakeScanner();
+    let sink: ((state: LibraryState) => void) | null = null;
+    const capturing: LibraryScanner = {
+        ...scanner,
+        onChange: (fn) => {
+            sink = fn;
+            return () => {};
+        },
+    };
+    const { port } = await serverFor(t, { scanner: capturing });
+    await sseFrames(port, 2);
+    await new Promise((r) => setTimeout(r, 50));
+    // The sink fans out to per-stream writers; with every stream gone it must
+    // write to nothing rather than to a destroyed socket.
+    assert.doesNotThrow(() => sink?.(scanner.state()));
+});
+
+test('the scanner is wired up outside routes.ts, so this file still has one onIdle', () => {
+    // Insurance for the assertion above, which finds the invalidation hook with
+    // indexOf and would silently read a different hook if a second one appeared.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    assert.equal(src.split('bridge.onIdle(').length - 1, 1);
+});
+
+test('the library scan routes are the last routes in the file', () => {
+    // The panel comment says why: three tests here slice this file between route
+    // literals, so a route inserted higher up changes what they assert.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    assert.ok(src.indexOf("app.post('/api/power/:action'") < src.indexOf("app.get('/api/library/state'"));
+    assert.ok(src.indexOf("app.get('/api/events'") < src.indexOf("app.post('/api/library/scan'"));
 });

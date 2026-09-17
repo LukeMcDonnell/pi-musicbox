@@ -13,7 +13,11 @@
   <main #scrollFrame class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
         [class.pb-keyboard]="keyboard.open()"
         [class.scroll-pb-keyboard]="keyboard.open()">
-    <router-outlet />
+    <!-- A tablet and up gets a capped, inset column. Inside the scroller rather
+         than on it, so the scrollbar stays against the window edge. -->
+    <div class="mx-auto max-w-[60rem] md:px-6">
+      <router-outlet />
+    </div>
   </main>
 </div>
 

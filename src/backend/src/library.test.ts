@@ -11,14 +11,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    albumsFromTracks,
+    albumsFromSongs,
     artistDirOf,
     artistImageOf,
     createLibrary,
     sortAlbumTracks,
 } from './library.ts';
-import { trackFromTags } from './mpd/bridge.ts';
-import type { MpdBridge } from './mpd/bridge.ts';
+import { songFromTags, trackFromTags } from './mpd/bridge.ts';
+import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
 import type { Reply } from './mpd/protocol.ts';
 import type { Track } from '../../shared/api.ts';
 
@@ -28,6 +28,21 @@ function song(file: string, tags: Record<string, string> = {}): Track {
     const track = trackFromTags(map);
     assert.ok(track, `trackFromTags refused ${file}`);
     return track;
+}
+
+/**
+ * The same, as the browse path carries it: through the real `songFromTags`, so
+ * the multi-value tags behave as MPD sends them. A value may be an array —
+ * `Genre` is one on 91% of this library's songs.
+ */
+function lsong(file: string, tags: Record<string, string | string[]> = {}): LibrarySong {
+    const map = new Map<string, string[]>([['file', [file]]]);
+    for (const [key, value] of Object.entries(tags)) {
+        map.set(key, Array.isArray(value) ? value : [value]);
+    }
+    const built = songFromTags(map);
+    assert.ok(built, `songFromTags refused ${file}`);
+    return built;
 }
 
 function reply(pairs: Array<[string, string]>): Reply {
@@ -51,10 +66,10 @@ test('the artist directory is the first path segment, not two dirnames', () => {
 
 test('albums are grouped by the Album tag, not by directory', () => {
     // One album, two disc directories. Grouping by directory would show it twice.
-    const albums = albumsFromTracks('Blur', [
-        song('Blur/13 (1999)/CD 01/01.flac', { Album: '13', Date: '1999' }),
-        song('Blur/13 (1999)/CD 01/02.flac', { Album: '13', Date: '1999' }),
-        song('Blur/13 (1999)/CD 02/01.flac', { Album: '13', Date: '1999' }),
+    const albums = albumsFromSongs('Blur', [
+        lsong('Blur/13 (1999)/CD 01/01.flac', { Album: '13', Date: '1999' }),
+        lsong('Blur/13 (1999)/CD 01/02.flac', { Album: '13', Date: '1999' }),
+        lsong('Blur/13 (1999)/CD 02/01.flac', { Album: '13', Date: '1999' }),
     ]);
     assert.equal(albums.length, 1);
     assert.equal(albums[0].album, '13');
@@ -70,13 +85,13 @@ test('the release year prefers OriginalDate over the pressing date', () => {
     // 940 of this library's 2,758 albums are remasters whose `Date` is decades
     // after the record. Sorting on `Date` puts AC/DC's whole catalogue in 2020
     // and dates `Back in Black` to 2003.
-    const albums = albumsFromTracks('AC/DC', [
-        song('AC-DC/Back in Black (1980)/01.flac', {
+    const albums = albumsFromSongs('AC/DC', [
+        lsong('AC-DC/Back in Black (1980)/01.flac', {
             Album: 'Back in Black',
             Date: '2003-01-01',
             OriginalDate: '1980-07-25',
         }),
-        song('AC-DC/Black Ice (2008)/01.flac', { Album: 'Black Ice', Date: '2008-10-20' }),
+        lsong('AC-DC/Black Ice (2008)/01.flac', { Album: 'Black Ice', Date: '2008-10-20' }),
     ]);
     assert.deepEqual(
         albums.map((a) => a.album),
@@ -88,11 +103,11 @@ test('the release year prefers OriginalDate over the pressing date', () => {
 });
 
 test('albums sort oldest first, with undated albums LAST', () => {
-    const albums = albumsFromTracks('Radiohead', [
-        song('a/In Rainbows/01.flac', { Album: 'In Rainbows', Date: '2007-10-10' }),
-        song('a/Unknown/01.flac', { Album: 'Unknown' }),
-        song('a/Kid A/01.flac', { Album: 'Kid A', Date: '2000' }),
-        song('a/The Bends/01.flac', { Album: 'The Bends', Date: '1995' }),
+    const albums = albumsFromSongs('Radiohead', [
+        lsong('a/In Rainbows/01.flac', { Album: 'In Rainbows', Date: '2007-10-10' }),
+        lsong('a/Unknown/01.flac', { Album: 'Unknown' }),
+        lsong('a/Kid A/01.flac', { Album: 'Kid A', Date: '2000' }),
+        lsong('a/The Bends/01.flac', { Album: 'The Bends', Date: '1995' }),
     ]);
     assert.deepEqual(
         albums.map((a) => a.album),
@@ -108,9 +123,9 @@ test('albums sort oldest first, with undated albums LAST', () => {
 });
 
 test('albums released in the same year order by full date, not by title', () => {
-    const albums = albumsFromTracks('AC/DC', [
-        song('a/dd/01.flac', { Album: 'Dirty Deeds', OriginalDate: '1976-09-20' }),
-        song('a/hv/01.flac', { Album: 'High Voltage', OriginalDate: '1976-05-14' }),
+    const albums = albumsFromSongs('AC/DC', [
+        lsong('a/dd/01.flac', { Album: 'Dirty Deeds', OriginalDate: '1976-09-20' }),
+        lsong('a/hv/01.flac', { Album: 'High Voltage', OriginalDate: '1976-05-14' }),
     ]);
     // Alphabetically Dirty Deeds comes first; by release it does not.
     assert.deepEqual(
@@ -120,13 +135,103 @@ test('albums released in the same year order by full date, not by title', () => 
 });
 
 test('a track with no Album tag is filed under nothing rather than under ""', () => {
-    const albums = albumsFromTracks('X', [
-        song('X/a/01.flac', { Album: 'Real' }),
-        song('X/loose.flac'),
+    const albums = albumsFromSongs('X', [
+        lsong('X/a/01.flac', { Album: 'Real' }),
+        lsong('X/loose.flac'),
     ]);
     assert.equal(albums.length, 1);
     assert.equal(albums[0].album, 'Real');
     assert.equal(albums[0].trackCount, 1);
+});
+
+test('an album keeps EVERY genre, not the last one MPD sent', () => {
+    // The real "Burn the Witch" record. A Map keyed by tag name reports
+    // "Orchestral" — the last line — for a song tagged Art Rock through
+    // Krautrock, and 91% of this library's songs carry more than one Genre.
+    const genres = [
+        'Art Rock', 'Art Pop', 'Ambient Pop', 'Electronic', 'Alternative Rock',
+        'Chamber Pop', 'Indie Rock', 'Rock', 'Post-Rock', 'Indietronica',
+        'Krautrock', 'Orchestral',
+    ];
+    const albums = albumsFromSongs('Radiohead', [
+        lsong('Radiohead/A Moon Shaped Pool (2016)/01.flac', {
+            Album: 'A Moon Shaped Pool',
+            Genre: genres,
+        }),
+    ]);
+    assert.deepEqual(albums[0].genres, genres);
+});
+
+test('an untagged album gets an empty genre list, never null', () => {
+    const albums = albumsFromSongs('X', [lsong('X/a/01.flac', { Album: 'Real' })]);
+    assert.deepEqual(albums[0].genres, []);
+});
+
+test('the album takes its genres from the first track that has any', () => {
+    // The same rule `date` uses. Not an intersection across tracks, which comes
+    // out empty on a compilation whose tracks genuinely disagree.
+    const albums = albumsFromSongs('X', [
+        lsong('X/a/01.flac', { Album: 'A' }),
+        lsong('X/a/02.flac', { Album: 'A', Genre: ['Jazz', 'Bebop'] }),
+        lsong('X/a/03.flac', { Album: 'A', Genre: ['Ska'] }),
+    ]);
+    assert.deepEqual(albums[0].genres, ['Jazz', 'Bebop']);
+});
+
+test('discCount counts distinct Disc tags, and is 1 for an untagged album', () => {
+    // Alice in Chains / Music Bank, one of 313 albums here that span more than
+    // one disc — against the 149 that use a disc subdirectory. The Disc tag sees
+    // twice what the directory layout does.
+    const albums = albumsFromSongs('Alice in Chains', [
+        lsong('Alice in Chains/Music Bank/01.flac', { Album: 'Music Bank', Disc: '1' }),
+        lsong('Alice in Chains/Music Bank/02.flac', { Album: 'Music Bank', Disc: '2' }),
+        lsong('Alice in Chains/Music Bank/03.flac', { Album: 'Music Bank', Disc: '2' }),
+        lsong('Alice in Chains/Music Bank/04.flac', { Album: 'Music Bank', Disc: '3' }),
+    ]);
+    assert.equal(albums[0].discCount, 3);
+
+    const untagged = albumsFromSongs('X', [lsong('X/a/01.flac', { Album: 'A' })]);
+    // Never 0: an album with no Disc tag at all is still one disc.
+    assert.equal(untagged[0].discCount, 1);
+});
+
+test('an album runtime is null unless EVERY track has a duration', () => {
+    const whole = albumsFromSongs('X', [
+        lsong('X/a/01.flac', { Album: 'A', Time: '100' }),
+        lsong('X/a/02.flac', { Album: 'A', Time: '200' }),
+    ]);
+    assert.equal(whole[0].duration, 300);
+
+    // A sum that quietly skips the untagged track is a wrong number presented
+    // as a right one, so it is withheld instead.
+    const partial = albumsFromSongs('X', [
+        lsong('X/a/01.flac', { Album: 'A', Time: '100' }),
+        lsong('X/a/02.flac', { Album: 'A' }),
+    ]);
+    assert.equal(partial[0].duration, null);
+});
+
+test('the label and MusicBrainz ids come from the first track that carries them', () => {
+    const albums = albumsFromSongs('Radiohead', [
+        lsong('Radiohead/OK Computer/01.flac', { Album: 'OK Computer' }),
+        lsong('Radiohead/OK Computer/02.flac', {
+            Album: 'OK Computer',
+            Label: 'Parlophone',
+            MUSICBRAINZ_ALBUMID: 'album-id',
+            MUSICBRAINZ_RELEASEGROUPID: 'group-id',
+        }),
+    ]);
+    assert.equal(albums[0].label, 'Parlophone');
+    assert.equal(albums[0].mbAlbumId, 'album-id');
+    // The release group survives a different pressing; the album id does not.
+    assert.equal(albums[0].mbReleaseGroupId, 'group-id');
+});
+
+test('an album with none of those leaves the optional fields absent', () => {
+    const [album] = albumsFromSongs('X', [lsong('X/a/01.flac', { Album: 'A' })]);
+    assert.ok(!('label' in album));
+    assert.ok(!('mbAlbumId' in album));
+    assert.ok(!('mbReleaseGroupId' in album));
 });
 
 test('tracks sort by directory before track number, so discs do not interleave', () => {
@@ -139,6 +244,50 @@ test('tracks sort by directory before track number, so discs do not interleave',
     assert.deepEqual(
         sorted.map((t) => t.title),
         ['d1t2', 'd1t10', 'd2t1', 'd2t2'],
+    );
+});
+
+test('a multi-disc album in ONE directory does not interleave its discs', () => {
+    // 313 albums here span more than one disc and only 149 put the discs in
+    // separate directories. For the other 164 — Alice in Chains' Music Bank —
+    // every track shares a directory, so directory-then-track sorts purely on
+    // the track number and gives disc 1 track 1, disc 2 track 1, disc 3 track 1.
+    // Caught in a screenshot of the real panel, not by a test.
+    const sorted = sortAlbumTracks([
+        song('A/Music Bank/05.flac', { Disc: '2', Track: '1', Title: 'd2t1' }),
+        song('A/Music Bank/01.flac', { Disc: '1', Track: '1', Title: 'd1t1' }),
+        song('A/Music Bank/09.flac', { Disc: '3', Track: '1', Title: 'd3t1' }),
+        song('A/Music Bank/06.flac', { Disc: '2', Track: '2', Title: 'd2t2' }),
+        song('A/Music Bank/02.flac', { Disc: '1', Track: '2', Title: 'd1t2' }),
+    ]);
+    assert.deepEqual(
+        sorted.map((t) => t.title),
+        ['d1t1', 'd1t2', 'd2t1', 'd2t2', 'd3t1'],
+    );
+});
+
+test('the disc tag does not reorder an album whose discs are separate directories', () => {
+    // The 149 where the directory already separates them. Disc is the MIDDLE
+    // key, so it must not overrule a directory the filenames agree with.
+    const sorted = sortAlbumTracks([
+        song('B/13/CD 02/01.flac', { Disc: '2', Track: '1', Title: 'd2t1' }),
+        song('B/13/CD 01/02.flac', { Disc: '1', Track: '2', Title: 'd1t2' }),
+        song('B/13/CD 01/01.flac', { Disc: '1', Track: '1', Title: 'd1t1' }),
+    ]);
+    assert.deepEqual(
+        sorted.map((t) => t.title),
+        ['d1t1', 'd1t2', 'd2t1'],
+    );
+});
+
+test('a track with no Disc tag sorts after the tagged ones, not as disc zero', () => {
+    const sorted = sortAlbumTracks([
+        song('A/x/02.flac', { Track: '1', Title: 'untagged' }),
+        song('A/x/01.flac', { Disc: '1', Track: '9', Title: 'disc one' }),
+    ]);
+    assert.deepEqual(
+        sorted.map((t) => t.title),
+        ['disc one', 'untagged'],
     );
 });
 
@@ -166,8 +315,8 @@ test('an untagged track sorts last, not as track zero', () => {
 });
 
 /**
- * A bridge with only the four methods the library uses, standing in for a
- * socket. Counting the calls is the point of several tests below.
+ * A bridge with only the methods the library uses, standing in for a socket.
+ * Counting the calls is the point of several tests below.
  */
 function fakeBridge(over: Partial<Record<string, unknown>> = {}) {
     const calls: string[] = [];
@@ -192,17 +341,31 @@ function fakeBridge(over: Partial<Record<string, unknown>> = {}) {
                 ['directory', 'Radiohead'],
             ]);
         },
-        async findFirst(...pairs: Array<[string, string]>): Promise<Track | null> {
-            calls.push(`findFirst ${pairs.map((p) => p.join('=')).join(' ')}`);
+        async count(group: string): Promise<Reply> {
+            calls.push(`count ${group}`);
+            return reply([
+                ['AlbumArtist', 'AC/DC'],
+                ['songs', '24'],
+                ['playtime', '7200'],
+                ['AlbumArtist', 'Radiohead'],
+                ['songs', '11'],
+                ['playtime', '3300'],
+            ]);
+        },
+        async findFirstSong(...pairs: Array<[string, string]>): Promise<LibrarySong | null> {
+            calls.push(`findFirstSong ${pairs.map((p) => p.join('=')).join(' ')}`);
             const dir = pairs[0][1];
             const names: Record<string, string> = { 'AC-DC': 'AC/DC', Radiohead: 'Radiohead' };
             const name = names[dir];
             return name === undefined
                 ? null
-                : song(`${dir}/Album/01.flac`, { AlbumArtist: name });
+                : lsong(`${dir}/Album/01.flac`, {
+                      AlbumArtist: name,
+                      MUSICBRAINZ_ALBUMARTISTID: `mbid-${dir}`,
+                  });
         },
-        async find(): Promise<Track[]> {
-            calls.push('find');
+        async findSongs(): Promise<LibrarySong[]> {
+            calls.push('findSongs');
             return [];
         },
         ...over,
@@ -212,23 +375,23 @@ function fakeBridge(over: Partial<Record<string, unknown>> = {}) {
 
 test('the artist picture comes from a track path, costing no extra MPD command', () => {
     assert.equal(
-        artistImageOf([song('AC-DC/Back in Black (1980)/01.flac')]),
+        artistImageOf([lsong('AC-DC/Back in Black (1980)/01.flac')]),
         '/api/art?album=AC-DC',
     );
     // The disc-subdirectory case again: the FIRST segment, not two dirnames.
     assert.equal(
-        artistImageOf([song('Black Sabbath/13 (2013)/CD 01/01.flac')]),
+        artistImageOf([lsong('Black Sabbath/13 (2013)/CD 01/01.flac')]),
         '/api/art?album=Black%20Sabbath',
     );
     // No tracks, or a file at the library root: null, never a guessed directory.
     assert.equal(artistImageOf([]), null);
-    assert.equal(artistImageOf([song('stray.flac')]), null);
+    assert.equal(artistImageOf([lsong('stray.flac')]), null);
 });
 
 test('albumsOf answers with the picture beside the albums', async () => {
     const bridge = fakeBridge({
-        async find(): Promise<Track[]> {
-            return [song('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black' })];
+        async findSongs(): Promise<LibrarySong[]> {
+            return [lsong('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black' })];
         },
     });
     const { image, albums } = await createLibrary(bridge).albumsOf('AC/DC');
@@ -250,6 +413,42 @@ test('the index joins tag names to directories rather than transforming one into
     assert.equal(acdc.directory, 'AC-DC');
     assert.equal(acdc.image, '/api/art?album=AC-DC');
     assert.equal(acdc.albumCount, 2);
+});
+
+test('the index carries songs and playtime from ONE count command', async () => {
+    const bridge = fakeBridge();
+    const artists = await createLibrary(bridge).artists();
+
+    const acdc = artists.find((a) => a.name === 'AC/DC');
+    assert.ok(acdc);
+    assert.equal(acdc.trackCount, 24);
+    assert.equal(acdc.duration, 7200);
+    // `count group albumartist` answers for all 488 artists in 35ms. A `find`
+    // per artist would be 11.4ms each — the reason this is one call, not 488.
+    assert.equal(bridge.calls.filter((c) => c.startsWith('count')).length, 1);
+});
+
+test('the MusicBrainz artist id rides along on a song already being fetched', async () => {
+    const artists = await createLibrary(fakeBridge()).artists();
+    // findFirstSong is the call the index already makes to learn the directory's
+    // name, so the id costs no extra command.
+    assert.equal(artists.find((a) => a.name === 'AC/DC')?.mbArtistId, 'mbid-AC-DC');
+});
+
+test('an artist MPD reports no playtime for gets null, not zero', async () => {
+    const bridge = fakeBridge({
+        async count(): Promise<Reply> {
+            return reply([['AlbumArtist', 'AC/DC'], ['songs', '0'], ['playtime', '0']]);
+        },
+    });
+    const artists = await createLibrary(bridge).artists();
+    const acdc = artists.find((a) => a.name === 'AC/DC');
+    assert.ok(acdc);
+    // An unknown playtime is not "listened to for no seconds".
+    assert.equal(acdc.duration, null);
+    assert.equal(acdc.trackCount, 0);
+    // Radiohead is in the `list` reply but not the `count` one: still listed.
+    assert.equal(artists.find((a) => a.name === 'Radiohead')?.trackCount, 0);
 });
 
 test('the index counts repeated Album keys within one group', async () => {

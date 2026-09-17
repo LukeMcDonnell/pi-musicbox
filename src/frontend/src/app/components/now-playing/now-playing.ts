@@ -37,6 +37,34 @@ export function clock(seconds: number | null): string {
     return `${mins}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/**
+ * What the DAC is being fed: "FLAC 24/96", "MP3 16/44.1".
+ *
+ * BOTH HALVES, because neither says it alone. `format` is the DECODED stream, so
+ * every MP3 here reads 16/44.1 exactly as a CD rip does; `encoding` is the
+ * container and says nothing about rate or depth. Either may be missing, and
+ * whatever is present is shown.
+ *
+ * Null when both are, so the badge simply does not appear — MPD emits `dsd64:2`
+ * for DSD and `*` for a component it cannot determine, and a Bluetooth track has
+ * neither field. A guess is worse than no badge.
+ */
+export function audioFormat(format: string | undefined, encoding?: string): string | null {
+    const parts = [encoding, sampleFormat(format)].filter((p) => p);
+    return parts.length === 0 ? null : parts.join(' ');
+}
+
+/** MPD's raw `Format` — `<rate>:<bits>:<channels>` — as "24/96". */
+function sampleFormat(format: string | undefined): string | null {
+    if (!format) return null;
+    const [rate, bits, channels] = format.split(':');
+    if (!/^\d+$/.test(rate) || !/^\d+$/.test(bits)) return null;
+    const khz = String(Number(rate) / 1000).replace(/\.0$/, '');
+    // Channels only when it is not the stereo everything here is.
+    const suffix = /^\d+$/.test(channels ?? '') && channels !== '2' ? ` · ${channels}ch` : '';
+    return `${bits}/${khz}${suffix}`;
+}
+
 /*
   Sized for two targets: a 800x480 DSI panel viewed at arm's length with touch,
   and a phone in the hand. Controls are deliberately large — the panel has no
@@ -131,6 +159,12 @@ export class NowPlaying implements OnDestroy {
 
     readonly elapsedLabel = computed(() => clock(this.elapsed()));
     readonly durationLabel = computed(() => clock(this.snapshot()?.duration ?? null));
+
+    /** "FLAC 24/96" — what the DAC is actually being fed. Null when unknown. */
+    readonly formatLabel = computed(() => {
+        const track = this.snapshot()?.track;
+        return audioFormat(track?.format, track?.encoding);
+    });
 
     readonly progress = computed(() => {
         const duration = this.snapshot()?.duration ?? null;

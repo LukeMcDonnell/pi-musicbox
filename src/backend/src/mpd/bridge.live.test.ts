@@ -28,6 +28,9 @@ function movingStatus(): string {
 }
 const SONG_REPLY = 'file: a/b.flac\nTitle: Test\nArtist: Tester\nOK\n';
 
+const STATS_REPLY =
+    'artists: 535\nalbums: 2731\nsongs: 37289\nuptime: 100000\ndb_playtime: 3500000\ndb_update: 1757000000\nOK\n';
+
 interface Fake {
     server: Server;
     port: number;
@@ -36,15 +39,27 @@ interface Fake {
     sockets: Set<Socket>;
     /** Drop every current connection, as MPD does on connection_timeout. */
     hangUpOnAll: () => void;
+    /** Set what `status` reports for `updating_db`; null removes the line. */
+    setUpdating: (job: number | null) => void;
+    /** Wake every blocked `idle` with one subsystem, as a real scan does. */
+    wake: (subsystem: string) => void;
     close: () => Promise<void>;
 }
 
 /** A minimal MPD good enough to exercise the bridge's connection handling. */
 async function startFakeMpd(
-    opts: { idleForever?: boolean; movingElapsed?: boolean; deaf?: boolean } = {},
+    opts: {
+        idleForever?: boolean;
+        movingElapsed?: boolean;
+        deaf?: boolean;
+        updating?: number | null;
+    } = {},
 ): Promise<Fake> {
     const commands: string[] = [];
     const sockets = new Set<Socket>();
+    let updating: number | null = opts.updating ?? null;
+    /** The sockets currently parked in `idle`, so a wake can answer them. */
+    const idling = new Set<Socket>();
 
     const server = createServer((socket) => {
         sockets.add(socket);
@@ -70,9 +85,20 @@ async function startFakeMpd(
                 }
                 if (line.startsWith('idle')) {
                     // A real idle blocks until something changes.
+                    idling.add(socket);
                     if (!opts.idleForever) socket.write('changed: player\nOK\n');
                 } else if (line === 'status') {
-                    socket.write(opts.movingElapsed ? movingStatus() : STATUS_REPLY);
+                    const base = opts.movingElapsed ? movingStatus() : STATUS_REPLY;
+                    socket.write(
+                        updating === null
+                            ? base
+                            : base.replace('OK\n', `updating_db: ${updating}\nOK\n`),
+                    );
+                } else if (line === 'stats') {
+                    socket.write(STATS_REPLY);
+                } else if (line === 'update' || line === 'rescan') {
+                    // MPD answers at once and gets on with it; it does not wait.
+                    socket.write('updating_db: 7\nOK\n');
                 } else if (line === 'currentsong') {
                     socket.write(SONG_REPLY);
                 } else {
@@ -94,6 +120,13 @@ async function startFakeMpd(
         hangUpOnAll: () => {
             for (const s of sockets) s.destroy();
             sockets.clear();
+        },
+        setUpdating: (job) => {
+            updating = job;
+        },
+        wake: (subsystem) => {
+            for (const s of idling) s.write(`changed: ${subsystem}\nOK\n`);
+            idling.clear();
         },
         close: () =>
             new Promise<void>((resolve) => {
@@ -332,5 +365,95 @@ test('idle is exempt from the reply deadline', async () => {
     assert.equal(settled, false, 'idle must not be timed out');
     assert.equal(conn.connected, true, 'and the connection must survive');
     conn.close();
+    await fake.close();
+});
+
+test('a running scan is reported by updatingDb, and never on the snapshot', async () => {
+    const fake = await startFakeMpd({ idleForever: true, updating: 7 });
+    const { bridge, seen } = makeBridge(fake);
+    bridge.start();
+    await wait(150);
+
+    assert.equal(bridge.updatingDb, 7);
+    // The snapshot rule: a scan is not what the music is doing.
+    assert.ok(seen.length > 0);
+    assert.ok(!('updatingDb' in seen[seen.length - 1]));
+    assert.ok(!('scanning' in seen[seen.length - 1]));
+
+    bridge.stop();
+    await fake.close();
+});
+
+test('the end of a scan is announced from refresh, not from the idle wake', async () => {
+    // THE REGRESSION THIS GUARDS. runIdleLoop calls announceIdle BEFORE
+    // refresh(), so an onIdle listener reading updatingDb sees the PREVIOUS
+    // refresh's value — and the last wake of a scan has no successor, so the
+    // scan's end would never be observed at all.
+    const fake = await startFakeMpd({ idleForever: true, updating: 7 });
+    const { bridge } = makeBridge(fake);
+    const edges: Array<[number | null, number | null]> = [];
+    bridge.onUpdating((was, job) => edges.push([was, job]));
+    bridge.start();
+    await wait(150);
+    assert.deepEqual(edges, [[null, 7]], 'the start of the scan');
+
+    fake.setUpdating(null);
+    fake.wake('update');
+    await wait(150);
+
+    assert.deepEqual(edges, [
+        [null, 7],
+        [7, null],
+    ]);
+    bridge.stop();
+    await fake.close();
+});
+
+test('an updating listener that throws does not take the refresh down', async () => {
+    const fake = await startFakeMpd({ idleForever: true, updating: 4 });
+    const { bridge, seen } = makeBridge(fake);
+    bridge.onUpdating(() => {
+        throw new Error('listener is broken');
+    });
+    bridge.start();
+    await wait(150);
+
+    assert.equal(bridge.updatingDb, 4);
+    assert.ok(seen.length > 0, 'snapshots kept being published');
+    bridge.stop();
+    await fake.close();
+});
+
+test('update and rescan return the job id without waiting for the scan', async () => {
+    const fake = await startFakeMpd({ idleForever: true });
+    const { bridge } = makeBridge(fake, { replyTimeoutMs: 300 });
+    bridge.start();
+    await wait(120);
+
+    // A real scan runs for the better part of an hour; a reply timeout destroys
+    // the connection, so this MUST come back immediately.
+    const began = Date.now();
+    assert.equal(await bridge.update(), 7);
+    assert.equal(await bridge.rescan(), 7);
+    assert.ok(Date.now() - began < 250, 'returned well inside the reply timeout');
+    assert.ok(fake.commands.includes('update'));
+    assert.ok(fake.commands.includes('rescan'));
+
+    bridge.stop();
+    await fake.close();
+});
+
+test('stats comes back parsed by the caller, counts and uptime included', async () => {
+    const fake = await startFakeMpd({ idleForever: true });
+    const { bridge } = makeBridge(fake);
+    bridge.start();
+    await wait(120);
+
+    const reply = await bridge.stats();
+    const pairs = new Map(reply.pairs);
+    assert.equal(pairs.get('songs'), '37289');
+    assert.equal(pairs.get('uptime'), '100000');
+
+    bridge.stop();
     await fake.close();
 });

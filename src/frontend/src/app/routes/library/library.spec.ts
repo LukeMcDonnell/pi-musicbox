@@ -11,6 +11,8 @@ function artist(over: Partial<ArtistSummary> = {}): ArtistSummary {
         name: 'Radiohead',
         directory: 'Radiohead',
         albumCount: 9,
+        trackCount: 111,
+        duration: 28_800,
         image: '/api/art?album=Radiohead',
         ...over,
     };
@@ -19,11 +21,18 @@ function artist(over: Partial<ArtistSummary> = {}): ArtistSummary {
 /** A store with no HTTP behind it. */
 function fakeStore(artists: ArtistSummary[] | null = null) {
     const state = signal<ArtistSummary[] | null>(artists);
+    const generation = signal(0);
     return {
         artists: state.asReadonly(),
+        generation: generation.asReadonly(),
         loadArtists: jasmine.createSpy('loadArtists').and.resolveTo(artists ?? []),
         resolve: (path: string) => path,
         _set: (next: ArtistSummary[] | null) => state.set(next),
+        /** What LibraryStore.invalidate() does: drop the list, bump the count. */
+        _invalidate: () => {
+            state.set(null);
+            generation.update((n) => n + 1);
+        },
     };
 }
 
@@ -91,6 +100,19 @@ describe('Library', () => {
         const store = fakeStore([artist()]);
         create(store).detectChanges();
         expect(store.loadArtists).toHaveBeenCalled();
+    });
+
+    it('asks again when the cache is dropped under it', () => {
+        const store = fakeStore([artist()]);
+        const fixture = create(store);
+        fixture.detectChanges();
+        expect(store.loadArtists).toHaveBeenCalledTimes(1);
+
+        // A scan finished. The list is gone and nothing else would ask for it,
+        // so the screen would sit on "Reading the library…" for the session.
+        store._invalidate();
+        fixture.detectChanges();
+        expect(store.loadArtists).toHaveBeenCalledTimes(2);
     });
 
     it('distinguishes "not loaded yet" from "an empty library"', () => {

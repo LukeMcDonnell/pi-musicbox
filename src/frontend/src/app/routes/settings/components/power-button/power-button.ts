@@ -2,6 +2,7 @@ import {
     ChangeDetectionStrategy,
     Component,
     ElementRef,
+    computed,
     effect,
     inject,
     signal,
@@ -9,6 +10,7 @@ import {
 } from '@angular/core';
 import { LucidePower, LucideRotateCw } from '@lucide/angular';
 import { ApiClient } from '../../../../services/api-client';
+import { MusicboxApi } from '../../../../services/musicbox-api';
 
 /** What the modal offers. */
 export type PowerAction = 'restart' | 'shutdown';
@@ -43,6 +45,16 @@ export type PowerAction = 'restart' | 'shutdown';
 })
 export class PowerButton {
     private readonly client = inject(ApiClient);
+    private readonly api = inject(MusicboxApi);
+
+    /**
+     * A library scan is running.
+     *
+     * Worth saying here: restarting abandons the scan and leaves MPD with a
+     * partial database, and this button sits in the header of the very screen
+     * the scan was started from.
+     */
+    readonly scanning = computed(() => this.api.library()?.scanning ?? false);
 
     readonly open = signal(false);
 

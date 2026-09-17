@@ -53,6 +53,20 @@ export const MIGRATIONS: readonly string[] = [
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
     ) STRICT;`,
+    // v2 — library scan history. The row is written when a scan STARTS, because
+    // a scan runs for the better part of an hour and this server is restarted by
+    // every deploy; recording it at the end would lose `started_at` entirely.
+    // `finished_at` therefore stays NULL both while it runs and for one whose end
+    // was never seen — a duration we did not measure is not one to invent.
+    `CREATE TABLE library_scan (
+        id           INTEGER PRIMARY KEY,
+        started_at   INTEGER NOT NULL,
+        finished_at  INTEGER,
+        trigger      TEXT NOT NULL,
+        outcome      TEXT,
+        songs_before INTEGER,
+        songs_after  INTEGER
+    ) STRICT;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

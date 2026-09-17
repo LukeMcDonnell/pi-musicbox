@@ -1,6 +1,6 @@
 # Status and roadmap
 
-Last updated 2026-09-14.
+Last updated 2026-09-16.
 
 ## Working on the device
 
@@ -20,6 +20,11 @@ Last updated 2026-09-14.
 - A dev loop that is **2.5s** backend-only, **4.3s** for both halves, with no sudo.
 - MPD playing that library through the DAC — 37,289 songs indexed, resident from
   boot at a deliberate cost of ~6s (9.348s → 17.896s; see `device.md`)
+- **Library scanning from the screen.** Settings → Library: a daily scan at a
+  chosen hour, an optional scan after boot, Scan now and Full rescan, plus what
+  the library holds and when it was last scanned. `auto_update` stays off — see
+  `decisions.md` for why the schedule is a tick rather than an armed timer, and
+  why the scan edge is read from `refresh()`. Scan history is schema v2.
 - A **Bluetooth A2DP sink** at aptX HD: a phone pairs with no prompt and plays
   through the DAC, MPD pauses and releases the card. The now-playing screen and
   the transport buttons follow whichever source is active, over AVRCP, and a

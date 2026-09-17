@@ -11,6 +11,9 @@ function album(over: Partial<AlbumSummary> = {}): AlbumSummary {
         albumArtist: 'Radiohead',
         date: '2000-10-02',
         trackCount: 10,
+        genres: ['Alternative Rock', 'Art Rock'],
+        discCount: 1,
+        duration: 2497,
         image: '/api/art?album=Radiohead%2FKid%20A',
         ...over,
     };

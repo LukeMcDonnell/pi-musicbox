@@ -16,6 +16,7 @@ import { registerStatic } from './static.ts';
 import { createBluetoothWatcher } from './bluetooth.ts';
 import { openDb } from './db.ts';
 import { createSettings } from './settings.ts';
+import { createLibraryScanner } from './library-scan.ts';
 import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
 
@@ -57,6 +58,17 @@ async function main(): Promise<void> {
     });
     const settings = createSettings(db);
 
+    // Library scanning. Constructed before the routes because they take it, and
+    // started below with the bridge — its wiring lives here rather than in
+    // routes.ts so there is still exactly one bridge.onIdle call in that file.
+    const scanner = createLibraryScanner({
+        bridge,
+        db,
+        settings,
+        musicRoot: config.musicRoot,
+        log: (level, msg) => app.log[level](msg),
+    });
+
     // The panel's backlight. Unsupported everywhere but the box itself, which is
     // not an error — the routes answer 503 and the UI says so.
     const panel = createPanel({
@@ -79,6 +91,7 @@ async function main(): Promise<void> {
         panel,
         settings,
         power: createPower(config.powerDir),
+        scanner,
     });
     registerStatic(app, config.webRoot);
 
@@ -101,10 +114,15 @@ async function main(): Promise<void> {
     void bluetooth.poll();
 
     bridge.start();
+    // After the bridge, so reconciling an in-flight scan can see MPD's job id.
+    scanner.start();
 
     const shutdown = async (signal: string) => {
         app.log.info(`${signal} received, shutting down`);
         bridge.stop();
+        // Before close() for the same reason as the two below: its tick holds
+        // the event loop open.
+        scanner.stop();
         // Also before close(): the inotify watch and its poll timer both hold the
         // event loop open, the same way the SSE streams below do.
         bluetooth.stop();

@@ -1,14 +1,23 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import type { LibraryState } from '@musicbox/shared';
 import { ApiClient } from '../../../../services/api-client';
+import { MusicboxApi } from '../../../../services/musicbox-api';
 import { PowerButton } from './power-button';
 
 let post: jasmine.Spy;
+let library: ReturnType<typeof signal<LibraryState | null>>;
 
 function create() {
     post = jasmine.createSpy('post').and.resolveTo(undefined);
+    // The modal warns when a scan is running: restarting abandons it.
+    library = signal<LibraryState | null>(null);
     TestBed.configureTestingModule({
         imports: [PowerButton],
-        providers: [{ provide: ApiClient, useValue: { post } }],
+        providers: [
+            { provide: ApiClient, useValue: { post } },
+            { provide: MusicboxApi, useValue: { library } },
+        ],
     });
     const fixture = TestBed.createComponent(PowerButton);
     fixture.detectChanges();

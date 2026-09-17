@@ -36,7 +36,7 @@ test('migrations run once, not on every open — the second open is a no-op', as
     const first = openDb({ path, onMigrate: (to) => applied.push(to) });
     first.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'panelSleepAfterMinutes', '5');
     first.close();
-    assert.deepEqual(applied, [1]);
+    assert.deepEqual(applied, [1, 2]);
 
     const againApplied: number[] = [];
     const second = openDb({ path, onMigrate: (to) => againApplied.push(to) });
@@ -117,4 +117,46 @@ test('the parent directory is created when it does not exist', async (t) => {
     const db = openDb({ path: join(dir, 'nested', 'deeper', 'musicbox.db') });
     assert.equal(db.all('SELECT key FROM settings').length, 0);
     db.close();
+});
+
+test('schema v2 adds the library_scan table', () => {
+    const db = openDb({ path: ':memory:' });
+    db.run(
+        'INSERT INTO library_scan (started_at, trigger, songs_before) VALUES (?, ?, ?)',
+        1000,
+        'manual',
+        37289,
+    );
+    const row = db.get<{ started_at: number; finished_at: number | null; trigger: string }>(
+        'SELECT started_at, finished_at, trigger FROM library_scan',
+    );
+    assert.equal(row?.started_at, 1000);
+    assert.equal(row?.trigger, 'manual');
+    // Nullable on purpose: the row is written when a scan starts, and one whose
+    // end was never seen must not be given a duration it never had.
+    assert.equal(row?.finished_at, null);
+    db.close();
+});
+
+test('a v1 file migrates forward to v2 without disturbing its settings', async (t) => {
+    const dir = await tempDir();
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const path = join(dir, 'musicbox.db');
+
+    // Open at v1 only — the schema as it shipped before scan history existed.
+    const v1 = openDb({ path, migrations: MIGRATIONS.slice(0, 1) });
+    v1.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'panelSleepAfterMinutes', '15');
+    assert.equal(v1.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 1);
+    v1.close();
+
+    const applied: number[] = [];
+    const v2 = openDb({ path, onMigrate: (to) => applied.push(to) });
+    assert.deepEqual(applied, [2], 'only the new step ran');
+    assert.equal(
+        v2.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', 'panelSleepAfterMinutes')
+            ?.value,
+        '15',
+    );
+    assert.equal(v2.all('SELECT * FROM library_scan').length, 0);
+    v2.close();
 });

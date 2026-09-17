@@ -93,6 +93,18 @@ export interface Track {
     album?: string;
     albumArtist?: string;
     track?: string;
+    /**
+     * The `Disc` tag. Free text like `track` — usually `1`, occasionally `1/2`.
+     *
+     * 313 of this library's 2,876 albums span more than one disc, but only 149
+     * keep their tracks in a `CD 01`-style subdirectory. So this is the only
+     * honest way to tell a multi-disc album apart from a single, and it is
+     * strictly more than the directory layout knows.
+     *
+     * It is NOT what orders an album: `sortAlbumTracks` sorts by directory then
+     * track number, which is correct for both layouts. This is for display.
+     */
+    disc?: string;
     date?: string;
     /**
      * The `OriginalDate` tag — when the album first came out, as opposed to when
@@ -109,9 +121,61 @@ export interface Track {
      * Free text like `date`, and absent rather than guessed when untagged.
      */
     originalDate?: string;
-    genre?: string;
+    /**
+     * The decoded audio format, as MPD's raw `Format` string:
+     * `<sample rate>:<bits>:<channels>`, e.g. `44100:16:2` or `96000:24:2`.
+     *
+     * NOT PARSED, for the same reason `date` is not. MPD also emits `dsd64:2`
+     * for DSD and `*` for a component it does not know, so a
+     * `{sampleRate, bits, channels}` object would have to invent a
+     * representation for both. A client wanting "24/96" takes the leading
+     * integers.
+     *
+     * Worth carrying on a box whose whole audio path is deliberately
+     * bit-perfect — `mixer_type "none"`, no resampling, no replaygain. Half
+     * this library is above CD quality: of 120 albums sampled, 60 are 16/44.1
+     * and the rest run to 24/192.
+     */
+    format?: string;
+    /**
+     * The container, upper-cased from the file extension: `FLAC`, `MP3`, `APE`.
+     *
+     * NOT FROM MPD, WHICH REPORTS NO CODEC AT ALL. The song record carries the
+     * decoded `Format` and nothing about how the bytes were stored;
+     * `readcomments` reads the container's own tags but costs a filesystem hit
+     * on a share that is routinely unmounted, and names no codec either. The
+     * extension is what is left, and it is derived from `file` alone, so it
+     * costs no I/O — the same deal as `image`.
+     *
+     * IT IS THE CONTAINER, NOT THE CODEC, and the difference is deliberate:
+     * `.m4a` answers `M4A`, never `AAC`, because that container holds ALAC just
+     * as happily and a confident wrong answer is worse than a vague right one.
+     * This library has none — 38,402 FLAC, 556 MP3, 20 APE, and nothing
+     * ambiguous — but the rule should not depend on that.
+     *
+     * WORTH CARRYING BESIDE `format`, because `format` cannot tell lossy from
+     * lossless: all 556 MP3s here report `44100:16:2`, exactly as a CD rip does.
+     * Without this, a 320kbps MP3 and a lossless rip are indistinguishable on
+     * screen.
+     *
+     * Absent for a stream and for a Bluetooth track, which has no file.
+     */
+    encoding?: string;
+    /**
+     * When MPD first saw this file, ISO 8601 — its `Added` tag, new in 0.24.
+     *
+     * Note this is when the SCAN found it, not when the file was made: a full
+     * rescan does not reset it, but a file that has never been scanned has none.
+     */
+    addedAt?: string;
     /** Seconds. Absent for streams. */
     duration?: number;
+
+    /*
+     * NOTE: there is no `genre`. It lives on AlbumSummary, as `genres`, and is
+     * an array. See the note there — it is multi-valued on 91% of this
+     * library's songs, and identical across every track of an album.
+     */
 
     /**
      * URI for this album's cover art, e.g. `/api/art?album=Radiohead%2FIn%20Rainbows`,
@@ -315,6 +379,30 @@ export interface ArtistSummary {
     directory: string;
     albumCount: number;
     /**
+     * Songs and total playtime across everything filed under this artist.
+     *
+     * FREE: both come from one `count group albumartist`, which answers for all
+     * 488 artists at once in 35ms — measured — against an index build that
+     * already costs ~200ms. Do not be tempted to sum them from the album list;
+     * that list is counts, not durations, and getting durations would mean a
+     * `find` per artist at 11.4ms each.
+     *
+     * `duration` is seconds, and null only when MPD reports no playtime for the
+     * artist at all.
+     */
+    trackCount: number;
+    duration: number | null;
+    /**
+     * The `MUSICBRAINZ_ALBUMARTISTID` tag — a stable id for this artist that
+     * survives a rename or a retag, unlike `name`.
+     *
+     * SUPPLEMENTARY IDENTITY, NOT A KEY. Coverage is near total — 6 songs in
+     * 38,978 lack one — but it is not quite unique: Queen carries two, 487 of
+     * 488 artists carry one, and the first is taken. So it is safe to store
+     * beside a favourite and unsafe to look an artist up by.
+     */
+    mbArtistId?: string;
+    /**
      * `/api/art?album=<directory>`, or null when the artist's directory is not
      * known.
      *
@@ -353,6 +441,54 @@ export interface AlbumSummary {
      */
     date: string | null;
     trackCount: number;
+    /**
+     * Every `Genre` tag on the album. Empty when untagged, never null.
+     *
+     * AN ARRAY, BECAUSE THE TAG IS. MPD sends one `Genre:` line per value and
+     * 91% of this library's songs carry more than one — "Burn the Witch" has
+     * twelve, and the per-song count runs to sixteen. This used to be a single
+     * `genre` on Track, which reported whichever value MPD happened to send
+     * last: Art Rock through Krautrock collapsed to "Orchestral".
+     *
+     * ON THE ALBUM RATHER THAN THE TRACK, because that is what it describes
+     * here. OK Computer's 23 tracks carry an identical 13 genres, and repeating
+     * them per track is real weight on the wire — Pink Floyd's 309 songs carry
+     * 4,027 `Genre` lines between them.
+     *
+     * Taken from the first track that has any, as `date` is. Not an
+     * intersection across tracks, which would come out empty on a compilation.
+     */
+    genres: string[];
+    /**
+     * How many discs the album spans. 1 for an ordinary album, never 0.
+     *
+     * From the `Disc` tag, which 313 of this library's 2,876 albums use to say
+     * they are more than one disc — against the 149 that keep their tracks in a
+     * `CD 01` subdirectory. So this sees twice what the directory layout does.
+     */
+    discCount: number;
+    /**
+     * Total running time in seconds, or null if ANY track is missing a duration.
+     *
+     * All-or-nothing on purpose: a sum that quietly skips two untagged tracks is
+     * a wrong number presented as a right one. This is the rule the album screen
+     * was already applying for itself before it would print a runtime; the
+     * backend now answers it, from tracks it had already fetched.
+     */
+    duration: number | null;
+    /** The `Label` tag — the issuing label. 97.5% of songs here carry one. */
+    label?: string;
+    /**
+     * MusicBrainz ids for the release and its release group. Near-total
+     * coverage. As on ArtistSummary these are stable identity to store, not
+     * keys to look up by.
+     *
+     * The release group is the one that survives a different pressing: a
+     * remaster and its original share a `mbReleaseGroupId` and differ in
+     * `mbAlbumId`.
+     */
+    mbAlbumId?: string;
+    mbReleaseGroupId?: string;
     /** `/api/art?album=<album directory>`; may 404, as ever. */
     image: string | null;
 }
@@ -387,10 +523,12 @@ export interface AlbumResponse {
     /**
      * The album's tracks in playing order.
      *
-     * FLAT, EVEN FOR A MULTI-DISC ALBUM, but ordered by directory before track
-     * number — 149 albums here keep their tracks in `CD 01`/`CD 02`/`Vinyl 01`
-     * subdirectories, and sorting on the `Track` tag alone would interleave two
-     * tracks both numbered 01.
+     * FLAT EVEN FOR A MULTI-DISC ALBUM — the client groups it by `disc` — but
+     * ordered directory, then disc, then track number, so every disc's tracks
+     * are contiguous. All three keys are needed: 313 albums here span more than
+     * one disc and only 149 put the discs in separate directories, so for the
+     * other 164 a directory-then-track sort collapses to the track number alone
+     * and interleaves them.
      *
      * These carry no `id`: they are library songs, not queue entries, so there is
      * nothing for `POST /api/queue/play/:id` to address. Play the album.
@@ -398,10 +536,23 @@ export interface AlbumResponse {
     tracks: Track[];
 }
 
-/** Names an album for the two POSTs below. */
+/** Names an album — or one disc of it — for the two POSTs below. */
 export interface AlbumRef {
     albumArtist: string;
     album: string;
+    /**
+     * One disc, as its `Disc` tag reads. Absent means the whole album.
+     *
+     * MPD does the narrowing: `findadd albumartist "X" album "Y" disc "2"` in the
+     * same legacy filter form as everything else here. Measured on Music Bank,
+     * 17 + 17 + 14 against 48 for the album, and it works for both layouts in
+     * this library — the 149 albums whose discs are separate directories and the
+     * 164 whose are not.
+     *
+     * A disc that does not exist matches nothing rather than erroring, so a
+     * stale request is inert rather than a 500.
+     */
+    disc?: string;
 }
 
 /*
@@ -410,7 +561,8 @@ export interface AlbumRef {
  *   POST /api/library/queue   appends it
  *   POST /api/library/play    clears the queue, adds it, starts playing
  *
- * Both take an AlbumRef and answer with a Snapshot.
+ * Both take an AlbumRef and answer with a Snapshot, and both act on ONE DISC
+ * when the ref names one — `play` still replaces the queue, with that disc.
  *
  * TWO ROUTES RATHER THAN ONE WITH A FLAG, because they are two different verbs:
  * one adds to what you are listening to, the other replaces it. A boolean would
@@ -493,6 +645,10 @@ export interface SettingsResponse {
      * never. Honoured only while nothing is playing.
      */
     panelSleepAfterMinutes: number;
+    /** Hour of the day to scan the library at, local time; -1 is never. */
+    libraryScanHour: number;
+    /** Scan the library once, a couple of minutes after the box starts up. */
+    libraryScanOnBoot: boolean;
 }
 
 /**
@@ -519,3 +675,80 @@ export interface PanelState {
     /** True when the backlight is on. Always true when `supported` is false. */
     on: boolean;
 }
+
+/**
+ * The SSE event name carrying the state of the library and its scanning, sent
+ * once per connection and again whenever that changes.
+ *
+ * Its own event for the same reason as the two above: a scan is not what the
+ * music is doing, so it does not belong on the Snapshot.
+ */
+export const SSE_LIBRARY_EVENT = 'library';
+
+/** What started a scan. `external` is one this box did not ask for. */
+export type ScanTrigger = 'manual' | 'rescan' | 'scheduled' | 'boot' | 'external';
+
+/** How a scan ended. `interrupted` means mpd restarted under it. */
+export type ScanOutcome = 'completed' | 'interrupted';
+
+export interface LibraryScan {
+    startedAt: number;
+    /** Null while it is still running, and for one whose end was never seen. */
+    finishedAt: number | null;
+    trigger: ScanTrigger;
+    outcome: ScanOutcome | null;
+    songsBefore: number | null;
+    songsAfter: number | null;
+}
+
+/** MPD's own `stats`. */
+export interface LibraryStats {
+    songs: number;
+    albums: number;
+    artists: number;
+    playtimeSeconds: number;
+    /** MPD's `db_update`, in epoch ms. Survives restarts of this server. */
+    lastUpdatedAt: number | null;
+}
+
+/**
+ * Payload of SSE_LIBRARY_EVENT, and the body of GET /api/library/state.
+ *
+ * A complete snapshot like every other event here. MPD's update job id is
+ * deliberately absent: nothing can act on it, because MPD cannot cancel a scan.
+ */
+export interface LibraryState {
+    scanning: boolean;
+    scanStartedAt: number | null;
+    scanTrigger: ScanTrigger | null;
+    /** The most recent scan, running or finished. */
+    lastScan: LibraryScan | null;
+    /** Last known. Not blanked by MPD going away for a moment. */
+    stats: LibraryStats | null;
+    musicRoot: string;
+    /** Null before the first probe. Probed on demand only — never on a timer. */
+    musicRootReadable: boolean | null;
+    nextScanAt: number | null;
+}
+
+/**
+ * The hours the daily library scan may run at, -1 being never.
+ *
+ * ONE LIST, SHARED, like PANEL_SLEEP_MINUTES: the dropdown renders it and the
+ * backend guard validates against it.
+ */
+export const LIBRARY_SCAN_HOURS: readonly number[] = [
+    -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+];
+
+/*
+ * POST /api/library/scan    — ask MPD to look for what changed
+ * POST /api/library/rescan  — ask it to re-read every tag, which takes far longer
+ *
+ * Both answer 202: a scan on this library runs for the better part of an hour,
+ * so there is no result to wait for. 409 if one is already running, 503 if MPD
+ * is unavailable or the music share cannot be read.
+ *
+ * Two routes rather than one with a flag, so the expensive one is not the easy
+ * thing to reach by accident.
+ */

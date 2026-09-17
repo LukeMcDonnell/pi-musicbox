@@ -812,3 +812,248 @@ element it was pointed at, so a restore takes the same path a fling does.
 `replaceUrl` navigations are forward navigations, so the router scrolls to the
 top a frame after each one — which is what `setQuery` already did itself, hence
 no fight. They are also why `AppHistory` counts pushes rather than navigations.
+
+## Library scanning lives in the backend, and its edges come from `refresh()` (2026-09-16)
+
+Settings → Library can now schedule a scan, run one on boot, and run one on
+demand. Four decisions that are not obvious.
+
+**The schedule is a 60s tick plus an edge predicate, not an armed `setTimeout`.**
+The box has no RTC, so its clock is wrong until NTP lands after network-up, and
+`clock-deadlock.md` documents a firmware/clock fault on top of that. An armed
+timer pointed at 04:00 is wrong in two directions after a jump: a jump forward
+past the target fires a 48-minute scan out of nowhere, and a jump backward misses
+the slot entirely. So `scanIsDue(hour, now, lastTick)` recomputes the target from
+the wall clock every tick and fires on `lastTick < target <= now`, with a
+one-hour lateness window that discards a jump that vaulted the target. DST is
+free from using local wall clock: `setHours(h, 0, 0, 0)` on the spring-forward
+day rolls a nonexistent 02:00 to 03:00 and fires once, and autumn's repeated hour
+does not fire twice because `lastTick < target` is already false the second time
+round. There is deliberately **no catch-up**: a box that was off at 04:00 does
+not scan at 09:00, which is what the boot toggle is for.
+
+**Not a systemd timer.** The server is already a long-running unit, the schedule
+is a setting it already owns, and a timer would put the two in different places
+and need a sixth install script. `install/` is untouched by this feature.
+
+**The scan edge is announced from `refresh()`, never from an `onIdle` listener.**
+`runIdleLoop` calls `announceIdle()` *before* `await this.refresh()` — deliberately,
+so the library index is invalidated before anything reacts to the new snapshot.
+That ordering makes `onIdle` useless for watching `updating_db`: a listener there
+reads the value parsed by the *previous* refresh, so it sees `null` at the start
+of a scan and the stale job id at the end — and the last idle wake of a scan has
+no successor, so the scan's completion would never be observed at all. The new
+`onUpdating` fires from inside `refresh()`, where the value is actually parsed.
+`bridge.live.test.ts` has the regression test; moving the emit back into
+`announceIdle` turns it red.
+
+**The edge predicate is `job !== was`, not `job === null`.** MPD listens on 6600
+across the LAN, so a phone can start a scan too, and two scans can step straight
+from job 3 to job 4 between refreshes. Treating only `→ null` as an ending
+silently loses job 3.
+
+**A history row is written when a scan STARTS.** `musicbox-server.path` restarts
+the backend on every deploy, and a scan runs for the better part of an hour, so
+recording at the end would lose `started_at` for every scan a deploy landed on.
+`finished_at` is nullable and gets one UPDATE at the end; it stays NULL for a
+scan whose end was never seen, because a duration we did not measure is not one
+to invent. `start()` reconciles an open row against MPD's live `updating_db`,
+which is what lets a restart mid-scan adopt the scan rather than lose it.
+
+**`interrupted` is detected from MPD's own `uptime`.** Restarting mpd mid-scan
+abandons the scan and leaves a partial database — already observed on the device.
+`stats` carries `uptime` on the same reply the counters come from, so
+`uptime < the duration we timed` means mpd restarted under it. One field, no
+extra command, and the UI can stop calling a partial index a success.
+
+**Every scan is gated on the music share being readable, not just the boot one.**
+`update` prunes songs it can no longer see, and a `soft` NFS mount returns EIO
+part way through a walk. A scan run while the NAS is asleep could empty a 37,289
+song tag cache that costs 48m40s to rebuild. The guard is one `stat`.
+
+**That probe is on-demand only and must never be put on a timer.** `/srv/music`
+is `x-systemd.automount` with `x-systemd.idle-timeout=600`; polling it would pin
+the mount up permanently and defeat the whole lazy-mount design. It can also
+block for the 90s mount timeout on a NAS that resolves but does not answer, and
+`fs.promises` runs on the same 4-thread libuv pool as `art.ts` and `static.ts`,
+so a handful of stuck probes would stall art and static serving. It is raced
+against a 4s timeout and single-flighted, and the SSE stream's first frame uses
+the *cached* state so an unreachable NAS cannot hold up every client's connection.
+
+**`LibraryState` is its own SSE event, and the job id is not on it.** Same
+argument as `build` and `settings`: the snapshot rule is about what the music is
+doing. Nothing can act on the job id, because MPD cannot cancel a scan, so it
+stops at the backend.
+
+## A cache invalidated mid-build reinstates itself (2026-09-16)
+
+`library.ts` held `cached` and `building`, and `invalidate()` nulled both — but
+an in-flight `build()` still ran `cached = artists` in its `.then`, so a scan
+finishing during a build left a stale artist list for the rest of the process's
+life. The frontend's `LibraryStore` had the identical shape. Harmless while the
+only way to scan was an ssh session; this feature makes the collision likely, so
+both now carry a generation counter and a build whose generation has moved on
+discards its own result. The pattern was already in the tree as
+`MusicboxApi.queueRequest`.
+
+## A tag can arrive more than once, and `Genre` usually does (2026-09-16)
+
+`groupBy` folds a reply into a `Map` keyed by tag name, so a repeated key keeps
+the last line. MPD sends **one line per value** of a multi-valued tag, and a
+census of all 38,978 songs found `Genre` repeated on **91%** of them — a median
+of five, up to sixteen. So `Track.genre` had been reporting one arbitrary value
+the whole time: "Burn the Witch" is tagged Art Rock, Art Pop, Ambient Pop,
+Electronic, Alternative Rock, Chamber Pop, Indie Rock, Rock, Post-Rock,
+Indietronica, Krautrock and Orchestral, and the API said `"Orchestral"`.
+
+Latent only because nothing rendered it. It would have shipped as a visible bug
+the first time a genre appeared on a screen, and it would have looked like bad
+tagging rather than a parser fault.
+
+`groupByMulti` keeps every value; `firstOf` collapses a record **first**-wins,
+which is what `firstValue` already did, so the two now agree. `groupBy` is left
+alone for `lsinfo` and the queue, which have no repeated keys.
+
+**Genre lives on the album, not the track.** OK Computer's 23 tracks carry an
+identical 13 genres — it describes the record, not the song. And the per-track
+copy is not free: Pink Floyd's 309 songs carry 4,027 `Genre` lines between them.
+It is taken from the first track that has any, the rule `date` already used, and
+NOT intersected across tracks — an intersection comes out empty on a compilation
+whose tracks genuinely differ.
+
+## The sort tags cannot buy an opinion about sorting (2026-09-16)
+
+The artist list renders in MPD's own `AlbumArtist` order and `library.ts` says
+why: "should The Panics be under T" has no answer worth owning, and a sort
+opinion is a thing to maintain forever. `ArtistSort`/`AlbumArtistSort`/`AlbumSort`
+look like the library answering it for itself, at 100% coverage.
+
+They do not. Measured: **1 of 489** `AlbumArtistSort` values differs from the
+plain tag — `Neko Case` → `Case, Neko` — and the only two `AlbumSort`
+differences are one album tagged with two capitalisations of its own title. The
+tags are populated and carry no information. Do not spend a cycle here.
+
+## Most of the tag vocabulary is empty on this library (2026-09-16)
+
+MPD 0.24 indexes 32 tag types. A census across all 38,978 songs, so that
+"we could also expose X" has an answer that is not a guess:
+
+- **Worth having**, and all of it already arriving on `find` replies and being
+  discarded: `Genre` 99.9%, `Disc` 100%, `Label` 97.5%, `Format` 100%, `Added`
+  100%, and the MusicBrainz ids at ~100% (6 songs of 38,978 carry none).
+- **Ruled out**: `Composer` 3.4%, `Work` 1.4%, `Ensemble` 0.7%, `Conductor`
+  0.6%, `Performer` 0.3%, and `Movement`, `MovementNumber`, `Grouping`, `Mood`
+  and `Name` at **zero**. A composer or work view would be empty for 36 songs in
+  every 37.
+
+`Disc` is worth the note: **313 of 2,876 albums span more than one disc**, against
+the **149** that keep their tracks in a `CD 01`-style subdirectory. So the tag
+sees twice what the directory layout does. It is still NOT what orders an album —
+`sortAlbumTracks` sorts by directory then track number, which is right for both
+layouts, and sorting on a tag that 164 albums use without a matching layout would
+reorder them against their own filenames. `disc` is for display.
+
+The MusicBrainz ids are **supplementary identity, not keys**. Coverage is near
+total but uniqueness is not: Queen carries two `MUSICBRAINZ_ALBUMARTISTID`s
+against 487 artists carrying one. Safe to store beside a favourite; unsafe to
+look an artist up by.
+
+## A multi-disc album needs the Disc tag to SORT, not just to display (2026-09-16)
+
+The album screen numbered its rows `$index + 1`. That is right for the 2,562
+single-disc albums here and wrong for the other 313, which each restart at track
+1 per disc: Alice in Chains' *Music Bank* ran 1 to 48.
+
+Grouping by `Disc` fixed the numbering and exposed a second fault underneath it.
+The backend sorted by directory then track number, and the note in `library.ts`
+claimed `Disc` was for display only because "the directory is what the filenames
+agree with". That holds for the **149** albums whose discs are separate
+directories. For the other **164** every track shares one directory, so the sort
+collapses to track number alone and interleaves the discs — disc 1 track 1, disc
+2 track 1, disc 3 track 1. The screen rendered sixteen "Disc N" headings for a
+three-disc album.
+
+The order is now directory, then disc, then track. Disc as the MIDDLE key is free
+where the directories already separate the discs, because `CD 01` holds disc 1 —
+the two never disagree.
+
+**Found by screenshotting the panel, not by a test.** Every assertion was green:
+the grouping was correct for the data it was given, and the data was in the wrong
+order. This is the second time these two screens have been wrong in a way only a
+screenshot could show — see the entry above about the full-width hero. Screenshot
+them.
+
+**The same tag then paid for per-disc Play and Queue.** MPD takes `Disc` as an
+ordinary filter in the legacy form already used everywhere here, so
+`findadd albumartist "X" album "Y" disc "2"` is one command and needs no filter
+expression and no second escaping layer. Measured: 17 + 17 + 14 against 48 for
+the album, correct for both layouts, and a disc that does not exist matches
+nothing rather than erroring.
+
+It is an optional `disc` on the existing `AlbumRef`, NOT a third and fourth
+route. Two reasons. The verbs did not change — play still replaces, queue still
+appends — so a new route would duplicate the 409, the 503 and the validation for
+no new meaning. And `routes.test.ts` slices this file's SOURCE TEXT between route
+literals, so an inserted route silently changes what an existing test asserts;
+the warning above `registerRoutes` says so and this is the first change that had
+to obey it. For the same reason `findaddFor` APPENDS to its existing template
+string rather than being rewritten as a pairs loop: a test matches that literal
+text.
+
+## Genre tags carry other people's mess, and the backend cleans it once (2026-09-16)
+
+Rendering `genres` for the first time turned up two kinds of real-world tag
+damage that no amount of correct parsing would have caught:
+
+- **39 values are a `;`-joined run-on inside one tag.** The worst is 146
+  characters: `Progressive Rock;Psychedelic Rock;Emo;…`. MPD reports it as one
+  genre, because that is what the file says.
+- **Three albums carry bare ID3v1 genre indices as text** — `Alternative
+  Metal;17;40;79;137;Sludge Metal;…`. "17" is not a genre.
+
+`songFromTags` splits on `;`, trims, and drops empties and all-digit entries. In
+the backend rather than the Angular layer so it is done once for every consumer,
+and because the contract says `genres: string[]` is the list.
+
+**Only `;`.** One album uses ", " the same way — `Electronic, Rock, Shoegaze,
+Experimental, Ambient` — and splitting on a comma would break every genuine genre
+name containing one. One album is not worth that.
+
+## A centred line truncates with line-clamp, never with `truncate` (2026-09-16)
+
+The album hero centres its text below 40rem. `truncate` is
+`white-space:nowrap` + `overflow:hidden` + `text-overflow:ellipsis`, and a
+centred nowrap line that overflows is clipped at BOTH ends with no ellipsis
+anywhere — the genre line read "…mental Rock, Rock, Post-Rock…", starting and
+ending mid-word. `line-clamp-1` respects `text-align` and puts the ellipsis at
+the end. The page reported no horizontal overflow either way, so only the picture
+showed it.
+
+## MPD reports no codec, so the encoding is the file extension (2026-09-16)
+
+Asked whether the API could say flac/mp3, and the answer had to be measured
+rather than assumed. MPD's song record is `file`, `Last-Modified`, `Added`,
+`Format`, the tags, `Time` and `duration` — there is no codec field on `find`, on
+`currentsong` or anywhere else. `readcomments` reads the container's own tags and
+names no codec either; it also costs 132ms a file and a filesystem hit on a share
+that is `noauto` and routinely unmounted, which is the one thing the browse path
+is built never to need.
+
+So `Track.encoding` is the file extension, upper-cased, derived from `file` alone
+in `trackFromTags` — the same no-I/O deal as `image`, at the same chokepoint.
+
+**It is the container, not the codec.** `.m4a` answers `M4A`, never `AAC`,
+because that container holds ALAC just as happily, and this project already
+refuses that class of confident guess for Bluetooth covers and artist
+directories. Measured, this library has nothing ambiguous: 38,402 FLAC, 556 MP3,
+20 APE — exactly 38,978, no `.m4a` or `.ogg` at all.
+
+**Why it earns a field when `Format` already exists.** `Format` is the DECODED
+stream, so every one of those 556 MP3s reports `44100:16:2` — indistinguishable
+from a CD rip. The badge shipped earlier that day said `16/44.1` for Alice in
+Chains' *Greatest Hits* exactly as it did for a lossless FLAC. The two fields
+answer different questions and the badge now shows both: `FLAC 24/96`,
+`MP3 16/44.1`.
+
+Note also that `bitrate` is on `status`, not on a song: it is playback state,
+reads 0 while paused, and says nothing about the library.

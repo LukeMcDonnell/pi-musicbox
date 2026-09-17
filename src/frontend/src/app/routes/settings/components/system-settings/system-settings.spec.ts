@@ -4,10 +4,11 @@ import type { SettingsResponse } from '@musicbox/shared';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
 import { SystemSettings } from './system-settings';
+import { boxSettings } from '../../../../testing/fixtures';
 
 function create(minutes: number | null = 0) {
     const settings = signal<SettingsResponse | null>(
-        minutes === null ? null : { panelSleepAfterMinutes: minutes },
+        minutes === null ? null : boxSettings({ panelSleepAfterMinutes: minutes }),
     );
     const patchJson = jasmine
         .createSpy('patchJson')
@@ -67,7 +68,7 @@ describe('SystemSettings', () => {
         expect(row(fixture).textContent).toContain('Never');
 
         // Changed from a phone; it arrives here over the same stream.
-        settings.set({ panelSleepAfterMinutes: 10 });
+        settings.set(boxSettings({ panelSleepAfterMinutes: 10 }));
         fixture.detectChanges();
         expect(row(fixture).textContent).toContain('10 minutes');
     });
@@ -104,7 +105,7 @@ describe('SystemSettings', () => {
         fixture.detectChanges();
         expect(row(fixture).textContent).toContain('2 minutes');
 
-        release({ panelSleepAfterMinutes: 2 });
+        release(boxSettings({ panelSleepAfterMinutes: 2 }));
         await fixture.whenStable();
     });
 

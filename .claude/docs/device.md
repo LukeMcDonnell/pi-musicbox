@@ -193,11 +193,22 @@ the host up with NFS stopped) would get as far as TCP, where
 ever bites, the fix is `x-systemd.mount-timeout=10` in `setup-nas.sh`'s
 `LAZY_OPTS`.
 
-### The initial scan
+### The initial scan, and what a later one costs
 
 `time mpc update --wait` over NFS: **48m40s** for 49,711 files → 37,289 songs,
 535 artists, 2,731 albums, 3.4M `tag_cache`. One-time; it survives reboots
 because `/var/lib` is not volatile.
+
+An `update` against a warm `tag_cache` is **~8 minutes** (2026-09-16). That is
+the cost of the ordinary case — Settings → Library's "Scan now", and every
+scheduled scan — because `update` still stats all 49,711 files to find what
+changed; only the tag reads are skipped. A `rescan` re-reads every tag and is
+back to the initial-scan figure.
+
+Two things follow. Eight minutes is far too long to wait in front of, which is
+why the scan routes answer 202 and the result arrives on the SSE stream. And it
+is too expensive to run hourly, so the schedule is daily at an hour nobody is
+listening.
 
 ### mDNS does not work, and that is deliberate
 

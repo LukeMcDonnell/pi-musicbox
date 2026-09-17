@@ -26,6 +26,13 @@
       @if (summary(); as line) {
         <p class="text-[0.85rem] text-muted tabular-nums">{{ line }}</p>
       }
+      @if (genreLine(); as line) {
+        <!-- One line: 1,268 albums here carry six or more genres and one carries
+             26, and the hero has no height to give them. line-clamp, not
+             truncate — the hero centres its text on a phone, and a centred
+             nowrap line clips at BOTH ends with no ellipsis. -->
+        <p class="line-clamp-1 text-[0.85rem] text-muted" [title]="line">{{ line }}</p>
+      }
 
       <div class="flex flex-wrap gap-2 pt-3 max-[40rem]:justify-center">
         <button class="flex min-h-8 cursor-pointer touch-manipulation items-center gap-2
@@ -59,15 +66,47 @@
     <!-- Rows are not buttons: a library track has no MPD song id, so there is
          nothing to address. See the component header. -->
     <ol class="flex flex-col pt-3">
-      @for (track of tracks(); track track.file) {
-        <li class="flex min-h-11 items-center gap-3 px-0 py-2">
-          <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ $index + 1 }}.
-          </span>
-          <span class="text-xl min-w-0 flex-1 truncate">{{ titleOf(track) }}</span>
-          <span class="flex-none text-[0.85rem] text-muted tabular-nums">
-            {{ durationOf(track) }}
-          </span>
-        </li>
+      @for (group of discs(); track group.disc) {
+        @if (group.disc; as disc) {
+          <!-- Not sticky: the page scrolls in App's <main>, and a sticky child of
+               a scrolled ancestor repaints every frame on the panel. -->
+          <li class="flex items-center gap-1 px-0 pt-3 pb-1">
+            <span class="text-[0.85rem] font-semibold text-muted">Disc {{ disc }}</span>
+            <!-- Text, not a filled pill: the album's own Play stays the primary
+                 action and these read as the same weight as the rows they head. -->
+            <button class="ms-auto flex min-h-11 flex-none cursor-pointer touch-manipulation
+                           items-center gap-1.5 rounded-full px-3 text-[0.85rem] font-semibold
+                           text-accent select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()"
+                    (click)="play(disc)"
+                    [attr.aria-label]="'Play disc ' + disc">
+              <svg lucidePlay class="size-4 fill-current" aria-hidden="true"></svg>
+              Play
+            </button>
+            <!-- -me-3 gives back exactly the padding, so the label's right edge
+                 lines up with the track times while the press area stays whole.
+                 Same trick as now-playing's Close button. -->
+            <button class="-me-3 flex min-h-11 flex-none cursor-pointer touch-manipulation
+                           items-center gap-1.5 rounded-full px-3 text-[0.85rem] font-semibold
+                           text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()"
+                    (click)="queue(disc)"
+                    [attr.aria-label]="'Add disc ' + disc + ' to the queue'">
+              <svg lucideListPlus class="size-4" aria-hidden="true"></svg>
+              Queue
+            </button>
+          </li>
+        }
+        @for (track of group.tracks; track track.file) {
+          <li class="flex min-h-11 items-center gap-3 px-0 py-2">
+            <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ numberOf(track, $index) }}.
+            </span>
+            <span class="text-xl min-w-0 flex-1 truncate">{{ titleOf(track) }}</span>
+            <span class="flex-none text-[0.85rem] text-muted tabular-nums">
+              {{ durationOf(track) }}
+            </span>
+          </li>
+        }
       } @empty {
         @if (!loading() && !error()) {
           <li class="px-2 py-6 text-[0.95rem] text-muted">No tracks on this album.</li>

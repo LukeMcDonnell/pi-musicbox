@@ -98,3 +98,49 @@ test('settings survive a reopen of the same file', () => {
     assert.equal(second.all().panelSleepAfterMinutes, 9);
     db.close();
 });
+
+test('the scan hour accepts never and every hour of the day, as a number or a string', () => {
+    assert.equal(parseSetting('libraryScanHour', -1), -1);
+    assert.equal(parseSetting('libraryScanHour', '-1'), -1);
+    assert.equal(parseSetting('libraryScanHour', 0), 0);
+    assert.equal(parseSetting('libraryScanHour', 4), 4);
+    assert.equal(parseSetting('libraryScanHour', '23'), 23);
+});
+
+test('the scan hour rejects anything the dropdown could not have offered', () => {
+    for (const bad of [24, -2, 99, '4.5', '0x4', '', ' 4', '4 ', 'soon', null, undefined, {}, []]) {
+        assert.equal(parseSetting('libraryScanHour', bad), undefined, `accepted ${JSON.stringify(bad)}`);
+    }
+});
+
+test('scan-on-boot round-trips a boolean through a TEXT column', () => {
+    // settings.set stores String(value), so the guard has to read back what it wrote.
+    const { db, settings } = fresh();
+    assert.equal(settings.all().libraryScanOnBoot, false);
+    assert.equal(settings.set('libraryScanOnBoot', true).libraryScanOnBoot, true);
+    assert.equal(settings.all().libraryScanOnBoot, true);
+    assert.equal(settings.set('libraryScanOnBoot', false).libraryScanOnBoot, false);
+    assert.equal(settings.all().libraryScanOnBoot, false, 'false is a value, not a missing one');
+    db.close();
+});
+
+test('scan-on-boot rejects the near misses', () => {
+    assert.equal(parseSetting('libraryScanOnBoot', true), true);
+    assert.equal(parseSetting('libraryScanOnBoot', false), false);
+    assert.equal(parseSetting('libraryScanOnBoot', 'true'), true);
+    assert.equal(parseSetting('libraryScanOnBoot', 'false'), false);
+    for (const bad of ['yes', 'no', 1, 0, '1', '0', '', 'TRUE', null, {}]) {
+        assert.equal(
+            parseSetting('libraryScanOnBoot', bad),
+            undefined,
+            `accepted ${JSON.stringify(bad)}`,
+        );
+    }
+});
+
+test('a scan setting written by a newer build falls back to its default', () => {
+    const { db, settings } = fresh();
+    db.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'libraryScanHour', '37');
+    assert.equal(settings.all().libraryScanHour, SETTINGS_DEFAULTS.libraryScanHour);
+    db.close();
+});

@@ -15,7 +15,15 @@
 
 import type { Snapshot, Track, PlaybackState, BackendStatus } from '../../../shared/api.ts';
 import { API_VERSION } from '../../../shared/api.ts';
-import { MpdConnection, firstValue, groupBy, quoteArg, type Reply } from './protocol.ts';
+import {
+    MpdConnection,
+    firstOf,
+    firstValue,
+    groupBy,
+    groupByMulti,
+    quoteArg,
+    type Reply,
+} from './protocol.ts';
 import { artUriFor } from '../art.ts';
 import type { BluetoothState } from '../bluetooth.ts';
 
@@ -91,6 +99,25 @@ function num(v: string | undefined): number | undefined {
     return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * The container, from the file extension: `FLAC`, `MP3`, `APE`.
+ *
+ * MPD REPORTS NO CODEC — not on `find`, not on `currentsong` — and the extension
+ * is the only signal that does not need the NFS share, which is routinely not
+ * mounted. Nothing is inferred from it beyond upper-casing: `.m4a` answers
+ * `M4A`, not `AAC`, because that container holds ALAC just as happily.
+ *
+ * Absent for a stream, and for anything whose last segment has no plausible
+ * extension.
+ */
+function encodingOf(file: string): string | undefined {
+    const name = file.slice(file.lastIndexOf('/') + 1);
+    const dot = name.lastIndexOf('.');
+    if (dot <= 0) return undefined;
+    const ext = name.slice(dot + 1);
+    return /^[A-Za-z0-9]{1,5}$/.test(ext) ? ext.toUpperCase() : undefined;
+}
+
 /** Build a Track from an MPD tag map, dropping absent fields rather than nulling them. */
 export function trackFromTags(tags: Map<string, string>): Track | null {
     const file = tags.get('file');
@@ -99,6 +126,8 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
     // every Track the backend produces (snapshot, queue and find all call it),
     // so setting `image` here is what guarantees it is never missing.
     const track: Track = { file, image: artUriFor(file) };
+    const encoding = encodingOf(file);
+    if (encoding !== undefined) track.encoding = encoding;
     const id = num(tags.get('Id'));
     const pos = num(tags.get('Pos'));
     if (id !== undefined) track.id = id;
@@ -108,12 +137,74 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
     if (tags.get('Album')) track.album = tags.get('Album');
     if (tags.get('AlbumArtist')) track.albumArtist = tags.get('AlbumArtist');
     if (tags.get('Track')) track.track = tags.get('Track');
+    if (tags.get('Disc')) track.disc = tags.get('Disc');
     if (tags.get('Date')) track.date = tags.get('Date');
     if (tags.get('OriginalDate')) track.originalDate = tags.get('OriginalDate');
-    if (tags.get('Genre')) track.genre = tags.get('Genre');
+    if (tags.get('Format')) track.format = tags.get('Format');
+    if (tags.get('Added')) track.addedAt = tags.get('Added');
     const dur = num(tags.get('duration') ?? tags.get('Time'));
     if (dur !== undefined) track.duration = dur;
     return track;
+}
+
+/**
+ * A library song: a Track plus the tags a Track deliberately does not carry.
+ *
+ * THESE ARE ALBUM FACTS, and putting them on every Track would repeat them once
+ * per row for no gain — a UUID on each of the Beatles' 495 songs, and ten genre
+ * strings on each of Pink Floyd's 309. `albumsFromSongs` folds them up to the
+ * AlbumSummary, which is where the contract exposes them.
+ *
+ * Only the library browse path builds these. `queue()` and `currentsong` have no
+ * use for them and go on using `trackFromTags` directly.
+ */
+export interface LibrarySong {
+    track: Track;
+    /** Every `Genre` value, in order. Empty when untagged. */
+    genres: string[];
+    label?: string;
+    mbAlbumId?: string;
+    mbReleaseGroupId?: string;
+    mbArtistId?: string;
+}
+
+/**
+ * Tidy the `Genre` values MPD hands back.
+ *
+ * Two kinds of mess, both measured on this library and neither worth pushing out
+ * to every client: 39 values are a `;`-joined run-on inside ONE tag — the worst
+ * is 146 characters — and three albums carry bare ID3v1 genre indices as text,
+ * so a genre reads "17". Split, trim, drop the empties and drop the numbers.
+ *
+ * Only `;`. One album uses ", " the same way, and splitting on a comma would
+ * break every genuine genre name that contains one.
+ */
+function cleanGenres(values: string[]): string[] {
+    const out: string[] = [];
+    for (const value of values) {
+        for (const part of value.split(';')) {
+            const genre = part.trim();
+            if (genre !== '' && !/^\d+$/.test(genre)) out.push(genre);
+        }
+    }
+    return out;
+}
+
+/** Build a LibrarySong from a multi-value tag map. Track still comes from the one chokepoint. */
+export function songFromTags(tags: Map<string, string[]>): LibrarySong | null {
+    const track = trackFromTags(firstOf(tags));
+    if (track === null) return null;
+    const song: LibrarySong = { track, genres: cleanGenres(tags.get('Genre') ?? []) };
+    const first = (key: string): string | undefined => tags.get(key)?.[0];
+    const label = first('Label');
+    const albumId = first('MUSICBRAINZ_ALBUMID');
+    const groupId = first('MUSICBRAINZ_RELEASEGROUPID');
+    const artistId = first('MUSICBRAINZ_ALBUMARTISTID');
+    if (label) song.label = label;
+    if (albumId) song.mbAlbumId = albumId;
+    if (groupId) song.mbReleaseGroupId = groupId;
+    if (artistId) song.mbArtistId = artistId;
+    return song;
 }
 
 /**
@@ -276,11 +367,18 @@ type Listener = (snapshot: Snapshot) => void;
 /** Told which MPD subsystems changed, for callers that care about more than playback. */
 type IdleListener = (subsystems: readonly string[]) => void;
 
+/** Told when MPD's update job id changes. `null` means no scan is running. */
+type UpdatingListener = (was: number | null, job: number | null) => void;
+
 export class MpdBridge {
     private commands: MpdConnection;
     private idler: MpdConnection;
     private listeners = new Set<Listener>();
     private idleListeners = new Set<IdleListener>();
+    private updatingListeners = new Set<UpdatingListener>();
+
+    /** MPD's `updating_db`, as of the last refresh. Null when nothing is scanning. */
+    private updating: number | null = null;
     private snapshot: Snapshot;
     private stopped = false;
     private commandBackoff = BACKOFF_MIN_MS;
@@ -332,6 +430,26 @@ export class MpdBridge {
     onIdle(fn: IdleListener): () => void {
         this.idleListeners.add(fn);
         return () => this.idleListeners.delete(fn);
+    }
+
+    /** MPD's current update job id, or null when it is not scanning. */
+    get updatingDb(): number | null {
+        return this.updating;
+    }
+
+    /**
+     * Told when a scan starts or ends.
+     *
+     * NOT onIdle: that is announced BEFORE the refresh that reads the new
+     * status, so a listener there sees the previous job id and never sees a
+     * scan end at all. This fires from refresh(), where the value is parsed.
+     *
+     * The listener must not call refresh(), command() or runAll() — it is
+     * already inside one.
+     */
+    onUpdating(fn: UpdatingListener): () => void {
+        this.updatingListeners.add(fn);
+        return () => this.updatingListeners.delete(fn);
     }
 
     start(): void {
@@ -464,6 +582,14 @@ export class MpdBridge {
             const status = await this.commands.send('status');
             const song = await this.commands.send('currentsong');
             this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth));
+            // After publish, so a listener reacting to a scan sees a current
+            // snapshot. Deliberately not on the Snapshot itself — see shared/api.ts.
+            const job = num(firstValue(status, 'updating_db')) ?? null;
+            if (job !== this.updating) {
+                const was = this.updating;
+                this.updating = job;
+                this.announceUpdating(was, job);
+            }
         } catch (err) {
             this.opts.log('warn', `refresh failed: ${(err as Error).message}`);
         }
@@ -486,6 +612,16 @@ export class MpdBridge {
             await this.refresh();
         } else {
             this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
+        }
+    }
+
+    private announceUpdating(was: number | null, job: number | null): void {
+        for (const fn of this.updatingListeners) {
+            try {
+                fn(was, job);
+            } catch (err) {
+                this.opts.log('error', `updating listener threw: ${(err as Error).message}`);
+            }
         }
     }
 
@@ -564,6 +700,35 @@ export class MpdBridge {
     }
 
     /**
+     * `find`, keeping the album tags a Track drops. Same command, same cost —
+     * MPD was already sending the genres and the MusicBrainz ids.
+     */
+    async findSongs(...pairs: Array<[string, string]>): Promise<LibrarySong[]> {
+        const reply = await this.send(`find ${filterArgs(pairs)}`);
+        return groupByMulti(reply, 'file')
+            .map(songFromTags)
+            .filter((s): s is LibrarySong => s !== null);
+    }
+
+    /** `findFirst`, keeping the album tags. See findSongs. */
+    async findFirstSong(...pairs: Array<[string, string]>): Promise<LibrarySong | null> {
+        const reply = await this.send(`find ${filterArgs(pairs)} window 0:1`);
+        const groups = groupByMulti(reply, 'file');
+        return groups.length > 0 ? songFromTags(groups[0]) : null;
+    }
+
+    /**
+     * `count group <tag>` — song count and playtime for every value of a tag.
+     *
+     * One command for the whole library: `count group albumartist` answers for
+     * all 488 artists in 35ms, measured. The alternative is a `find` per artist
+     * at 11.4ms each. Raw Reply, for the reason `list` gives above.
+     */
+    async count(group: string): Promise<Reply> {
+        return this.send(`count group ${quoteArg(group)}`);
+    }
+
+    /**
      * `list <tag> [group <tag>]` — distinct tag values, optionally grouped.
      *
      * Returns the raw Reply rather than something parsed: a grouped reply is a
@@ -581,6 +746,32 @@ export class MpdBridge {
     /** `lsinfo <path>` — one level of MPD's directory tree. '' is the root. */
     async lsinfo(path: string): Promise<Reply> {
         return this.send(`lsinfo ${quoteArg(path)}`);
+    }
+
+    /**
+     * Ask MPD to scan the library, returning its job id.
+     *
+     * RETURNS IMMEDIATELY, which is the only reason this is safe: a scan on this
+     * library runs for the better part of an hour, and a reply timeout would
+     * destroy the connection. MPD answers `updating_db: <job>` and gets on with it.
+     */
+    async update(uri?: string): Promise<number | null> {
+        return this.startScan('update', uri);
+    }
+
+    /** As `update`, but re-reads every tag rather than only what changed. */
+    async rescan(uri?: string): Promise<number | null> {
+        return this.startScan('rescan', uri);
+    }
+
+    private async startScan(verb: 'update' | 'rescan', uri?: string): Promise<number | null> {
+        const reply = await this.send(uri === undefined ? verb : `${verb} ${quoteArg(uri)}`);
+        return num(firstValue(reply, 'updating_db')) ?? null;
+    }
+
+    /** MPD's `stats`: the library's counts, and its own uptime. */
+    async stats(): Promise<Reply> {
+        return this.send('stats');
     }
 
     /** Shared guard-and-send for the read-only queries above. */

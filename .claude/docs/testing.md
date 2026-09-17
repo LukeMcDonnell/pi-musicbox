@@ -1,7 +1,7 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**672 assertions**)
-and the backend's 188 `node:test` cases. All green, shellcheck clean (2026-09-15). Safe on a dev machine:
+`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**685 assertions**)
+and the backend's 256 `node:test` cases. All green, shellcheck clean (2026-09-16). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 
 These numbers go stale fast. `bash tests/run-all.sh | grep -oE 'passed: [0-9]+'`
@@ -21,13 +21,13 @@ both, and `run-all.sh` says so rather than leaving a cryptic error.
 | `test-mpd-config.sh` | 97 | `--emit` plus the sourced block writer: `music_directory` is the nested path, the ALSA output targets card 0, **`mixer_type "none"` with no mixer control** (giving MPD the attenuator back would silently cost bits), `replaygain` off and no resampler, the unity script sets dB rather than percentages and turns `Deemphasis` off, its unit is ordered after `alsa-restore` and before `mpd`, `auto_update` off, and `--emit` writes nothing to stderr (a backtick in an unquoted heredoc would) |
 | `test-server-config.sh` | 110 | `--emit`: that the server unit is **not** ordered after `mpd.service`, `CAP_NET_BIND_SERVICE` without root, the `.path`+shim restart pair, that the kiosk `Wants` (not `Requires`) the server, that `dev-push.sh` never invokes sudo or `rsync --inplace`, and the NodeSource apt source — deb822, the `nodistro` suite, the pin at 600, and that `install.sh` version-checks node rather than merely finding it |
 | `test-bluetooth-config.sh` | 142 | `--emit` plus the sourced rfkill helper: **that MPD is paused and the card has actually gone quiet BEFORE the Bluetooth audio unit is started** (and the reverse), that Debian's `bluealsa-aplay.service` is masked and the audio unit has no `[Install]` section, that aptX and aptX HD are enabled on the daemon's real `ExecStart=` line (they are off by default, and an earlier version wrote them to `/etc/default/bluez-alsa`, which nothing reads), `--volume=none` so nothing fights `musicbox-dac-unity`, that a soft-blocked radio is unblocked and a hard-blocked one is not pretended away, and that the arbiter's JSON survives quotes, backslashes and emoji in a device name |
-| `src/backend` (node:test) | 188 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, SQLite migrations (append-only, refusing a newer schema, rolling back a failed step), the settings guards, the panel backlight against a temp sysfs tree, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown |
+| `src/backend` (node:test) | 256 | Snapshot shape (no delta fields, queue by version), config precedence, static-path traversal, SQLite migrations (append-only, refusing a newer schema, rolling back a failed step), the settings guards, the panel backlight against a temp sysfs tree, and — against a **fake MPD server** — the keepalive, the unavailable grace period, and that an open SSE stream cannot wedge shutdown. Library scanning has its own suite: the scheduling predicate against a fake clock (including both DST days and an NTP jump), and the scan state machine against a fake bridge and an in-memory database |
 | `test-integration.sh` | 47 | The real `setup.sh` + `install.sh --dry-run` in `debian:trixie-slim` against a fake `/boot/firmware` |
 
 ## The frontend specs are NOT in run-all.sh
 
 ```sh
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 149 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 172 specs
 ```
 
 Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only
@@ -90,6 +90,22 @@ The habit that has been worth it here: after fixing a bug, reintroduce it and
 confirm the suite goes red, then remove it again. The fstab-newline bug trips 4
 assertions; the unstarted-automount bug trips 1. A regression test that does not
 fail against the original bug is not a regression test.
+
+## Tear anything with a timer down in `t.after`, not at the end of the test
+
+Found the hard way while building `library-scan.test.ts`. If a test creates
+something holding a `setInterval` and stops it on the last line, a failing
+assertion skips that line — and a leaked timer does not fail the suite, it
+**hangs** it. `node --test` reported all 36 tests, then sat there until the
+harness killed it, which is a far worse thing to debug than a red assertion.
+Register the teardown on the test context the moment the thing is created:
+
+```ts
+t.after(() => { scanner.stop(); h.close(); });
+```
+
+The same applies to the mutation-testing habit above: mutation 2 of that suite
+hung instead of failing, which is what exposed this.
 
 ## What the tests must never stop enforcing
 

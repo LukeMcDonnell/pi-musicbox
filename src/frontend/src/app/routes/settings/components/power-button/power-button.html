@@ -32,6 +32,13 @@
       } @else {
       <p class="pt-1 text-[0.9rem] text-muted">Playback stops either way.</p>
 
+      @if (scanning()) {
+        <p class="pt-2 text-[0.9rem] text-warn">
+          A library scan is running. Restarting abandons it and leaves the index
+          incomplete — it takes about an hour to redo.
+        </p>
+      }
+
       @if (error(); as message) {
         <p class="pt-2 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
       }
