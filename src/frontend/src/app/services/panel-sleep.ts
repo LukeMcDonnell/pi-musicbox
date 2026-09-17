@@ -1,6 +1,6 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
-import { ApiClient } from './api-client';
-import { IdleTimer } from './idle-timer';
+import { ApiClient, ApiError } from './api-client';
+import { IdleTimer, type IdleWatcher } from './idle-timer';
 import { IS_PANEL } from './panel-client';
 import { MusicboxApi } from './musicbox-api';
 
@@ -20,9 +20,9 @@ import { MusicboxApi } from './musicbox-api';
 
   THE RULE, EXACTLY: no touches for the configured delay AND nothing playing.
   `state === 'play'` is the source-independent answer (src/shared/api.ts), so a
-  phone playing over Bluetooth keeps the screen awake with no special case. The
-  idle clock counts touches only — so when a long album ends with nobody in the
-  room, the delay has already elapsed and the screen goes dark at once.
+  phone playing over Bluetooth keeps the screen awake with no special case. A
+  record ending counts as activity: the delay runs again from there, so an album
+  finishing does not black the screen out from under whoever put it on.
 
   WAKING IS UNCONDITIONAL. Any touch, and any transition into playing, turns the
   backlight on. That direction never asks permission: a screen that will not come
@@ -51,6 +51,9 @@ export class PanelSleep {
 
     private readonly playing = computed(() => this.api.snapshot()?.state === 'play');
 
+    /** Held so a refused sleep can ask again. Null on anything but the panel. */
+    private watcher: IdleWatcher | null = null;
+
     /** One request at a time, so a flurry of touches cannot stack them up. */
     private sending = false;
     /** What the backlight should be once the one in flight has landed. */
@@ -60,6 +63,7 @@ export class PanelSleep {
         if (!this.isPanel) return;
 
         const watcher = this.idle.watch(this.minutes(), () => this.sleep());
+        this.watcher = watcher;
         effect(() => watcher.setMinutes(this.minutes()));
 
         // Music starting is the other way the screen comes back. Only the
@@ -67,6 +71,13 @@ export class PanelSleep {
         // timer is not armed against playback in the first place.
         effect(() => {
             if (this.playing() && this._asleep()) this.wake();
+        });
+
+        // And music stopping is what re-arms it. The timer will usually have
+        // fired and been refused somewhere in the middle of the record; without
+        // this, nothing but a touch would ever start it again.
+        effect(() => {
+            if (!this.playing()) watcher.restart();
         });
     }
 
@@ -111,12 +122,19 @@ export class PanelSleep {
                 this.desired = null;
                 try {
                     await this.client.post('/api/panel/backlight', { on: next });
-                } catch {
+                } catch (err) {
                     // The box may have no backlight, or may have refused because
                     // it thinks no panel is connected. Either way the screen is
                     // lit, so believing otherwise would leave an invisible
                     // blocker over a working UI.
-                    if (!next) this._asleep.set(false);
+                    if (!next) {
+                        this._asleep.set(false);
+                        // 503 is this box having no backlight at all, which will
+                        // not change. A 409 is the panel's own stream between
+                        // connections, which will.
+                        const permanent = err instanceof ApiError && err.status === 503;
+                        if (!permanent) this.watcher?.restart();
+                    }
                 }
             }
         } finally {

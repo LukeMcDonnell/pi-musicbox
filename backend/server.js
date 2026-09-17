@@ -39262,7 +39262,7 @@ function createPanel(options = {}) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-17T03:03:30Z" : "dev";
+var BUILD = true ? "2026-09-17T03:50:48Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

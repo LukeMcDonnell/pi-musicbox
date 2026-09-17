@@ -323,6 +323,12 @@ bounds it.
 The kiosk `Wants` the server rather than `Requires` it, so a broken server still
 leaves a panel that can say so instead of a black screen.
 
+`After=` alone does not mean the server is listening — it is `Type=simple`, so
+systemd calls it started at exec, ~4s before it binds, and chromium never
+retries a refused connection. The launch wrapper closes that race itself by
+probing the URL's port with `/dev/tcp` for up to `KIOSK_WAIT_SECONDS` (30), then
+launching either way. See decisions.md, 2026-09-17.
+
 #### Port 80 without root
 
 `AmbientCapabilities=CAP_NET_BIND_SERVICE`, running as the existing `musicbox`
@@ -352,14 +358,14 @@ Handing a new client the cached snapshot instead made a page reload display the
 elapsed time as at the last MPD event. Tests assert the refresh happens before
 the first frame.
 
-### `setup-kiosk.sh` (453 lines)
+### `setup-kiosk.sh` (501 lines)
 
 Installs `cage` + `chromium` (the deliberate exception to rule 3) and writes
 four artifacts:
 
 | Path | Purpose |
 |---|---|
-| `/etc/musicbox/kiosk.conf` | `KIOSK_URL` + extra chromium flags |
+| `/etc/musicbox/kiosk.conf` | `KIOSK_URL`, `KIOSK_WAIT_SECONDS` + extra chromium flags |
 | `/usr/local/bin/musicbox-kiosk` | launch wrapper |
 | `/etc/systemd/system/musicbox-kiosk.service` | starts it at boot |
 | `/usr/share/musicbox/kiosk/index.html` | touch-diagnostic holding page |

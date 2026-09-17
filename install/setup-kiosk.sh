@@ -109,6 +109,10 @@ gen_conf() {
 #   KIOSK_URL="file://${PAGE}"
 KIOSK_URL="${DEFAULT_URL}"
 
+# How long to wait for the server to start listening before launching chromium
+# anyway. 0 disables the wait. Only used for an http:// KIOSK_URL.
+KIOSK_WAIT_SECONDS="30"
+
 # Appended verbatim to the chromium command line. Example:
 #   CHROMIUM_EXTRA_FLAGS="--force-device-scale-factor=1.25"
 CHROMIUM_EXTRA_FLAGS=""
@@ -122,11 +126,45 @@ gen_wrapper() {
 set -euo pipefail
 
 CONF=/etc/musicbox/kiosk.conf
-# shellcheck source=/dev/null
-[[ -r "$CONF" ]] && . "$CONF"
+# An unreadable conf must not take the panel down with it, and `[[ ]] && .` as a
+# statement is a failing AND-list under set -e when the file is missing.
+if [[ -r "$CONF" ]]; then
+    # shellcheck source=/dev/null
+    . "$CONF"
+fi
 
 KIOSK_URL="${KIOSK_URL:-http://localhost/}"
+KIOSK_WAIT_SECONDS="${KIOSK_WAIT_SECONDS:-30}"
 CHROMIUM_EXTRA_FLAGS="${CHROMIUM_EXTRA_FLAGS:-}"
+
+# musicbox-server.service is Type=simple, so After= only means it has been
+# exec'd — it starts listening a few seconds later. Chromium never retries a
+# refused connection, so without this a slower boot leaves an error page up for
+# good. Bounded, then launch regardless: a broken server should show as a broken
+# page, not as a black panel.
+wait_for_server() {
+    local hostport host port deadline
+    hostport="${KIOSK_URL#*://}"
+    hostport="${hostport%%/*}"
+    host="${hostport%%:*}"
+    port="${hostport##*:}"
+    if [[ "$port" == "$host" ]]; then
+        port=80
+    fi
+    deadline=$((SECONDS + KIOSK_WAIT_SECONDS))
+    while ((SECONDS < deadline)); do
+        if (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    echo "musicbox-kiosk: ${host}:${port} not listening after ${KIOSK_WAIT_SECONDS}s" >&2
+    return 1
+}
+
+if [[ "$KIOSK_URL" == http://* ]] && ((KIOSK_WAIT_SECONDS > 0)); then
+    wait_for_server || true
+fi
 
 # Debian ships the binary as `chromium`; older Pi OS used `chromium-browser`.
 CHROMIUM="$(command -v chromium || command -v chromium-browser)"

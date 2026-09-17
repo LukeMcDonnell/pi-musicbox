@@ -1057,3 +1057,62 @@ answer different questions and the badge now shows both: `FLAC 24/96`,
 
 Note also that `bitrate` is on `status`, not on a song: it is playback state,
 reads 0 while paused, and says nothing about the library.
+
+## A watcher that is refused must re-arm itself (2026-09-17)
+
+Panel sleep sometimes never fired: after a reboot with nobody touching the
+panel, or after playback was started from a phone. One cause, in
+`idle-timer.ts`.
+
+`Watcher.fire()` nulls its timer and calls `onIdle()`. `onActivity()` re-arms
+only when the timer is null, and it is reached only from a real DOM event or
+`poke()`. So when `PanelSleep.sleep()` declined — because something was playing,
+or because the POST came back refused — **the watcher was left disarmed for the
+rest of the uptime**, and only a finger on the glass ever started it again.
+
+The common path was invisible precisely because it looked like the design: the
+idle clock counts touches only, so a record playing does not hold the timer off.
+The deadline therefore lands in the middle of most albums, is declined once, and
+that is the end of panel sleep until somebody touches the panel. "No touches
+since boot" is not a second bug, it is the condition under which nothing
+recovers it.
+
+**`restart()`, not `poke()`.** `poke()` moves the shared timestamp, which would
+drag `IdleWatch`'s now-playing watcher along every time an album ended — the
+music stopping is not somebody standing at the box. `restart()` arms one watcher
+a whole delay from now and leaves the shared clock alone.
+
+**And not a re-arm against the shared clock either.** On the refusal path
+`idleFor()` is already past the deadline, so `due <= 0`: the retry would fire at
+once, be refused at once, and spin. That asymmetry is the whole reason `arm()`
+takes `fromNow`.
+
+**A record ending restarts the full delay** rather than darkening the screen the
+instant the last track stops. The earlier comment promised the opposite, and it
+was never true in practice; of the two, this one does not black out the panel in
+front of whoever just put the record on.
+
+**503 is permanent, 409 is not.** A refused sleep is retried a delay later,
+except `503` — that is a box with no backlight at all, and asking again every
+minute forever would flicker the sleep overlay for nothing. `409 no panel client
+is connected` is the panel's own stream between connections and always worth
+another go. Telling them apart is why `ApiClient` throws `ApiError` with the
+status rather than a bare `Error`.
+
+## The kiosk waits for the server to listen (2026-09-17)
+
+`musicbox-kiosk.service` is ordered `After=musicbox-server.service`, but the
+server is `Type=simple` — systemd calls it started the moment it is exec'd, not
+when it binds. Measured on the box: exec'd at 6.87s, listening at 10.98s,
+chromium launched at 11.73s. Three quarters of a second of margin, and nothing
+holding it there.
+
+Chromium never retries a refused connection, so losing that race leaves an error
+page up until someone reboots — and with no app there is no timer, which is the
+other half of "panel sleep doesn't work after a reboot".
+
+The wrapper now probes the URL's host and port with bash's `/dev/tcp` until
+`KIOSK_WAIT_SECONDS` (default 30) runs out, then launches regardless. Bash
+rather than `curl` because `install.sh` does not install curl. Launching anyway
+is deliberate and matches the unit's existing `Wants=` rather than `Requires=`:
+a broken server should show as a broken page, not as a black panel.

@@ -14,6 +14,22 @@
 import { Injectable } from '@angular/core';
 import { environment } from '../../environments/environment';
 
+/**
+ * A request the server refused, with the code it refused it with.
+ *
+ * The code is here because a caller sometimes has to tell a permanent refusal
+ * from a passing one — panel sleep retries a 409 and gives up on a 503.
+ */
+export class ApiError extends Error {
+    constructor(
+        message: string,
+        readonly status: number,
+    ) {
+        super(message);
+        this.name = 'ApiError';
+    }
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiClient {
     /**
@@ -37,7 +53,7 @@ export class ApiClient {
 
     async getJson<T>(path: string): Promise<T> {
         const response = await fetch(this.resolve(path));
-        if (!response.ok) throw new Error(await detail(response, path));
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
         return (await response.json()) as T;
     }
 
@@ -54,7 +70,7 @@ export class ApiClient {
             headers: body === undefined ? undefined : { 'content-type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
         });
-        if (!response.ok) throw new Error(await detail(response, path));
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
     }
 
     /**
@@ -71,7 +87,7 @@ export class ApiClient {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
         });
-        if (!response.ok) throw new Error(await detail(response, path));
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
         return (await response.json()) as T;
     }
 }

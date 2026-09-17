@@ -27,7 +27,7 @@ both, and `run-all.sh` says so rather than leaving a cryptic error.
 ## The frontend specs are NOT in run-all.sh
 
 ```sh
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 172 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 203 specs
 ```
 
 Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only

@@ -91,6 +91,7 @@ export class IdleTimer {
         watcher.arm();
         return {
             setMinutes: (next: number) => watcher.setMinutes(next),
+            restart: () => watcher.arm(true),
             stop: () => {
                 watcher.cancel();
                 this.watchers.delete(watcher);
@@ -102,6 +103,15 @@ export class IdleTimer {
 export interface IdleWatcher {
     /** Change the delay. The new one runs from now, not from the old deadline. */
     setMinutes(minutes: number): void;
+    /**
+     * Start the delay again from now.
+     *
+     * THIS WATCHER ONLY — the shared timestamp, and so every other watcher, is
+     * untouched. That is the whole difference from `poke()`, and it is why a
+     * watcher that was refused can ask again without dragging the rest of the
+     * page's idea of activity along with it.
+     */
+    restart(): void;
     stop(): void;
 }
 
@@ -127,10 +137,14 @@ class Watcher {
         if (this.timer === null) this.arm();
     }
 
-    arm(): void {
+    // `fromNow` ignores the shared clock: a watcher that has just been refused
+    // is already past its deadline, so arming against it would be due at once
+    // and spin.
+    arm(fromNow = false): void {
         this.cancel();
         if (this.minutes <= 0) return;
-        const due = this.minutes * 60_000 - this.owner.idleFor();
+        const full = this.minutes * 60_000;
+        const due = fromNow ? full : full - this.owner.idleFor();
         this.zone.runOutsideAngular(() => {
             this.timer = setTimeout(() => this.fire(), Math.max(0, due));
         });

@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { PlaybackState, SettingsResponse, Snapshot } from '@musicbox/shared';
-import { ApiClient } from './api-client';
+import { ApiClient, ApiError } from './api-client';
 import { IS_PANEL } from './panel-client';
 import { MusicboxApi } from './musicbox-api';
 import { PanelSleep } from './panel-sleep';
@@ -215,5 +215,70 @@ describe('PanelSleep', () => {
 
         expect(asked(post)).toEqual([false, true]);
         expect(sleep.asleep()).toBeFalse();
+    });
+    it('sleeps a delay after a record ends, with nobody touching the panel', async () => {
+        // The reported fault: the deadline passes DURING the album, sleep() is
+        // refused because something is playing, and nothing armed the timer
+        // again — so the screen stayed lit for the rest of the uptime.
+        const { post, sleep, snapshot: snap } = setup({ minutes: 1, state: 'play' });
+        jasmine.clock().tick(30 * MINUTE);
+        await flush();
+        expect(post).withContext('not while it plays').not.toHaveBeenCalled();
+
+        snap.set(snapshot('stop'));
+        TestBed.tick();
+        jasmine.clock().tick(MINUTE - 1);
+        await flush();
+        expect(post).withContext('the record only just ended').not.toHaveBeenCalled();
+
+        jasmine.clock().tick(1);
+        await flush();
+        expect(asked(post)).toEqual([false]);
+        expect(sleep.asleep()).toBeTrue();
+    });
+
+    it('counts the delay from the end of the record, not the last touch', async () => {
+        const { post, snapshot: snap } = setup({ minutes: 1, state: 'play' });
+        jasmine.clock().tick(50_000);
+        snap.set(snapshot('pause'));
+        TestBed.tick();
+
+        jasmine.clock().tick(10_001);
+        await flush();
+        expect(post).withContext('a minute since the start, not since the pause').not.toHaveBeenCalled();
+
+        jasmine.clock().tick(50_000);
+        await flush();
+        expect(asked(post)).toEqual([false]);
+    });
+
+    it('retries a refused sleep a delay later rather than giving up', async () => {
+        const { post, sleep } = setup({ minutes: 1 });
+        post.and.rejectWith(new ApiError('no panel client is connected', 409));
+        jasmine.clock().tick(MINUTE);
+        await flush();
+        await flush();
+        expect(asked(post)).toEqual([false]);
+
+        jasmine.clock().tick(MINUTE - 1);
+        await flush();
+        expect(asked(post)).withContext('one attempt per delay, not a spin').toEqual([false]);
+
+        post.and.resolveTo(undefined);
+        jasmine.clock().tick(1);
+        await flush();
+        expect(asked(post)).toEqual([false, false]);
+        expect(sleep.asleep()).toBeTrue();
+    });
+
+    it('stops asking a box that has no backlight at all', async () => {
+        const { post } = setup({ minutes: 1 });
+        post.and.rejectWith(new ApiError('this box has no panel backlight', 503));
+        for (let i = 0; i < 10; i++) {
+            jasmine.clock().tick(MINUTE);
+            await flush();
+            await flush();
+        }
+        expect(asked(post)).withContext('503 will not change').toEqual([false]);
     });
 });

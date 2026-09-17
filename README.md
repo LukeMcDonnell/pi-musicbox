@@ -315,7 +315,7 @@ It installs four things:
 
 | Path | Purpose |
 |---|---|
-| `/etc/musicbox/kiosk.conf` | `KIOSK_URL` and `CHROMIUM_EXTRA_FLAGS` — the only file you should need to edit |
+| `/etc/musicbox/kiosk.conf` | `KIOSK_URL`, `KIOSK_WAIT_SECONDS` and `CHROMIUM_EXTRA_FLAGS` — the only file you should need to edit |
 | `/usr/local/bin/musicbox-kiosk` | launch wrapper; keeps the flag list out of the unit |
 | `/etc/systemd/system/musicbox-kiosk.service` | starts at boot, restarts on crash |
 | `/usr/share/musicbox/kiosk/index.html` | holding page until the web UI exists |
@@ -444,7 +444,8 @@ service; see the Bluetooth section below.
 Settings -> System -> "Turn the panel off after idle". Off by default. When set,
 the panel's backlight goes off after that long with **no touches on the panel**
 and **nothing playing**; touching it, or the music starting from anywhere, brings
-it back.
+it back. A record ending starts the countdown again, so an album finishing never
+blacks the screen out from under whoever put it on.
 
 It is a **backlight** write (`/sys/class/backlight/10-0045/brightness`), not
 DPMS and not `vcgencmd display_power`. Both of those go through the vc4 atomic
@@ -866,6 +867,13 @@ reconnects a second later.
 The kiosk **is** ordered after the server, since chromium loading `KIOSK_URL`
 before anything listens shows an error page — but with `Wants=`, not `Requires=`,
 so a broken server still leaves a panel that can say so.
+
+`After=` is not enough on its own: the server is `Type=simple`, so systemd calls
+it started the moment it execs, and it binds about four seconds later. Measured
+on this box that left 0.75s between "Server listening" and chromium launching,
+and chromium never retries a refused connection. The launch wrapper therefore
+waits for the URL's port to accept a connection — up to `KIOSK_WAIT_SECONDS`,
+default 30 — and then launches regardless.
 
 ### Two things the live device taught us
 

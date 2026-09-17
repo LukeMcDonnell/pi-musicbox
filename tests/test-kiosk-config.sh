@@ -40,6 +40,33 @@ bash -n "$WRAP" 2>/dev/null
 check "bash -n passes on the generated wrapper" "0" "$?"
 check "wrapper has a shebang" "0" "$(head -1 "$WRAP" | grep -q '^#!' ; echo $?)"
 
+banner "the wrapper waits for the server before launching chromium"
+# musicbox-server.service is Type=simple: After= only means exec'd, not
+# listening, and chromium never retries a refused connection.
+check "wrapper defines the wait" "0" "$(grep -qE '^wait_for_server\(\) \{' "$WRAP"; echo $?)"
+check "the wait runs before cage" "0" \
+    "$(awk '/^wait_for_server$|wait_for_server \|\| true/{w=NR} /^exec cage/{print (w && w < NR) ? 0 : 1; exit}' "$WRAP")"
+check "KIOSK_WAIT_SECONDS defined in conf" "0" "$(grep -qE '^KIOSK_WAIT_SECONDS=' "$CONF"; echo $?)"
+check "wrapper defaults KIOSK_WAIT_SECONDS" "0" "$(has 'KIOSK_WAIT_SECONDS:-' "$WRAP")"
+check "a failed wait does not stop the launch" "0" "$(has 'wait_for_server || true' "$WRAP")"
+
+# Behaviour, not just text: nothing listens on port 9, so the wait must give up
+# within its budget rather than hanging the panel for ever. Run in its own file
+# so the probe's KIOSK_URL cannot leak into this script's other checks.
+sed -n '/^wait_for_server() {/,/^}/p' "$WRAP" > "$WORK/wait.sh"
+cat > "$WORK/probe.sh" <<'PROBE'
+set -euo pipefail
+# shellcheck source=/dev/null
+. "$1"
+KIOSK_URL="http://127.0.0.1:9/"
+KIOSK_WAIT_SECONDS=2
+start=$SECONDS
+if wait_for_server >/dev/null 2>&1; then echo found; fi
+echo "$((SECONDS - start))"
+PROBE
+check "gives up on a dead port inside its budget" "2" \
+    "$(bash "$WORK/probe.sh" "$WORK/wait.sh")"
+
 banner "chromium flags"
 for flag in --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars \
             --no-first-run --disable-session-crashed-bubble --password-store=basic \
