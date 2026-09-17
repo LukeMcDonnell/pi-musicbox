@@ -34,10 +34,11 @@ export interface SettingOption {
     template: `
         <button #trigger type="button"
                 class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center gap-3
-                       rounded-lg px-2 py-2 text-left select-none active:bg-raised"
+                       rounded-lg py-2 text-left select-none active:bg-raised"
+                [class.px-2]="!flush()" [attr.aria-label]="triggerLabel() === undefined ? null : label() + ': ' + current()"
                 aria-haspopup="listbox" [attr.aria-expanded]="open()"
                 (click)="open.set(true)">
-            <span class="min-w-0 flex-1 text-[1rem]">{{ label() }}</span>
+            <span class="min-w-0 flex-1 text-[1rem]">{{ triggerLabel() ?? label() }}</span>
             <span class="flex-none text-[0.95rem] font-semibold text-accent">{{ current() }}</span>
             <svg lucideChevronDown class="size-5 flex-none text-muted" aria-hidden="true"></svg>
         </button>
@@ -78,6 +79,10 @@ export interface SettingOption {
 })
 export class SettingSelect {
     readonly label = input.required<string>();
+    /** Shown on the row instead of `label`, which still titles the dialog. */
+    readonly triggerLabel = input<string>();
+    /** No side padding, for a row that must line up with the page's edge. */
+    readonly flush = input(false);
     readonly value = input.required<number>();
     readonly options = input.required<readonly SettingOption[]>();
 

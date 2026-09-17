@@ -21,7 +21,9 @@
     <div class="min-w-0 flex-1 max-[40rem]:text-center">
       <h1 class="text-2xl font-bold [overflow-wrap:anywhere]">{{ album() }}</h1>
       <p class="text-[0.95rem] text-muted [overflow-wrap:anywhere]">
-        {{ artist() }}@if (year(); as y) {<span class="tabular-nums">&nbsp;· {{ y }}</span>}
+        <!-- Inline py-2 widens the tap target without moving the line. -->
+        <a class="cursor-pointer touch-manipulation py-2 text-accent"
+           routerLink="/library/artist" [queryParams]="{ name: artist() }">{{ artist() }}</a>@if (year(); as y) {<span class="tabular-nums">&nbsp;· {{ y }}</span>}
       </p>
       @if (summary(); as line) {
         <p class="text-[0.85rem] text-muted tabular-nums">{{ line }}</p>
@@ -51,6 +53,8 @@
           <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
           Queue
         </button>
+        <app-favourite-button variant="pill" [albumArtist]="artist()" [album]="album()"
+                              (failed)="error.set($event)" />
       </div>
     </div>
   </div>

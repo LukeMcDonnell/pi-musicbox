@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import type { AlbumResponse, AlbumSummary, Track } from '@musicbox/shared';
 import { Album } from './album';
 import { LibraryStore } from '../../services/library-store';
@@ -67,6 +67,28 @@ describe('Album', () => {
         const fixture = create(fakeStore(), '', '');
         fixture.detectChanges();
         expect(fixture.componentInstance).toBeTruthy();
+    });
+
+    it('offers to favourite the album beside Play and Queue', () => {
+        const fixture = create(fakeStore());
+        fixture.detectChanges();
+        const heart = fixture.nativeElement.querySelector('app-favourite-button button') as HTMLButtonElement;
+        expect(heart.getAttribute('aria-label')).toBe('Add Kid A to favourites');
+    });
+
+    it('links the artist name to the artist, in the accent colour', async () => {
+        const fixture = create(fakeStore(), 'AC/DC', 'Back in Black');
+        fixture.detectChanges();
+        const link = fixture.nativeElement.querySelector('a[href^="/library/artist"]') as HTMLAnchorElement;
+        expect(link.textContent!.trim()).toBe('AC/DC');
+        expect(link.classList).toContain('text-accent');
+        // The slash travels encoded in the query string, never as a path segment.
+        expect(link.getAttribute('href')).toBe('/library/artist?name=AC%2FDC');
+
+        const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+        link.click();
+        expect(navigate).toHaveBeenCalled();
+        expect(String(navigate.calls.mostRecent().args[0])).toBe('/library/artist?name=AC%2FDC');
     });
 
     it('fetches by artist and album, both untouched', async () => {

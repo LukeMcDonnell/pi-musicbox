@@ -9,7 +9,20 @@ export interface PreferenceValues {
     openQueueOnAdd: boolean;
     /** Minutes of no interaction before now-playing raises itself. 0 is never. */
     openNowPlayingAfterIdle: number;
+    /** What the Favourites screen is sorted by. */
+    favouritesSortBy: FavouritesSortBy;
+    favouritesSortDescending: boolean;
 }
+
+export type FavouritesSortBy = 'added' | 'released' | 'title' | 'artist';
+
+/** The Favourites sort dropdown, in the order it is offered. */
+export const FAVOURITES_SORT_OPTIONS: readonly { value: FavouritesSortBy; label: string }[] = [
+    { value: 'added', label: 'Date added' },
+    { value: 'released', label: 'Release date' },
+    { value: 'title', label: 'Album title' },
+    { value: 'artist', label: 'Artist' },
+];
 
 /**
  * What the idle setting may be, and what each value is called.
@@ -40,6 +53,9 @@ export const DEFAULTS: Readonly<PreferenceValues> = {
     // Never: a screen that changes on its own while nobody asked is the kind of
     // thing to opt into, not out of.
     openNowPlayingAfterIdle: 0,
+    // Newest favourite first.
+    favouritesSortBy: 'added',
+    favouritesSortDescending: true,
 };
 
 export const PREFERENCES_KEY = 'musicbox.preferences';
@@ -67,6 +83,8 @@ export class Preferences {
     readonly openNowPlayingOnPlay = computed(() => this.values().openNowPlayingOnPlay);
     readonly openQueueOnAdd = computed(() => this.values().openQueueOnAdd);
     readonly openNowPlayingAfterIdle = computed(() => this.values().openNowPlayingAfterIdle);
+    readonly favouritesSortBy = computed(() => this.values().favouritesSortBy);
+    readonly favouritesSortDescending = computed(() => this.values().favouritesSortDescending);
 
     set<K extends keyof PreferenceValues>(key: K, value: PreferenceValues[K]): void {
         this.values.update((values) => ({ ...values, [key]: value }));
@@ -108,6 +126,8 @@ const GUARDS: { [K in keyof PreferenceValues]: (value: unknown) => boolean } = {
     openNowPlayingOnPlay: (value) => typeof value === 'boolean',
     openQueueOnAdd: (value) => typeof value === 'boolean',
     openNowPlayingAfterIdle: (value) => IDLE_OPTIONS.some((option) => option.value === value),
+    favouritesSortBy: (value) => FAVOURITES_SORT_OPTIONS.some((option) => option.value === value),
+    favouritesSortDescending: (value) => typeof value === 'boolean',
 };
 
 function save(values: PreferenceValues): void {

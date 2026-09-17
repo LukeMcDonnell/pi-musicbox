@@ -24,12 +24,15 @@ import type {
     BuildInfo,
     SettingsResponse,
     LibraryState,
+    FavouriteAlbum,
+    FavouritesResponse,
 } from '@musicbox/shared';
 import {
     SSE_SNAPSHOT_EVENT,
     SSE_BUILD_EVENT,
     SSE_SETTINGS_EVENT,
     SSE_LIBRARY_EVENT,
+    SSE_FAVOURITES_EVENT,
 } from '@musicbox/shared';
 import { ApiClient } from './api-client';
 
@@ -46,6 +49,7 @@ export class MusicboxApi {
     private readonly _queue = signal<Track[]>([]);
     private readonly _settings = signal<SettingsResponse | null>(null);
     private readonly _library = signal<LibraryState | null>(null);
+    private readonly _favourites = signal<FavouriteAlbum[] | null>(null);
 
     /** Latest complete state, or null before the first frame arrives. */
     readonly snapshot = this._snapshot.asReadonly();
@@ -69,6 +73,14 @@ export class MusicboxApi {
      * without being asked.
      */
     readonly library = this._library.asReadonly();
+
+    /** The box's favourite albums, or null before the first frame. See FavouritesStore. */
+    readonly favourites = this._favourites.asReadonly();
+
+    /** Apply a favourites route's answer without waiting for its own event. */
+    setFavourites(albums: FavouriteAlbum[]): void {
+        this._favourites.set(albums);
+    }
 
     /**
      * The current queue listing, refetched when `queueVersion` changes.
@@ -252,6 +264,11 @@ export class MusicboxApi {
             const state = JSON.parse((event as MessageEvent<string>).data) as LibraryState;
             // Wholesale again. Every event here is a complete picture.
             this._library.set(state);
+        });
+
+        this.source.addEventListener(SSE_FAVOURITES_EVENT, (event) => {
+            const { albums } = JSON.parse((event as MessageEvent<string>).data) as FavouritesResponse;
+            this._favourites.set(albums);
         });
 
         this.source.addEventListener('open', () => this._stream.set('live'));

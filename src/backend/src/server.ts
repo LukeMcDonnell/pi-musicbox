@@ -20,6 +20,7 @@ import { createLibraryScanner } from './library-scan.ts';
 import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
 import { createBackups } from './backup.ts';
+import { createFavourites } from './favourites.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -99,6 +100,7 @@ async function main(): Promise<void> {
             mpdDir: config.mpdStateDir,
             restoreDir: config.restoreDir,
         }),
+        favourites: createFavourites(db),
     });
     registerStatic(app, config.webRoot);
 

@@ -3,6 +3,8 @@ import { TestBed } from '@angular/core/testing';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { NowPlaying, audioFormat } from './now-playing';
+import type { Snapshot, Track } from '@musicbox/shared';
+import { Router, provideRouter } from '@angular/router';
 
 describe('NowPlaying', () => {
     it('creates without a backend present', async () => {
@@ -112,5 +114,101 @@ describe('audioFormat', () => {
         // A Bluetooth track has neither: there is no file.
         expect(audioFormat(undefined)).toBeNull();
         expect(audioFormat(undefined, undefined)).toBeNull();
+    });
+});
+
+describe('NowPlaying track lines', () => {
+    function render(source: Snapshot['source'], track: Partial<Track>) {
+        const snapshot = {
+            source,
+            status: 'ok',
+            state: 'play',
+            track: { image: null, title: 'Hells Bells', ...track },
+            elapsed: 0,
+            duration: 312,
+            bluetooth: source === 'bluetooth' ? { name: 'Phone', address: 'AA', codec: 'SBC' } : null,
+        } as unknown as Snapshot;
+        TestBed.configureTestingModule({
+            imports: [NowPlaying],
+            providers: [
+                provideRouter([]),
+                {
+                    provide: MusicboxApi,
+                    useValue: {
+                        snapshot: () => snapshot,
+                        stream: () => 'live',
+                        mpdAvailable: () => true,
+                        hasQueue: () => false,
+                        queue: () => [],
+                        elapsedNow: () => 0,
+                        bluetooth: () => snapshot.bluetooth,
+                        resolve: (path: string) => path,
+                    },
+                },
+            ],
+        });
+        const fixture = TestBed.createComponent(NowPlaying);
+        fixture.detectChanges();
+        return fixture.nativeElement as HTMLElement;
+    }
+
+    const LIBRARY_TRACK: Partial<Track> = {
+        artist: 'AC/DC',
+        albumArtist: 'AC/DC',
+        album: 'Back in Black',
+        file: 'AC-DC/x.flac',
+        format: '96000:24:2',
+        encoding: 'FLAC',
+    };
+
+    it('has no favourite button', () => {
+        expect(render('mpd', LIBRARY_TRACK).querySelector('app-favourite-button')).toBeNull();
+    });
+
+    it('puts the format in the source pill, not above the title', () => {
+        const el = render('mpd', LIBRARY_TRACK);
+        expect(el.querySelector('header span')!.textContent!.trim()).toBe('mpd · FLAC 24/96');
+        expect(el.querySelector('h1')!.previousElementSibling).toBeNull();
+    });
+
+    it("puts a phone's device and codec in the source pill", () => {
+        const el = render('bluetooth', { artist: 'AC/DC', album: 'Back in Black' });
+        expect(el.querySelector('header span')!.textContent!.trim()).toBe('bluetooth · Phone · SBC');
+        expect(el.querySelector('h1')!.previousElementSibling).toBeNull();
+    });
+
+    it('names only the source when there is no format to add', () => {
+        const el = render('mpd', { ...LIBRARY_TRACK, format: undefined, encoding: undefined });
+        expect(el.querySelector('header span')!.textContent!.trim()).toBe('mpd');
+    });
+
+    it('links the artist and album to their library pages', () => {
+        const el = render('mpd', { ...LIBRARY_TRACK, artist: 'AC/DC feat. Someone' });
+        const artist = el.querySelector('a[href^="/library/artist"]') as HTMLAnchorElement;
+        const album = el.querySelector('a[href^="/library/album"]') as HTMLAnchorElement;
+        // The page is keyed by AlbumArtist; the line still shows the performing credit.
+        expect(artist.textContent!.trim()).toBe('AC/DC feat. Someone');
+        expect(artist.getAttribute('href')).toBe('/library/artist?name=AC%2FDC');
+        expect(album.getAttribute('href')).toBe('/library/album?artist=AC%2FDC&album=Back%20in%20Black');
+        expect(album.parentElement!.classList).toContain('text-text');
+        const progress = [...el.querySelectorAll('p')].find((p) => p.textContent!.includes(' / '))!;
+        expect(getComputedStyle(progress).textShadow).not.toBe('none');
+    });
+
+    it('closes the sheet when a link is followed', () => {
+        const el = render('mpd', LIBRARY_TRACK);
+        const sheet = TestBed.inject(NowPlayingSheet);
+        sheet.show();
+        spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+        (el.querySelector('a[href^="/library/album"]') as HTMLAnchorElement).click();
+        expect(sheet.open()).toBeFalse();
+    });
+
+    it('links nothing for a phone, or a track with no AlbumArtist to file it under', () => {
+        expect(render('bluetooth', { artist: 'AC/DC', album: 'Back in Black' }).querySelector('a')).toBeNull();
+        TestBed.resetTestingModule();
+        const el = render('mpd', { artist: 'AC/DC', album: 'Back in Black', file: 'x.flac' });
+        expect(el.querySelector('a')).toBeNull();
+        expect(el.textContent).toContain('Back in Black');
     });
 });

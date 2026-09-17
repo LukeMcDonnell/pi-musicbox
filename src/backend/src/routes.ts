@@ -12,6 +12,7 @@ import {
     SSE_BUILD_EVENT,
     SSE_SETTINGS_EVENT,
     SSE_LIBRARY_EVENT,
+    SSE_FAVOURITES_EVENT,
     API_VERSION,
     BACKUP_CONTENT_TYPE,
     BACKUP_MAX_BYTES,
@@ -19,6 +20,8 @@ import {
     type AlbumRef,
     type AlbumsResponse,
     type ArtistsResponse,
+    type FavouriteAlbum,
+    type FavouritesResponse,
     type HealthResponse,
     type LibraryState,
     type PanelState,
@@ -42,6 +45,7 @@ import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { BackupError, type Backups } from './backup.ts';
+import type { Favourites } from './favourites.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -78,6 +82,8 @@ export interface RouteOptions {
     scanner?: LibraryScanner;
     /** Backup and restore of MPD's state and the database. See backup.ts. */
     backups?: Backups;
+    /** Favourite albums. See favourites.ts. */
+    favourites?: Favourites;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -141,6 +147,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
     const panel = opts.panel;
     const settings = opts.settings;
     const power = opts.power;
+
+    const favourites = opts.favourites;
+    const favouritesSinks = new Set<(albums: FavouriteAlbum[]) => void>();
+    favourites?.onChange((albums) => {
+        for (const sink of [...favouritesSinks]) sink(albums);
+    });
 
     /** Sinks for the settings event, one per open stream. */
     const settingsSinks = new Set<(values: SettingsValues) => void>();
@@ -399,6 +411,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             // the header's date, cover, count, genres and running time are all
             // facts about these very rows, and a second query could disagree.
             const [summary] = albumsFromSongs(artist, songs);
+            favourites?.refresh(summary);
             const body: AlbumResponse = { album: summary, tracks: songs.map((s) => s.track) };
             return body;
         } catch (err) {
@@ -545,6 +558,15 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             librarySinks.add(sendLibrary);
         }
 
+        const sendFavourites = (albums: FavouriteAlbum[]) => {
+            const body: FavouritesResponse = { albums };
+            reply.raw.write(sseFrame(SSE_FAVOURITES_EVENT, body));
+        };
+        if (favourites) {
+            sendFavourites(favourites.all());
+            favouritesSinks.add(sendFavourites);
+        }
+
         // The FIRST frame must be freshly queried, not bridge.current.
         //
         // MPD's `idle` never fires merely because elapsed time advanced, so the
@@ -569,6 +591,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             unsubscribe();
             settingsSinks.delete(sendSettings);
             librarySinks.delete(sendLibrary);
+            favouritesSinks.delete(sendFavourites);
             streams.delete(close);
             if (fromPanel) {
                 panelStreams.delete(close);
@@ -810,6 +833,48 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             return reply.code(202).send(body);
         },
     );
+
+    // -----------------------------------------------------------------------
+    // Favourite albums. Appended for the same reason as the scan routes.
+    // -----------------------------------------------------------------------
+
+    function albumQuery(query: unknown): { artist: string; album: string } | string {
+        const { artist, album } = (query ?? {}) as { artist?: unknown; album?: unknown };
+        if (typeof artist !== 'string' || artist === '') return "missing 'artist' query parameter";
+        if (typeof album !== 'string' || album === '') return "missing 'album' query parameter";
+        return { artist, album };
+    }
+
+    app.get('/api/favourites', async (_request: FastifyRequest, reply: FastifyReply) => {
+        if (!favourites) return reply.code(503).send({ error: 'favourites are unavailable' });
+        const body: FavouritesResponse = { albums: favourites.all() };
+        return body;
+    });
+
+    /** The summary is read from MPD, so only an album the library has can be added. */
+    app.put('/api/favourites/album', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!favourites) return reply.code(503).send({ error: 'favourites are unavailable' });
+        const ref = albumQuery(request.query);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        let songs: Awaited<ReturnType<typeof library.songsOf>>;
+        try {
+            songs = await library.songsOf(ref.artist, ref.album);
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+        if (songs.length === 0) return reply.code(404).send({ error: 'no such album' });
+        const [summary] = albumsFromSongs(ref.artist, songs);
+        const body: FavouritesResponse = { albums: favourites.add(summary) };
+        return body;
+    });
+
+    app.delete('/api/favourites/album', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!favourites) return reply.code(503).send({ error: 'favourites are unavailable' });
+        const ref = albumQuery(request.query);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        const body: FavouritesResponse = { albums: favourites.remove(ref.artist, ref.album) };
+        return body;
+    });
 
     return {
         closeStreams: () => {

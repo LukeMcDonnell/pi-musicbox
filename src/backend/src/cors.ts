@@ -28,7 +28,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 /** What the frontend actually sends: JSON bodies on the playback POST. */
 const ALLOWED_HEADERS = 'content-type';
-const ALLOWED_METHODS = 'GET, POST, OPTIONS';
+const ALLOWED_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
 
 /** True for the paths CORS applies to. */
 function isApi(url: string): boolean {

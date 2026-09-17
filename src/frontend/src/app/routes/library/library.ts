@@ -16,6 +16,7 @@ import { LucideSearch, LucideUserRound, LucideX } from '@lucide/angular';
 import type { ArtistSummary } from '@musicbox/shared';
 import { LibraryStore } from '../../services/library-store';
 import { ScrollFrame } from '../../services/scroll-frame';
+import { fold, squeeze } from '../../services/text-match';
 
 /*
   The Library screen: every artist in the library, in one list.
@@ -269,14 +270,4 @@ export class Library {
     open(artist: ArtistSummary): void {
         void this.router.navigate(['/library/artist'], { queryParams: { name: artist.name } });
     }
-}
-
-/** `Sigur Rós` -> `sigur ros` */
-function fold(text: string): string {
-    return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
-}
-
-/** `ac/dc` -> `acdc` */
-function squeeze(text: string): string {
-    return text.replace(/[^\p{L}\p{N}]/gu, '');
 }

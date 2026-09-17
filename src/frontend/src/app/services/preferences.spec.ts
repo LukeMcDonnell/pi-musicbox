@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { DEFAULTS, IDLE_OPTIONS, PREFERENCES_KEY, Preferences } from './preferences';
+import { DEFAULTS, FAVOURITES_SORT_OPTIONS, IDLE_OPTIONS, PREFERENCES_KEY, Preferences } from './preferences';
 
 function fresh(): Preferences {
     TestBed.resetTestingModule();
@@ -69,5 +69,27 @@ describe('Preferences', () => {
         expect(prefs.openNowPlayingOnPlay()).toBeFalse();
         expect(getItem).toHaveBeenCalled();
         expect(setItem).toHaveBeenCalled();
+    });
+
+    it('sorts favourites newest first until told otherwise, and remembers', () => {
+        const prefs = fresh();
+        expect(prefs.favouritesSortBy()).toBe('added');
+        expect(prefs.favouritesSortDescending()).toBeTrue();
+        prefs.set('favouritesSortBy', 'artist');
+        prefs.set('favouritesSortDescending', false);
+        const reloaded = fresh();
+        expect(reloaded.favouritesSortBy()).toBe('artist');
+        expect(reloaded.favouritesSortDescending()).toBeFalse();
+    });
+
+    it('offers the four favourites sorts, and ignores a stored one it does not offer', () => {
+        expect(FAVOURITES_SORT_OPTIONS.map((o) => o.value)).toEqual(['added', 'released', 'title', 'artist']);
+        localStorage.setItem(
+            PREFERENCES_KEY,
+            JSON.stringify({ favouritesSortBy: 'genre', favouritesSortDescending: 'yes' }),
+        );
+        const prefs = fresh();
+        expect(prefs.favouritesSortBy()).toBe(DEFAULTS.favouritesSortBy);
+        expect(prefs.favouritesSortDescending()).toBe(DEFAULTS.favouritesSortDescending);
     });
 });

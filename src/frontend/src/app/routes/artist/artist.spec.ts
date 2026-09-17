@@ -4,6 +4,8 @@ import { signal } from '@angular/core';
 import type { AlbumSummary, ArtistSummary } from '@musicbox/shared';
 import { Artist } from './artist';
 import { LibraryStore } from '../../services/library-store';
+import { NowPlayingSheet } from '../../services/now-playing-sheet';
+import { PREFERENCES_KEY } from '../../services/preferences';
 
 function album(over: Partial<AlbumSummary> = {}): AlbumSummary {
     return {
@@ -23,6 +25,8 @@ function fakeStore(albums: AlbumSummary[] = [], artists: ArtistSummary[] | null 
     const state = signal<ArtistSummary[] | null>(artists);
     return {
         artists: state.asReadonly(),
+        playAlbum: jasmine.createSpy('playAlbum').and.resolveTo(undefined),
+        queueAlbum: jasmine.createSpy('queueAlbum').and.resolveTo(undefined),
         fetchAlbums: jasmine
             .createSpy('fetchAlbums')
             .and.resolveTo({ albumArtist: 'Radiohead', image: '/api/art?album=Radiohead', albums }),
@@ -57,6 +61,19 @@ describe('Artist', () => {
         expect(store.fetchAlbums).toHaveBeenCalledWith('AC/DC');
     });
 
+    it('gives every album row its own heart, outside the row button', async () => {
+        const fixture = create(fakeStore([album(), album({ album: 'Amnesiac' })]));
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+        const hearts = [...fixture.nativeElement.querySelectorAll('li app-favourite-button button')] as HTMLElement[];
+        expect(hearts.map((h) => h.getAttribute('aria-label'))).toEqual([
+            'Add Kid A to favourites',
+            'Add Amnesiac to favourites',
+        ]);
+        expect(hearts.every((h) => h.parentElement!.closest('button') === null)).toBeTrue();
+    });
+
     it('renders the year as the leading four digits, and an em dash when undated', () => {
         const cmp = create(fakeStore()).componentInstance;
         // `date` is free text on the wire: `1997`, `1997-06-16`, occasionally worse.
@@ -65,6 +82,62 @@ describe('Artist', () => {
         // 18 of this library's 2,757 albums carry no date at all.
         expect(cmp.yearOf(album({ date: null }))).toBe('—');
         expect(cmp.yearOf(album({ date: 'unknown' }))).toBe('—');
+    });
+
+    it('puts the year on the track count line, and leaves it off when undated', () => {
+        const cmp = create(fakeStore()).componentInstance;
+        expect(cmp.detailsOf(album({ trackCount: 12, date: '1995-07-04' }))).toBe('12 tracks · 1995');
+        expect(cmp.detailsOf(album({ trackCount: 1, date: null }))).toBe('1 track');
+    });
+
+    it('plays and queues an album from its row, raising the sheet as preferred', async () => {
+        localStorage.removeItem(PREFERENCES_KEY);
+        const store = fakeStore([album({ albumArtist: 'AC/DC', album: 'Back in Black' })]);
+        const fixture = create(store, 'AC/DC');
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+        const sheet = TestBed.inject(NowPlayingSheet);
+        const show = spyOn(sheet, 'show');
+        const showQueue = spyOn(sheet, 'showQueue');
+        const button = (label: string) =>
+            fixture.nativeElement.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
+
+        // Queue, then Play last at the row's edge.
+        const labels = [...fixture.nativeElement.querySelectorAll('li > button')].map((b) =>
+            (b as HTMLElement).getAttribute('aria-label'),
+        );
+        expect(labels).toEqual([null, 'Add Back in Black to the queue', 'Play Back in Black']);
+
+        button('Play Back in Black').click();
+        await fixture.whenStable();
+        expect(store.playAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black' });
+        expect(show).toHaveBeenCalled();
+
+        button('Add Back in Black to the queue').click();
+        await fixture.whenStable();
+        expect(store.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black' });
+        expect(showQueue).not.toHaveBeenCalled();
+    });
+
+    it('hides the row heart below 40rem, where phones get their layout', async () => {
+        const fixture = create(fakeStore([album()]));
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+        const wrapper = fixture.nativeElement.querySelector('li app-favourite-button')!.parentElement as HTMLElement;
+        expect(wrapper.classList).toContain('max-[40rem]:hidden');
+        // Karma's browser is wider than a phone, so the heart is still there to press.
+        expect(getComputedStyle(wrapper).display).toBe('contents');
+    });
+
+    it('shows why a Play from a row was refused', async () => {
+        const store = fakeStore();
+        store.playAlbum.and.rejectWith(new Error('cannot play an album while a phone owns the DAC'));
+        const fixture = create(store);
+        await fixture.componentInstance.play(album());
+        expect(fixture.componentInstance.error()).toContain('phone owns the DAC');
+        expect(fixture.componentInstance.busy()).toBeFalse();
     });
 
     it('reports an error instead of loading forever', async () => {

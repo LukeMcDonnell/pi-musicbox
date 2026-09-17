@@ -6,7 +6,7 @@
  * the rest come from here.
  */
 
-import type { LibraryState, SettingsResponse } from '@musicbox/shared';
+import type { FavouriteAlbum, LibraryState, SettingsResponse } from '@musicbox/shared';
 
 export function boxSettings(overrides: Partial<SettingsResponse> = {}): SettingsResponse {
     return {
@@ -27,6 +27,21 @@ export function libraryState(overrides: Partial<LibraryState> = {}): LibraryStat
         musicRoot: '/srv/music/Music',
         musicRootReadable: true,
         nextScanAt: null,
+        ...overrides,
+    };
+}
+
+export function favouriteAlbum(overrides: Partial<FavouriteAlbum> = {}): FavouriteAlbum {
+    return {
+        album: 'Kid A',
+        albumArtist: 'Radiohead',
+        date: '2000-10-02',
+        trackCount: 10,
+        genres: ['Alternative Rock'],
+        discCount: 1,
+        duration: 2497,
+        image: '/api/art?album=Radiohead%2FKid%20A',
+        addedAt: 1000,
         ...overrides,
     };
 }

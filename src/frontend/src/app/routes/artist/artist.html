@@ -38,8 +38,9 @@
 
     <ul class="flex flex-col pt-2">
       @for (album of albums(); track album.album) {
-        <li>
-          <button class="flex min-h-[3.5rem] w-full cursor-pointer touch-manipulation items-center
+        <li class="flex items-center gap-1">
+          <!-- The heart, Queue and Play are siblings, not children: a button cannot hold a button. -->
+          <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
                          gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
                   (click)="open(album)">
             <span class="grid size-12 flex-none place-items-center overflow-hidden rounded
@@ -54,13 +55,30 @@
             </span>
             <span class="min-w-0 flex-1">
               <span class="text-xl block truncate">{{ album.album }}</span>
-              <span class="block truncate text-[0.85rem] text-muted">
-                {{ tracksLabel(album) }}
+              <span class="block truncate text-[0.85rem] text-muted tabular-nums">
+                {{ detailsOf(album) }}
               </span>
             </span>
-            <span class="flex-none text-[0.85rem] text-muted tabular-nums">
-              {{ yearOf(album) }}
-            </span>
+          </button>
+          <!-- Not on phones: three icons left the title a dozen characters. The album screen keeps its heart. -->
+          <span class="contents max-[40rem]:hidden">
+            <app-favourite-button [albumArtist]="album.albumArtist" [album]="album.album"
+                                  (failed)="error.set($event)" />
+          </span>
+          <button type="button"
+                  class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                         rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                  [disabled]="busy()" [attr.aria-label]="'Add ' + album.album + ' to the queue'"
+                  (click)="queue(album)">
+            <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+          </button>
+          <!-- -me-3: Play's icon lines up with the page edge, as on Favourites. -->
+          <button type="button"
+                  class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                         rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
+                  [disabled]="busy()" [attr.aria-label]="'Play ' + album.album"
+                  (click)="play(album)">
+            <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
           </button>
         </li>
       } @empty {

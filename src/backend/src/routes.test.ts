@@ -31,6 +31,8 @@ import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { openDb } from './db.ts';
 import { createPower, type Power } from './power.ts';
 import { BackupError, type Backups } from './backup.ts';
+import { createFavourites, type Favourites } from './favourites.ts';
+import type { LibrarySong } from './mpd/bridge.ts';
 
 /** A phone that is connected and playing, as the arbiter would report it. */
 const PHONE: BluetoothState = {
@@ -69,6 +71,7 @@ async function startServer(
         power?: Power;
         scanner?: LibraryScanner;
         backups?: Backups;
+        favourites?: Favourites;
     } = {},
 ) {
     const app = Fastify({
@@ -89,6 +92,7 @@ async function startServer(
         power: opts.power,
         scanner: opts.scanner,
         backups: opts.backups,
+        favourites: opts.favourites,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -1388,4 +1392,117 @@ test('backup routes answer 503 on a box with none wired up', async (t) => {
     const { port } = await serverFor(t);
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/backup`)).status, 503);
     assert.equal((await upload(port, Buffer.from('x'))).status, 503);
+});
+
+// ---------------------------------------------------------------------------
+// Favourites.
+// ---------------------------------------------------------------------------
+
+function memoryFavourites(): Favourites {
+    let clock = 1000;
+    return createFavourites(openDb({ path: ':memory:' }), () => clock++);
+}
+
+function song(albumArtist: string, album: string, track: string, date = '1997'): LibrarySong {
+    const file = `${albumArtist}/${album}/${track}.flac`;
+    return {
+        track: { file, albumArtist, album, track, date, title: `Track ${track}`, duration: 200, image: '/api/art?album=x' },
+        genres: ['Rock'],
+    };
+}
+
+/** Answer every album lookup from a fixed list, as MPD's tag database would. */
+function stockLibrary(bridge: MpdBridge, songs: LibrarySong[]): void {
+    bridge.findSongs = async (...pairs) => {
+        const want = new Map(pairs);
+        return songs.filter(
+            (s) => s.track.albumArtist === want.get('albumartist') && s.track.album === want.get('album'),
+        );
+    };
+}
+
+test('PUT favourites an album the library has, keyed by artist and album', async (t) => {
+    const { port, bridge } = await serverFor(t, { favourites: memoryFavourites() });
+    stockLibrary(bridge, [song('Eagles', 'Greatest Hits', '1'), song('Queen', 'Greatest Hits', '1'), song('Queen', 'Greatest Hits', '2')]);
+    const put = await api(port, '/api/favourites/album?artist=Queen&album=Greatest%20Hits', { method: 'PUT' });
+    assert.equal(put.status, 200);
+    assert.equal(put.body.albums.length, 1);
+    assert.equal(put.body.albums[0].albumArtist, 'Queen');
+    assert.equal(put.body.albums[0].trackCount, 2);
+    assert.equal(put.body.albums[0].addedAt, 1000);
+    assert.deepEqual((await api(port, '/api/favourites')).body, put.body);
+});
+
+test('PUT for an album the library does not have is a 404 and stores nothing', async (t) => {
+    const { port, bridge } = await serverFor(t, { favourites: memoryFavourites() });
+    stockLibrary(bridge, []);
+    const put = await api(port, '/api/favourites/album?artist=Nobody&album=Nothing', { method: 'PUT' });
+    assert.equal(put.status, 404);
+    assert.deepEqual((await api(port, '/api/favourites')).body, { albums: [] });
+});
+
+test('PUT answers 503 when MPD cannot be asked', async (t) => {
+    const { port } = await serverFor(t, { favourites: memoryFavourites() });
+    const put = await api(port, '/api/favourites/album?artist=A&album=B', { method: 'PUT' });
+    assert.equal(put.status, 503);
+});
+
+test('favourite routes refuse a missing artist or album with 400', async (t) => {
+    const { port } = await serverFor(t, { favourites: memoryFavourites() });
+    for (const method of ['PUT', 'DELETE']) {
+        for (const [query, message] of [
+            ['?album=B', /missing 'artist'/],
+            ['?artist=&album=B', /missing 'artist'/],
+            ['?artist=A', /missing 'album'/],
+        ] as const) {
+            const res = await api(port, `/api/favourites/album${query}`, { method });
+            assert.equal(res.status, 400, `${method} ${query}`);
+            assert.match(res.body.error, message);
+        }
+    }
+});
+
+test('DELETE removes a favourite without asking MPD, so a vanished album can go', async (t) => {
+    const favourites = memoryFavourites();
+    favourites.add({ album: 'Gone', albumArtist: 'A', date: null, trackCount: 1, genres: [], discCount: 1, duration: null, image: null });
+    const { port } = await serverFor(t, { favourites }); // dead bridge: MPD is unreachable
+    const del = await api(port, '/api/favourites/album?artist=A&album=Gone', { method: 'DELETE' });
+    assert.equal(del.status, 200);
+    assert.deepEqual(del.body, { albums: [] });
+    assert.equal((await api(port, '/api/favourites/album?artist=A&album=Gone', { method: 'DELETE' })).status, 200);
+});
+
+test('opening a favourite album refreshes its stored summary', async (t) => {
+    const favourites = memoryFavourites();
+    const { port, bridge } = await serverFor(t, { favourites });
+    stockLibrary(bridge, [song('A', 'One', '1', '1997')]);
+    await api(port, '/api/favourites/album?artist=A&album=One', { method: 'PUT' });
+    stockLibrary(bridge, [song('A', 'One', '1', '1980'), song('A', 'One', '2', '1980')]);
+    assert.equal((await api(port, '/api/library/album?artist=A&album=One')).status, 200);
+    const [stored] = favourites.all();
+    assert.equal(stored?.date, '1980');
+    assert.equal(stored?.trackCount, 2);
+});
+
+test('favourites arrive on the stream at connect and again on every change', async (t) => {
+    const favourites = memoryFavourites();
+    const { port, bridge } = await serverFor(t, { favourites, settings: memorySettings(), scanner: fakeScanner() });
+    stockLibrary(bridge, [song('A', 'One', '1')]);
+    const stream = await streamFor(t, port);
+    const first = stream.text();
+    assert.match(first, /event: favourites\ndata: \{"albums":\[\]\}/);
+    assert.ok(first.indexOf('event: library') < first.indexOf('event: favourites'), 'after the library');
+
+    await api(port, '/api/favourites/album?artist=A&album=One', { method: 'PUT' });
+    await settle();
+    const frames = stream.text().split('event: favourites').length - 1;
+    assert.equal(frames, 2);
+    assert.match(stream.text(), /"albumArtist":"A"/);
+});
+
+test('favourite routes answer 503 on a box with none wired up', async (t) => {
+    const { port } = await serverFor(t);
+    assert.equal((await api(port, '/api/favourites')).status, 503);
+    assert.equal((await api(port, '/api/favourites/album?artist=A&album=B', { method: 'PUT' })).status, 503);
+    assert.equal((await api(port, '/api/favourites/album?artist=A&album=B', { method: 'DELETE' })).status, 503);
 });

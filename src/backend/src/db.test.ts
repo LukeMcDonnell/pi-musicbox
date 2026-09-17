@@ -36,7 +36,7 @@ test('migrations run once, not on every open — the second open is a no-op', as
     const first = openDb({ path, onMigrate: (to) => applied.push(to) });
     first.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'panelSleepAfterMinutes', '5');
     first.close();
-    assert.deepEqual(applied, [1, 2]);
+    assert.deepEqual(applied, [1, 2, 3]);
 
     const againApplied: number[] = [];
     const second = openDb({ path, onMigrate: (to) => againApplied.push(to) });
@@ -138,6 +138,16 @@ test('schema v2 adds the library_scan table', () => {
     db.close();
 });
 
+test('schema v3 keys favourites by artist AND album, since titles repeat', () => {
+    const db = openDb({ path: ':memory:' });
+    const insert = 'INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)';
+    db.run(insert, 'Eagles', 'Greatest Hits', 1, '{}');
+    db.run(insert, 'Queen', 'Greatest Hits', 2, '{}');
+    assert.throws(() => db.run(insert, 'Queen', 'Greatest Hits', 3, '{}'), /UNIQUE/);
+    assert.equal(db.all('SELECT * FROM favourite_album').length, 2);
+    db.close();
+});
+
 test('a v1 file migrates forward to v2 without disturbing its settings', async (t) => {
     const dir = await tempDir();
     t.after(() => rm(dir, { recursive: true, force: true }));
@@ -151,7 +161,7 @@ test('a v1 file migrates forward to v2 without disturbing its settings', async (
 
     const applied: number[] = [];
     const v2 = openDb({ path, onMigrate: (to) => applied.push(to) });
-    assert.deepEqual(applied, [2], 'only the new step ran');
+    assert.deepEqual(applied, [2, 3], 'only the new steps ran');
     assert.equal(
         v2.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', 'panelSleepAfterMinutes')
             ?.value,

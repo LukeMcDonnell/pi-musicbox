@@ -12,8 +12,8 @@
  *
  * MIGRATIONS ARE APPEND-ONLY. `PRAGMA user_version` says which have run; each
  * entry moves the schema forward by one and is never edited once it has shipped,
- * because the box in the next room is already at that version. Favourites and
- * recent plays arrive as MIGRATIONS[1], [2] — not as edits to [0].
+ * because the box in the next room is already at that version. New tables arrive
+ * as new entries, never as edits to old ones.
  */
 
 import { DatabaseSync } from 'node:sqlite';
@@ -68,6 +68,15 @@ export const MIGRATIONS: readonly string[] = [
         outcome      TEXT,
         songs_before INTEGER,
         songs_after  INTEGER
+    ) STRICT;`,
+    // v3 — favourite albums. `summary` is the AlbumSummary JSON so the list needs
+    // no MPD lookups; it is refreshed whenever the album is opened.
+    `CREATE TABLE favourite_album (
+        album_artist TEXT NOT NULL,
+        album        TEXT NOT NULL,
+        added_at     INTEGER NOT NULL,
+        summary      TEXT NOT NULL,
+        PRIMARY KEY (album_artist, album)
     ) STRICT;`,
 ];
 

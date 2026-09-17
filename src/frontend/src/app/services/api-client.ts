@@ -91,6 +91,22 @@ export class ApiClient {
         return (await response.json()) as T;
     }
 
+    /** PUT with no body, returning the server's answer. Used as patchJson is. */
+    async putJson<T>(path: string): Promise<T> {
+        return this.bodyless<T>('PUT', path);
+    }
+
+    /** DELETE, returning the server's answer. */
+    async deleteJson<T>(path: string): Promise<T> {
+        return this.bodyless<T>('DELETE', path);
+    }
+
+    private async bodyless<T>(method: string, path: string): Promise<T> {
+        const response = await fetch(this.resolve(path), { method });
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
+        return (await response.json()) as T;
+    }
+
     /** GET a file, with the name the server suggested for it. */
     async getBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
         const response = await fetch(this.resolve(path));

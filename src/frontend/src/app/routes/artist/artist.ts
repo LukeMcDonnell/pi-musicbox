@@ -1,9 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideUserRound } from '@lucide/angular';
+import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay, LucideUserRound } from '@lucide/angular';
 import type { AlbumSummary } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
+import { NowPlayingSheet } from '../../services/now-playing-sheet';
+import { Preferences } from '../../services/preferences';
+import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 
 /*
   One artist: their picture as a hero, then their albums oldest first.
@@ -18,7 +21,7 @@ import { LibraryStore } from '../../services/library-store';
 */
 @Component({
     selector: 'app-artist',
-    imports: [LucideChevronLeft, LucideDisc3, LucideUserRound],
+    imports: [FavouriteButton, LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay, LucideUserRound],
     templateUrl: './artist.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -26,12 +29,17 @@ export class Artist {
     private readonly library = inject(LibraryStore);
     private readonly router = inject(Router);
     private readonly history = inject(AppHistory);
+    private readonly sheet = inject(NowPlayingSheet);
+    private readonly prefs = inject(Preferences);
 
     /** Bound from `?name=` by withComponentInputBinding(). */
     readonly name = input<string>('');
 
     readonly albums = signal<AlbumSummary[] | null>(null);
     readonly error = signal<string | null>(null);
+
+    /** True while a Play or Queue request is in flight, so it cannot be double-sent. */
+    readonly busy = signal(false);
 
     readonly loading = computed(() => this.albums() === null && this.error() === null);
 
@@ -123,6 +131,38 @@ export class Artist {
         return album.trackCount === 1 ? '1 track' : `${album.trackCount} tracks`;
     }
 
+    /** "12 tracks · 1995" — the year left off, not dashed, when undated. */
+    detailsOf(album: AlbumSummary): string {
+        const year = this.yearOf(album);
+        return year === '—' ? this.tracksLabel(album) : `${this.tracksLabel(album)} · ${year}`;
+    }
+
+    /** Play and Queue as on the album screen, including whether now-playing is raised. */
+    async play(album: AlbumSummary): Promise<void> {
+        const ok = await this.send(() => this.library.playAlbum(refOf(album)));
+        if (ok && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+    }
+
+    async queue(album: AlbumSummary): Promise<void> {
+        const ok = await this.send(() => this.library.queueAlbum(refOf(album)));
+        if (ok && this.prefs.openQueueOnAdd()) this.sheet.showQueue();
+    }
+
+    private async send(action: () => Promise<void>): Promise<boolean> {
+        if (this.busy()) return false;
+        this.busy.set(true);
+        this.error.set(null);
+        try {
+            await action();
+            return true;
+        } catch (err) {
+            this.error.set((err as Error).message);
+            return false;
+        } finally {
+            this.busy.set(false);
+        }
+    }
+
     open(album: AlbumSummary): void {
         void this.router.navigate(['/library/album'], {
             queryParams: { artist: album.albumArtist, album: album.album },
@@ -135,4 +175,8 @@ export class Artist {
         // only real history does that. See decisions.md.
         this.history.back(['/library']);
     }
+}
+
+function refOf(album: AlbumSummary) {
+    return { albumArtist: album.albumArtist, album: album.album };
 }

@@ -138,6 +138,13 @@ backlight is off.** The digitizer is a separate device so it should, and a dead
 panel stream restores the backlight anyway, but nobody has put a finger on a dark
 screen yet. Worth thirty seconds next time you are at the box.
 
+## Landed: favourite albums (2026-09-17)
+
+Hearts on the album screen and the artist screen's album rows (not on phones); a
+Favourites tab with a filter, Play/Queue and a per-device sort. Stored in schema v3's
+`favourite_album` table rather than MPD stickers — `decisions.md` has the measurement.
+Not yet checked on the panel itself.
+
 ## Next
 
 1. **Library search.** Browse landed: artists -> albums -> tracks, with Play and

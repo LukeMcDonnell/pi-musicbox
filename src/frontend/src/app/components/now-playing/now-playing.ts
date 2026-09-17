@@ -24,6 +24,7 @@ import {
     LucideChevronDown,
     LucideX,
 } from '@lucide/angular';
+import { RouterLink } from '@angular/router';
 import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
@@ -95,6 +96,7 @@ function sampleFormat(format: string | undefined): string | null {
         LucideChevronDown,
         LucideX,
         Queue,
+        RouterLink,
     ],
     templateUrl: './now-playing.html',
     // No min-h-dvh: the content sets the height now — one viewport of
@@ -130,7 +132,8 @@ export class NowPlaying implements OnDestroy {
         el?.scrollIntoView({ block: 'start' });
     }
 
-    private readonly sheet = inject(NowPlayingSheet);
+    /** Public so a link can close the sheet over the page it opens. */
+    readonly sheet = inject(NowPlayingSheet);
     private readonly injector = inject(Injector);
 
     constructor() {
@@ -190,6 +193,14 @@ export class NowPlaying implements OnDestroy {
      */
     readonly onBluetooth = computed(() => this.snapshot()?.source === 'bluetooth');
 
+    /** The playing album, when the library can open it: an MPD track with both tags. */
+    readonly libraryAlbum = computed(() => {
+        const snap = this.snapshot();
+        const track = snap?.track;
+        if (snap?.source !== 'mpd' || !track?.albumArtist || !track.album) return null;
+        return { albumArtist: track.albumArtist, album: track.album };
+    });
+
     /** "Luke's iPhone · aptX HD", or just the name until the codec is known. */
     readonly bluetoothLine = computed(() => {
         const bt = this.bluetooth();
@@ -238,6 +249,18 @@ export class NowPlaying implements OnDestroy {
      * and two competing `bg-*` classes on one element resolve by stylesheet
      * order, which is not something the template controls.
      */
+    /** "mpd · FLAC 24/96", "bluetooth · Luke's iPhone · aptX HD", or the state alone when neither applies. */
+    readonly sourceLabel = computed(() => {
+        if (this.stream() !== 'live') return 'offline';
+        if (this.onBluetooth()) {
+            const device = this.bluetoothLine();
+            return device ? `bluetooth · ${device}` : 'bluetooth';
+        }
+        if (!this.mpdAvailable()) return 'no mpd';
+        const format = this.formatLabel();
+        return format ? `mpd · ${format}` : 'mpd';
+    });
+
     readonly pillClass = computed(() => {
         if (this.stream() !== 'live') return 'bg-warn text-white';
         if (this.onBluetooth()) return 'bg-accent text-on-accent';

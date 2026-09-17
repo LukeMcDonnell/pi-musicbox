@@ -1,0 +1,121 @@
+<section aria-label="Favourites" class="px-4 py-3 pt-0">
+  <!-- The same header as the Library's, so the two screens read as a pair. -->
+  <div class="sticky top-0 z-1 flex w-full items-center gap-3 bg-bg py-2">
+    <h1 class="text-2xl shrink-0 font-bold me-4">Favourites</h1>
+    <div class="relative ms-auto w-full max-w-72 min-w-0">
+      <svg lucideSearch
+           class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+           aria-hidden="true"></svg>
+      <!-- text-base: iOS zooms on focus below 16px. -->
+      <input #filter type="search" enterkeyhint="search"
+             placeholder="Filter albums" aria-label="Filter albums by artist or title"
+             autocomplete="off" autocapitalize="off" spellcheck="false"
+             class="h-10 w-full appearance-none rounded-full border border-raised bg-surface
+                    ps-9 pe-10 text-base text-text placeholder:text-muted
+                    focus:border-accent focus:outline-none
+                    [&::-webkit-search-cancel-button]:hidden"
+             [value]="query()"
+             (input)="setQuery(filter.value)"
+             (keydown.escape)="setQuery('')"
+             (keydown.enter)="filter.blur()">
+      @if (query()) {
+        <button type="button"
+                class="absolute inset-y-0 right-0 grid w-10 cursor-pointer touch-manipulation
+                       place-items-center rounded-full text-muted select-none active:bg-raised"
+                aria-label="Clear filter"
+                (click)="setQuery(''); filter.focus()">
+          <svg lucideX class="size-4" aria-hidden="true"></svg>
+        </button>
+      }
+    </div>
+  </div>
+
+  <div class="flex items-center gap-1">
+    <div class="min-w-0 flex-1">
+      <app-setting-select label="Sort by" [triggerLabel]="countLabel()" [flush]="true"
+                          [value]="sortIndex()" [options]="sortOptions"
+                          (selected)="setSort($event)" />
+    </div>
+    <!-- -me-3 gives back the icon's inset so it lines up with the page edge. -->
+    <button type="button"
+            class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                   rounded-full text-muted select-none active:bg-raised"
+            [attr.aria-pressed]="prefs.favouritesSortDescending()"
+            [attr.aria-label]="prefs.favouritesSortDescending() ? 'Descending — switch to ascending' : 'Ascending — switch to descending'"
+            (click)="toggleDirection()">
+      @if (prefs.favouritesSortDescending()) {
+        <svg lucideArrowDownWideNarrow class="size-6" aria-hidden="true"></svg>
+      } @else {
+        <svg lucideArrowUpNarrowWide class="size-6" aria-hidden="true"></svg>
+      }
+    </button>
+  </div>
+
+  @if (error(); as message) {
+    <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+  }
+  @if (loading()) {
+    <p class="pt-3 text-[0.95rem] text-muted">Loading favourites…</p>
+  }
+
+  @if (!loading() && total() === 0) {
+    <p class="py-6 text-[0.95rem] text-muted">
+      No favourites yet. Tap the heart on an album to add it here.
+    </p>
+  } @else if (!loading() && albums().length === 0) {
+    <p class="py-6 text-[0.95rem] text-muted">No albums match “{{ query().trim() }}”.</p>
+  }
+
+  <!-- Virtualised on <main>, as the Library is: see its header for the frame and resize contract. -->
+  @if (frame(); as scrollFrame) {
+    <virtual-scroller [items]="albums()"
+                      [childHeight]="rowHeight"
+                      [bufferAmount]="5"
+                      [scrollAnimationTime]="0"
+                      [modifyOverflowStyleOfParentScroll]="false"
+                      [checkResizeInterval]="0"
+                      [parentScroll]="scrollFrame"
+                      (vsUpdate)="onViewport($event)">
+      <ul #container class="flex flex-col">
+        @for (album of visible(); track trackKey(album)) {
+          <li class="flex items-center gap-1"
+              [attr.aria-posinset]="firstIndex() + $index + 1"
+              [attr.aria-setsize]="albums().length">
+            <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
+                           gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised"
+                    (click)="open(album)">
+              <span class="grid size-12 flex-none place-items-center overflow-hidden rounded bg-surface">
+                @if (coverOf(album); as uri) {
+                  <img class="h-full w-full object-cover" [src]="uri" alt=""
+                       width="48" height="48" loading="lazy" decoding="async"
+                       (error)="onCoverError(uri)">
+                } @else {
+                  <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
+                }
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="text-xl block truncate">{{ album.album }}</span>
+                <span class="block truncate text-[0.85rem] text-muted tabular-nums">{{ subtitleOf(album) }}</span>
+              </span>
+            </button>
+            <button type="button"
+                    class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" [attr.aria-label]="'Add ' + album.album + ' to the queue'"
+                    (click)="queue(album)">
+              <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+            </button>
+            <!-- -me-3: the icon lines up with the sort toggle's and the page edge. -->
+            <button type="button"
+                    class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" [attr.aria-label]="'Play ' + album.album"
+                    (click)="play(album)">
+              <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
+            </button>
+          </li>
+        }
+      </ul>
+    </virtual-scroller>
+  }
+</section>

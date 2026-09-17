@@ -1000,6 +1000,30 @@ The helper comes from `setup-server.sh`, so **re-run it** on a box set up before
 this existed — until then restore answers 503. To undo a restore by hand, copy
 the files back from `restore-previous/` with MPD and the server stopped.
 
+### Favourites
+
+Albums are favourited with the heart on the album screen, and beside each album on
+an artist's page (the album screen only, on a phone). The Favourites tab lists
+them with Play and Queue; un-favourite from the album itself. It filters by artist or album
+title the way the Library filters artists, and sorts by date added, release date,
+title or artist, either way. The sort is per device, in localStorage.
+
+```
+GET    /api/favourites
+PUT    /api/favourites/album?artist=&album=   404 if the library has no such album
+DELETE /api/favourites/album?artist=&album=   works for an album that has since gone
+```
+
+All three answer with the complete list, which also arrives on the `favourites`
+SSE event, so a heart set from a phone lights up on the panel.
+
+**They live in the database, not in MPD stickers.** MPD 0.24 can put a sticker on
+an `Album` tag, but that is keyed by the title alone, and on this library
+**20 titles are shared by 47 albums** — seven are called *Greatest Hits*. The
+table is keyed by AlbumArtist and Album, as `findadd` is. Each row keeps the
+album's summary so the list costs no MPD lookups; it is refreshed whenever the
+album screen is opened.
+
 ### The queue on screen
 
 The now-playing screen is exactly one viewport tall; the queue lives underneath

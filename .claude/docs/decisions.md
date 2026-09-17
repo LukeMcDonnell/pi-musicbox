@@ -1183,3 +1183,23 @@ regular files. It reads what GNU tar writes too, so an archive can be repacked b
 **409 while a scan runs or a phone plays.** Restarting MPD mid-scan leaves a
 partial index (above). During Bluetooth the arbiter holds the DAC, and bringing
 MPD back under it is not a handoff anyone has tested.
+
+## Favourites are a table, not MPD stickers (2026-09-17)
+
+MPD 0.24 on the box lists sticker types `song`, `playlist`, `filter` and the tags
+`Artist`, `Album`, `AlbumArtist`, `Title`, `Genre`, `Composer`. An `Album` sticker is
+keyed by the tag value alone, and `list album group albumartist` on the real library
+shows **20 album titles shared by 47 albums** (Greatest Hits ×7, MTV Unplugged ×3,
+13 ×3). Favouriting one would favourite all of them.
+
+A `filter` sticker on `((AlbumArtist == 'X') AND (Album == 'Y'))` is unique, but the
+key is an expression string whose quoting must match exactly, there is no added-at
+to sort by, and nothing reaches clients without polling. A `favourite_album` table
+keyed by `(album_artist, album)` has none of those problems and is already in the
+backup.
+
+**The row stores the AlbumSummary as JSON.** Resolving each favourite live is one
+tag-scan `find` apiece (11.4ms measured), so a hundred favourites would cost over a
+second. The copy can go stale after a retag; `GET /api/library/album` rewrites it
+whenever that album is opened, and a favourite whose album has left the library
+still lists and can still be removed — opening it 404s.

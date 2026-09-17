@@ -59,6 +59,8 @@ test('the preflight is answered 204, not 405 by the static handler', async () =>
     // content-type on the POST is what makes a preflight happen in the first place.
     assert.match(String(response.headers['access-control-allow-headers']), /content-type/);
     assert.match(String(response.headers['access-control-allow-methods']), /POST/);
+    // Favourites are PUT and DELETE, settings PATCH; a dev frontend on another origin needs all three.
+    assert.match(String(response.headers['access-control-allow-methods']), /PUT.*PATCH.*DELETE/);
     await app.close();
 });
 

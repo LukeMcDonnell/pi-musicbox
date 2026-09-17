@@ -36990,6 +36990,7 @@ var LIBRARY_SCAN_HOURS = [
 ];
 var BACKUP_CONTENT_TYPE = "application/gzip";
 var BACKUP_MAX_BYTES = 32 * 1024 * 1024;
+var SSE_FAVOURITES_EVENT = "favourites";
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -37883,7 +37884,7 @@ var MpdBridge = class {
 
 // src/cors.ts
 var ALLOWED_HEADERS = "content-type";
-var ALLOWED_METHODS = "GET, POST, OPTIONS";
+var ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 function isApi(url) {
   return url.split("?")[0].startsWith("/api/");
 }
@@ -38760,6 +38761,15 @@ var MIGRATIONS = [
         outcome      TEXT,
         songs_before INTEGER,
         songs_after  INTEGER
+    ) STRICT;`,
+  // v3 — favourite albums. `summary` is the AlbumSummary JSON so the list needs
+  // no MPD lookups; it is refreshed whenever the album is opened.
+  `CREATE TABLE favourite_album (
+        album_artist TEXT NOT NULL,
+        album        TEXT NOT NULL,
+        added_at     INTEGER NOT NULL,
+        summary      TEXT NOT NULL,
+        PRIMARY KEY (album_artist, album)
     ) STRICT;`
 ];
 var SCHEMA_VERSION = MIGRATIONS.length;
@@ -39139,6 +39149,11 @@ function registerRoutes(app, opts) {
   const panel = opts.panel;
   const settings = opts.settings;
   const power = opts.power;
+  const favourites = opts.favourites;
+  const favouritesSinks = /* @__PURE__ */ new Set();
+  favourites?.onChange((albums) => {
+    for (const sink of [...favouritesSinks]) sink(albums);
+  });
   const settingsSinks = /* @__PURE__ */ new Set();
   settings?.onChange((values) => {
     for (const sink of [...settingsSinks]) sink(values);
@@ -39282,6 +39297,7 @@ function registerRoutes(app, opts) {
         return reply.code(404).send({ error: "no such album" });
       }
       const [summary] = albumsFromSongs(artist, songs);
+      favourites?.refresh(summary);
       const body = { album: summary, tracks: songs.map((s) => s.track) };
       return body;
     } catch (err) {
@@ -39359,6 +39375,14 @@ function registerRoutes(app, opts) {
       sendLibrary(scanner.state());
       librarySinks.add(sendLibrary);
     }
+    const sendFavourites = (albums) => {
+      const body = { albums };
+      reply.raw.write(sseFrame(SSE_FAVOURITES_EVENT, body));
+    };
+    if (favourites) {
+      sendFavourites(favourites.all());
+      favouritesSinks.add(sendFavourites);
+    }
     await bridge.refresh();
     send(bridge.current);
     const unsubscribe = bridge.onSnapshot(send);
@@ -39372,6 +39396,7 @@ function registerRoutes(app, opts) {
       unsubscribe();
       settingsSinks.delete(sendSettings);
       librarySinks.delete(sendLibrary);
+      favouritesSinks.delete(sendFavourites);
       streams.delete(close);
       if (fromPanel) {
         panelStreams.delete(close);
@@ -39525,6 +39550,39 @@ function registerRoutes(app, opts) {
       return reply.code(202).send(body);
     }
   );
+  function albumQuery(query) {
+    const { artist, album } = query ?? {};
+    if (typeof artist !== "string" || artist === "") return "missing 'artist' query parameter";
+    if (typeof album !== "string" || album === "") return "missing 'album' query parameter";
+    return { artist, album };
+  }
+  app.get("/api/favourites", async (_request, reply) => {
+    if (!favourites) return reply.code(503).send({ error: "favourites are unavailable" });
+    const body = { albums: favourites.all() };
+    return body;
+  });
+  app.put("/api/favourites/album", async (request, reply) => {
+    if (!favourites) return reply.code(503).send({ error: "favourites are unavailable" });
+    const ref = albumQuery(request.query);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    let songs;
+    try {
+      songs = await library.songsOf(ref.artist, ref.album);
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+    if (songs.length === 0) return reply.code(404).send({ error: "no such album" });
+    const [summary] = albumsFromSongs(ref.artist, songs);
+    const body = { albums: favourites.add(summary) };
+    return body;
+  });
+  app.delete("/api/favourites/album", async (request, reply) => {
+    if (!favourites) return reply.code(503).send({ error: "favourites are unavailable" });
+    const ref = albumQuery(request.query);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    const body = { albums: favourites.remove(ref.artist, ref.album) };
+    return body;
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -39600,8 +39658,98 @@ function createPanel(options = {}) {
   };
 }
 
+// src/favourites.ts
+function parseFavourite(row) {
+  let parsed;
+  try {
+    parsed = JSON.parse(row.summary);
+  } catch {
+    return void 0;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return void 0;
+  const s = parsed;
+  if (s.albumArtist !== row.album_artist || s.album !== row.album) return void 0;
+  if (typeof s.trackCount !== "number" || !Array.isArray(s.genres)) return void 0;
+  return {
+    ...s,
+    date: typeof s.date === "string" ? s.date : null,
+    duration: typeof s.duration === "number" ? s.duration : null,
+    discCount: typeof s.discCount === "number" ? s.discCount : 1,
+    image: typeof s.image === "string" ? s.image : null,
+    addedAt: row.added_at
+  };
+}
+function createFavourites(db, now = Date.now) {
+  const listeners = /* @__PURE__ */ new Set();
+  const all = () => {
+    const rows = db.all(
+      "SELECT album_artist, album, added_at, summary FROM favourite_album ORDER BY added_at DESC, album_artist, album"
+    );
+    const albums = [];
+    for (const row of rows) {
+      const favourite = parseFavourite(row);
+      if (favourite !== void 0) albums.push(favourite);
+    }
+    return albums;
+  };
+  const changed = () => {
+    const albums = all();
+    for (const listener of listeners) listener(albums);
+    return albums;
+  };
+  return {
+    all,
+    add(summary) {
+      const exists = db.get(
+        "SELECT 1 AS one FROM favourite_album WHERE album_artist = ? AND album = ?",
+        summary.albumArtist,
+        summary.album
+      );
+      if (exists !== void 0) return all();
+      db.run(
+        "INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)",
+        summary.albumArtist,
+        summary.album,
+        now(),
+        JSON.stringify(summary)
+      );
+      return changed();
+    },
+    remove(albumArtist, album) {
+      const exists = db.get(
+        "SELECT 1 AS one FROM favourite_album WHERE album_artist = ? AND album = ?",
+        albumArtist,
+        album
+      );
+      if (exists === void 0) return all();
+      db.run("DELETE FROM favourite_album WHERE album_artist = ? AND album = ?", albumArtist, album);
+      return changed();
+    },
+    refresh(summary) {
+      const row = db.get(
+        "SELECT summary FROM favourite_album WHERE album_artist = ? AND album = ?",
+        summary.albumArtist,
+        summary.album
+      );
+      const json = JSON.stringify(summary);
+      if (row === void 0 || row.summary === json) return;
+      db.run(
+        "UPDATE favourite_album SET summary = ? WHERE album_artist = ? AND album = ?",
+        json,
+        summary.albumArtist,
+        summary.album
+      );
+      changed();
+    },
+    onChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  };
+}
+
 // src/server.ts
-var BUILD = true ? "2026-09-17T08:24:16Z" : "dev";
+var BUILD = true ? "2026-09-17T11:59:27Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -39657,7 +39805,8 @@ async function main() {
       build: BUILD,
       mpdDir: config.mpdStateDir,
       restoreDir: config.restoreDir
-    })
+    }),
+    favourites: createFavourites(db)
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({

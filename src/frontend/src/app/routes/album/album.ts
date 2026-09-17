@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay } from '@lucide/angular';
 import type { AlbumRef, AlbumResponse, Track } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
@@ -7,6 +7,7 @@ import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
 import { clock } from '../../components/now-playing/now-playing';
+import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 
 /*
   One album: its cover as a hero, two buttons, and the tracks.
@@ -34,7 +35,7 @@ import { clock } from '../../components/now-playing/now-playing';
 */
 @Component({
     selector: 'app-album',
-    imports: [LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay],
+    imports: [FavouriteButton, RouterLink, LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay],
     templateUrl: './album.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })

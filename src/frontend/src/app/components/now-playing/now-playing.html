@@ -18,22 +18,15 @@
            that adds over the one line of text it replaced: this screen is one
            viewport, and on the panel there is no height to spare. -->
       <button class="-my-2.5 -ms-3 inline-flex h-11 cursor-pointer touch-manipulation items-center
-                     gap-1 rounded-full px-3 font-semibold text-muted select-none active:bg-raised"
+                     flex-none gap-1 rounded-full px-3 font-semibold text-muted select-none active:bg-raised"
               (click)="close.emit()">
         <svg lucideX class="size-5" aria-hidden="true"></svg>
         Close
       </button>
-      <span class="rounded-full px-[0.55rem] py-[0.15rem] text-xs" [class]="pillClass()">
-      @if (stream() !== 'live') {
-        offline
-      } @else if (onBluetooth()) {
-        bluetooth
-      } @else if (!mpdAvailable()) {
-        no mpd
-      } @else {
-        mpd
-      }
-    </span>
+      <!-- The source, and what it is sending: the device for a phone, the format for MPD. -->
+      <span class="ms-3 min-w-0 truncate rounded-full px-[0.55rem] py-[0.15rem] text-xs" [class]="pillClass()">
+        {{ sourceLabel() }}
+      </span>
     </header>
 
     @if (statusLine(); as message) {
@@ -75,26 +68,29 @@
           </div>
 
 
-          <div class="min-w-0 flex-grow text-center">
-            @if (onBluetooth()) {
-              <span class="text-[0.85rem] text-accent [overflow-wrap:anywhere]">{{ bluetoothLine() }}</span>
-            }
+          <!-- The shadow keeps the lines legible over a bright cover backdrop. -->
+          <div class="min-w-0 flex-grow text-center [text-shadow:0_1px_12px_rgb(0_0_0/0.4),0_2px_32px_rgb(0_0_0/0.3)]">
             <h1 class="text-[clamp(2.0rem,5.2vw,2.6rem)] leading-[1.2] font-bold
                      [overflow-wrap:anywhere]">{{ trackTitle() }}</h1>
-            <p class="mt-1 text-[clamp(1.15rem,3.6vw,1.6rem)] text-accent font-bold
-                    [overflow-wrap:anywhere]">{{ track.artist || 'Unknown artist' }}</p>
-            <p class="text-[clamp(0.95rem,2.4vw,1.2rem)] text-muted
-                    [overflow-wrap:anywhere]">{{ track.album }}</p>
-            <p class="mt-[0.45rem] flex items-center justify-center gap-2
-                    text-[clamp(0.95rem,2.4vw,1.2rem)] tabular-nums">
-              <span>{{ elapsedLabel() }} / {{ durationLabel() }}</span>
-              <!-- On this line rather than its own: the screen is exactly one
-                   viewport and the panel has no height to spare. -->
-              @if (formatLabel(); as fmt) {
-                <span class="rounded-full bg-raised px-[0.55rem] py-[0.15rem] text-xs text-muted">
-                  {{ fmt }}
-                </span>
-              }
+            <!-- Linked only for a library track: the pages are keyed by AlbumArtist, which a phone's track lacks.
+                 Inline py-1 widens the tap target without moving the lines. -->
+            @if (libraryAlbum(); as ref) {
+              <p class="mt-1 text-[clamp(1.3rem,4vw,1.8rem)] text-accent font-bold [overflow-wrap:anywhere]">
+                <a class="cursor-pointer touch-manipulation py-1" routerLink="/library/artist"
+                   [queryParams]="{ name: ref.albumArtist }" (click)="sheet.hide()">{{ track.artist || ref.albumArtist }}</a>
+              </p>
+              <p class="text-[clamp(1.1rem,2.8vw,1.4rem)] text-text [overflow-wrap:anywhere] font-semibold">
+                <a class="cursor-pointer touch-manipulation py-1" routerLink="/library/album"
+                   [queryParams]="{ artist: ref.albumArtist, album: ref.album }" (click)="sheet.hide()">{{ ref.album }}</a>
+              </p>
+            } @else {
+              <p class="mt-1 text-[clamp(1.3rem,4vw,1.8rem)] text-accent font-bold
+                      [overflow-wrap:anywhere]">{{ track.artist || 'Unknown artist' }}</p>
+              <p class="text-[clamp(1.1rem,2.8vw,1.4rem)] text-text
+                      [overflow-wrap:anywhere]">{{ track.album }}</p>
+            }
+            <p class="mt-[0.45rem] text-[clamp(0.95rem,2.4vw,1.2rem)] text-muted tabular-nums">
+              {{ elapsedLabel() }} / {{ durationLabel() }}
             </p>
           </div>
         </div>

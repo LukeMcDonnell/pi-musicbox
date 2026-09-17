@@ -767,3 +767,25 @@ export const BACKUP_MAX_BYTES = 32 * 1024 * 1024;
 export interface RestoreResponse {
     accepted: 'restore';
 }
+
+/*
+ * FAVOURITE ALBUMS
+ *
+ *   GET    /api/favourites
+ *   PUT    /api/favourites/album?artist=&album=   404 if the library has no such album
+ *   DELETE /api/favourites/album?artist=&album=   never asks MPD, so a vanished album can go
+ *
+ * All three answer with the complete list, which also arrives on SSE_FAVOURITES_EVENT.
+ * Keyed by AlbumArtist and Album together: 47 albums here share a title with another.
+ */
+export const SSE_FAVOURITES_EVENT = 'favourites';
+
+/** The album as it was when last seen, plus when it was favourited. */
+export interface FavouriteAlbum extends AlbumSummary {
+    /** Epoch ms. */
+    addedAt: number;
+}
+
+export interface FavouritesResponse {
+    albums: FavouriteAlbum[];
+}
