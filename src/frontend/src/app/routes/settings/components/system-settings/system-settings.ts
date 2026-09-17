@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { PANEL_SLEEP_MINUTES } from '@musicbox/shared';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
+import { IS_PANEL } from '../../../../services/panel-client';
+import { BackupRestore } from '../backup-restore/backup-restore';
 import { SettingSelect, type SettingOption } from '../setting-select/setting-select';
 
 /**
@@ -14,7 +16,7 @@ import { SettingSelect, type SettingOption } from '../setting-select/setting-sel
  */
 @Component({
     selector: 'app-system-settings',
-    imports: [SettingSelect],
+    imports: [SettingSelect, BackupRestore],
     template: `
         <h2 class="text-lg font-semibold">System</h2>
 
@@ -34,12 +36,17 @@ import { SettingSelect, type SettingOption } from '../setting-select/setting-sel
             The panel's own screen only, and only while nothing is playing. Touch it,
             or start the music, and it comes back.
         </p>
+
+        @if (!isPanel) {
+            <app-backup-restore />
+        }
     `,
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SystemSettings {
     private readonly api = inject(MusicboxApi);
     private readonly client = inject(ApiClient);
+    protected readonly isPanel = inject(IS_PANEL);
 
     protected readonly sleepOptions: readonly SettingOption[] = PANEL_SLEEP_MINUTES.map(
         (minutes) => ({

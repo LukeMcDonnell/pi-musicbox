@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MIGRATIONS, SCHEMA_VERSION, openDb } from './db.ts';
+import { MIGRATIONS, SCHEMA_VERSION, checkDbFile, openDb } from './db.ts';
 
 async function tempDir(): Promise<string> {
     return await mkdtemp(join(tmpdir(), 'musicbox-db-'));
@@ -159,4 +159,34 @@ test('a v1 file migrates forward to v2 without disturbing its settings', async (
     );
     assert.equal(v2.all('SELECT * FROM library_scan').length, 0);
     v2.close();
+});
+
+test('snapshot writes a standalone copy that checkDbFile accepts', async (t) => {
+    const dir = await tempDir();
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const db = openDb({ path: join(dir, 'musicbox.db') });
+    db.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'panelSleepAfterMinutes', '7');
+    db.snapshot(join(dir, 'copy.db'));
+    db.close();
+
+    assert.equal(checkDbFile(join(dir, 'copy.db')), SCHEMA_VERSION);
+    // No sidecars: the copy travels as one file.
+    assert.deepEqual((await readdir(dir)).filter((f) => f.startsWith('copy.db')), ['copy.db']);
+    const copy = openDb({ path: join(dir, 'copy.db') });
+    assert.equal(
+        copy.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', 'panelSleepAfterMinutes')?.value,
+        '7',
+    );
+    copy.close();
+});
+
+test('checkDbFile refuses a file that is not a musicbox database', async (t) => {
+    const dir = await tempDir();
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    await writeFile(join(dir, 'junk.db'), 'this is not sqlite, and it is long enough to have a header');
+    assert.throws(() => checkDbFile(join(dir, 'junk.db')));
+
+    const newer = openDb({ path: join(dir, 'newer.db') });
+    newer.close();
+    assert.throws(() => checkDbFile(join(dir, 'newer.db'), SCHEMA_VERSION - 1), /schema v/);
 });

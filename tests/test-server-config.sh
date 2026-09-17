@@ -149,6 +149,105 @@ check "the backend never shells out"     "1" \
     "$(grep -rlE "from 'node:child_process'|require\\('child_process'\\)" "$REPO/src/backend/src" \
         | grep -qv '\.test\.ts$'; echo $?)"
 
+banner "restore goes through root too, and the helper trusts nothing it is handed"
+RESTORE="$OUT/musicbox-restore"
+check "the restore path unit watches the request" "0" \
+    "$(hasre '^PathExists=/run/musicbox-restore/request$' "$OUT/musicbox-restore.path")"
+check "and starts the helper"            "0" "$(hasre '^Unit=musicbox-restore\.service$' "$OUT/musicbox-restore.path")"
+check "the restore helper is a oneshot"  "0" "$(hasre '^Type=oneshot$' "$OUT/musicbox-restore.service")"
+check "the restore helper is valid shell" "0" "$(bash -n "$RESTORE"; echo $?)"
+check "its staging directory is on /run" "0" \
+    "$(hasre '^d /run/musicbox-restore 0750 musicbox musicbox -$' "$OUT/musicbox-restore.conf")"
+check "the request is removed before anything is stopped" "0" \
+    "$(awk '/^rm -f "\$\{DIR\}\/request"/{seen=1} /^systemctl stop/{exit seen?0:1}' "$RESTORE"; echo $?)"
+check "--user reaches the helper"        "0" "$(hasre '^readonly APP_USER="pi"$' "$WORK/alt/musicbox-restore")"
+SERVER_MPD_DIR="$(grep -oE '^readonly MPD_STATE_DIR="[^"]*"' "$SCRIPT" | sed 's/.*="//; s/"$//')"
+check "MPD's state dir agrees with setup-mpd.sh" \
+    "$(grep -oE '^readonly MPD_STATE_DIR="[^"]*"' "$REPO/install/setup-mpd.sh" | sed 's/.*="//; s/"$//')" "$SERVER_MPD_DIR"
+check "and with the backend's default" \
+    "$(grep -oE "mpdStateDir: '[^']*'" "$REPO/src/backend/src/config.ts" | sed "s/.*: '//; s/'$//")" "$SERVER_MPD_DIR"
+check "the staging dir agrees with the backend's default" "/run/musicbox-restore" \
+    "$(grep -oE "restoreDir: '[^']*'" "$REPO/src/backend/src/config.ts" | sed "s/.*: '//; s/'$//")"
+
+# Run the real helper against a scratch root, with systemctl, install and logger stubbed.
+RT="$WORK/restore"
+new_restore_root() {
+    rm -rf "$RT"
+    mkdir -p "$RT/bin" "$RT/run/payload/mpd/playlists" "$RT/mpd/playlists" "$RT/data"
+    cat > "$RT/bin/systemctl" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_LOG/systemctl"
+STUB
+    cat > "$RT/bin/logger" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_LOG/logger"
+STUB
+    # Drops -o/-g so it runs unprivileged; STUB_INSTALL_FAIL simulates a failed copy.
+    cat > "$RT/bin/install" <<'STUB'
+#!/usr/bin/env bash
+[[ -z "${STUB_INSTALL_FAIL:-}" ]] || exit 1
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in -o|-g) shift ;; *) args+=("$1") ;; esac
+    shift
+done
+exec /usr/bin/install "${args[@]}"
+STUB
+    chmod +x "$RT/bin/"*
+    echo "old state" > "$RT/mpd/state"
+    echo "old cache" > "$RT/mpd/tag_cache"
+    echo "old" > "$RT/mpd/playlists/Old.m3u"
+    echo "old db" > "$RT/data/musicbox.db"
+    echo "old wal" > "$RT/data/musicbox.db-wal"
+    echo "new state" > "$RT/run/payload/mpd/state"
+    echo "new db" > "$RT/run/payload/musicbox.db"
+    echo "new" > "$RT/run/payload/mpd/playlists/New one.m3u"
+    : > "$RT/run/request"
+}
+run_restore() {
+    STUB_LOG="$RT" PATH="$RT/bin:$PATH" \
+        MUSICBOX_RESTORE_DIR="$RT/run" MUSICBOX_MPD_DIR="$RT/mpd" MUSICBOX_DB_DIR="$RT/data" \
+        MUSICBOX_RESTORE_PREVIOUS="$RT/previous" bash "$RESTORE" >/dev/null 2>&1
+    echo $?
+}
+exists() { if [[ -e "$1" ]]; then echo 0; else echo 1; fi; }
+
+new_restore_root
+check "a valid restore succeeds"         "0" "$(run_restore)"
+check "MPD and the server were stopped"  "stop musicbox-server.service mpd.service" "$(sed -n 1p "$RT/systemctl")"
+check "and started again"                "start mpd.service musicbox-server.service" "$(sed -n 2p "$RT/systemctl")"
+check "MPD's state was replaced"         "new state" "$(cat "$RT/mpd/state")"
+check "a cache the backup lacks is kept" "old cache" "$(cat "$RT/mpd/tag_cache")"
+check "playlists are replaced as a set"  "New one.m3u" "$(ls "$RT/mpd/playlists")"
+check "the database was replaced"        "new db" "$(cat "$RT/data/musicbox.db")"
+check "a stale WAL cannot replay over it" "1" "$(exists "$RT/data/musicbox.db-wal")"
+check "the previous state was kept"      "old state" "$(cat "$RT/previous/mpd/state")"
+check "including the previous database"  "old db" "$(cat "$RT/previous/musicbox.db")"
+check "the request is gone"              "1" "$(exists "$RT/run/request")"
+check "the payload is cleared"           "1" "$(exists "$RT/run/payload")"
+
+new_restore_root
+rm "$RT/run/payload/musicbox.db"
+ln -s /etc/passwd "$RT/run/payload/musicbox.db"
+check "a symlink in the payload is refused" "1" "$(run_restore)"
+check "and nothing was stopped"          "1" "$(exists "$RT/systemctl")"
+check "and nothing was replaced"         "old db" "$(cat "$RT/data/musicbox.db")"
+check "and the payload is cleared"       "1" "$(exists "$RT/run/payload")"
+
+new_restore_root
+echo x > "$RT/run/payload/mpd/mpd.conf"
+check "an unexpected file is refused"    "1" "$(run_restore)"
+check "and MPD's state is untouched"     "old state" "$(cat "$RT/mpd/state")"
+
+new_restore_root
+rm "$RT/run/payload/mpd/state"
+check "a payload without MPD state is refused" "1" "$(run_restore)"
+
+new_restore_root
+check "a failed copy fails the restore"  "1" "$(STUB_INSTALL_FAIL=1 run_restore)"
+check "but MPD and the server still come back" "start mpd.service musicbox-server.service" "$(tail -1 "$RT/systemctl")"
+check "and the failure is logged"        "0" "$(has 'restore FAILED' "$RT/logger")"
+
 banner "node comes from NodeSource, because the backend needs node:sqlite"
 # Debian trixie stops at node 20 and node:sqlite arrived in 22.5. The whole
 # database layer rests on this apt source being right, and it is one file that

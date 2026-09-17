@@ -13,6 +13,8 @@ import {
     SSE_SETTINGS_EVENT,
     SSE_LIBRARY_EVENT,
     API_VERSION,
+    BACKUP_CONTENT_TYPE,
+    BACKUP_MAX_BYTES,
     type AlbumResponse,
     type AlbumRef,
     type AlbumsResponse,
@@ -21,6 +23,7 @@ import {
     type LibraryState,
     type PanelState,
     type PlaybackCommand,
+    type RestoreResponse,
     type SettingsResponse,
     type Snapshot,
 } from '../../shared/api.ts';
@@ -38,6 +41,7 @@ import type { Panel } from './panel.ts';
 import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
+import { BackupError, type Backups } from './backup.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -72,6 +76,8 @@ export interface RouteOptions {
     power?: Power;
     /** Library scanning and its history. See library-scan.ts. */
     scanner?: LibraryScanner;
+    /** Backup and restore of MPD's state and the database. See backup.ts. */
+    backups?: Backups;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -743,6 +749,67 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
         return reply.code(202).send({ accepted: 'rescan' });
     });
+
+    // -----------------------------------------------------------------------
+    // Backup and restore. Appended for the same reason as the scan routes.
+    // -----------------------------------------------------------------------
+
+    app.get('/api/backup', async (_request: FastifyRequest, reply: FastifyReply) => {
+        const backups = opts.backups;
+        if (!backups) return reply.code(503).send({ error: 'backups are unavailable' });
+        try {
+            const { filename, archive } = await backups.create();
+            return reply
+                .type(BACKUP_CONTENT_TYPE)
+                .header('content-disposition', `attachment; filename="${filename}"`)
+                .header('cache-control', 'no-store')
+                .send(archive);
+        } catch (err) {
+            if (err instanceof BackupError) return reply.code(err.code).send({ error: err.message });
+            throw err;
+        }
+    });
+
+    // Scoped to this route's content type; nothing else accepts a gzip body.
+    app.addContentTypeParser(
+        BACKUP_CONTENT_TYPE,
+        { parseAs: 'buffer', bodyLimit: BACKUP_MAX_BYTES },
+        (_request, body, done) => done(null, body),
+    );
+
+    /**
+     * Replace MPD's state and the database with an uploaded backup.
+     *
+     * 202: root's helper stops MPD and this server, swaps the files and starts
+     * both again, so the client learns it worked by reconnecting.
+     */
+    app.post(
+        '/api/restore',
+        { bodyLimit: BACKUP_MAX_BYTES },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const backups = opts.backups;
+            if (!backups) return reply.code(503).send({ error: 'backups are unavailable' });
+            if (!Buffer.isBuffer(request.body)) {
+                return reply.code(400).send({ error: `body must be ${BACKUP_CONTENT_TYPE}` });
+            }
+            // Restarting MPD mid-scan leaves a partial library database.
+            if (opts.scanner?.state().scanning) {
+                return reply.code(409).send({ error: 'a library scan is running — try again when it finishes' });
+            }
+            if (bridge.current.source === 'bluetooth') {
+                return reply.code(409).send({ error: 'a phone is playing over Bluetooth — disconnect it first' });
+            }
+            try {
+                await backups.restore(request.body);
+            } catch (err) {
+                if (err instanceof BackupError) return reply.code(err.code).send({ error: err.message });
+                throw err;
+            }
+            app.log.warn('restore requested over the API');
+            const body: RestoreResponse = { accepted: 'restore' };
+            return reply.code(202).send(body);
+        },
+    );
 
     return {
         closeStreams: () => {

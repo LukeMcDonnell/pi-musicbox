@@ -19,6 +19,7 @@ import { createSettings } from './settings.ts';
 import { createLibraryScanner } from './library-scan.ts';
 import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
+import { createBackups } from './backup.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -92,6 +93,12 @@ async function main(): Promise<void> {
         settings,
         power: createPower(config.powerDir),
         scanner,
+        backups: createBackups({
+            db,
+            build: BUILD,
+            mpdDir: config.mpdStateDir,
+            restoreDir: config.restoreDir,
+        }),
     });
     registerStatic(app, config.webRoot);
 

@@ -37,4 +37,29 @@ describe('ApiClient', () => {
         expect((err as ApiError).message).toBe('/api/status: HTTP 502');
         expect((err as ApiError).status).toBe(502);
     });
+
+    it('reads a download with the filename the server gave it', async () => {
+        const client = TestBed.inject(ApiClient);
+        fetchSpy.and.resolveTo(
+            new Response(new Uint8Array([1, 2, 3]), {
+                headers: { 'content-disposition': 'attachment; filename="musicbox-backup-20260917-0905.tar.gz"' },
+            }),
+        );
+
+        const { blob, filename } = await client.getBlob('/api/backup');
+        expect(filename).toBe('musicbox-backup-20260917-0905.tar.gz');
+        expect(blob.size).toBe(3);
+    });
+
+    it('uploads raw bytes with the content type it is told', async () => {
+        const client = TestBed.inject(ApiClient);
+        fetchSpy.and.resolveTo(new Response(JSON.stringify({ accepted: 'restore' }), { status: 202 }));
+        const file = new Blob([new Uint8Array([0x1f, 0x8b])]);
+
+        expect(await client.postBlob('/api/restore', file, 'application/gzip')).toEqual({ accepted: 'restore' });
+        const init = fetchSpy.calls.mostRecent().args[1] as RequestInit;
+        expect(init.method).toBe('POST');
+        expect(init.body).toBe(file);
+        expect((init.headers as Record<string, string>)['content-type']).toBe('application/gzip');
+    });
 });

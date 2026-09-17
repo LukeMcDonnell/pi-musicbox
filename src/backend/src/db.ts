@@ -35,6 +35,8 @@ export interface Db {
     run(sql: string, ...params: SqlValue[]): void;
     /** Several statements as one unit — all of them, or none. */
     transaction(fn: () => void): void;
+    /** Write a consistent copy of the whole database to a new file. */
+    snapshot(path: string): void;
     close(): void;
 }
 
@@ -131,6 +133,16 @@ export function openDb(options: OpenOptions): Db {
                 throw err;
             }
         },
+        snapshot(target: string): void {
+            sqlite.prepare('VACUUM INTO ?').run(target);
+            // A rollback-journal file stands alone: no -wal or -shm to carry with it.
+            const copy = new DatabaseSync(target);
+            try {
+                copy.exec('PRAGMA journal_mode = DELETE;');
+            } finally {
+                copy.close();
+            }
+        },
         close(): void {
             sqlite.close();
         },
@@ -138,6 +150,33 @@ export function openDb(options: OpenOptions): Db {
 
     migrate(sqlite, migrations, onMigrate);
     return db;
+}
+
+/**
+ * Check a database file someone else wrote, without migrating it.
+ *
+ * Returns its schema version, or throws with a reason: not SQLite, corrupt, or
+ * newer than this build.
+ */
+export function checkDbFile(path: string, known: number = SCHEMA_VERSION): number {
+    const sqlite = new DatabaseSync(path);
+    try {
+        const integrity = sqlite.prepare('PRAGMA integrity_check').get() as
+            | { integrity_check: string }
+            | undefined;
+        if (integrity?.integrity_check !== 'ok') {
+            throw new Error(`database failed its integrity check: ${integrity?.integrity_check ?? 'no answer'}`);
+        }
+        const row = sqlite.prepare('PRAGMA user_version').get() as { user_version: number } | undefined;
+        const version = row?.user_version ?? 0;
+        if (version < 1) throw new Error('not a musicbox database');
+        if (version > known) {
+            throw new Error(`database is at schema v${version}, but this build only knows v${known}`);
+        }
+        return version;
+    } finally {
+        sqlite.close();
+    }
 }
 
 /**

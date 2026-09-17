@@ -30,6 +30,7 @@ import { createSettings, SETTINGS_DEFAULTS, type Settings } from './settings.ts'
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { openDb } from './db.ts';
 import { createPower, type Power } from './power.ts';
+import { BackupError, type Backups } from './backup.ts';
 
 /** A phone that is connected and playing, as the arbiter would report it. */
 const PHONE: BluetoothState = {
@@ -67,6 +68,7 @@ async function startServer(
         settings?: Settings;
         power?: Power;
         scanner?: LibraryScanner;
+        backups?: Backups;
     } = {},
 ) {
     const app = Fastify({
@@ -86,6 +88,7 @@ async function startServer(
         settings: opts.settings,
         power: opts.power,
         scanner: opts.scanner,
+        backups: opts.backups,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -1301,4 +1304,88 @@ test('the library scan routes are the last routes in the file', () => {
     const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
     assert.ok(src.indexOf("app.post('/api/power/:action'") < src.indexOf("app.get('/api/library/state'"));
     assert.ok(src.indexOf("app.get('/api/events'") < src.indexOf("app.post('/api/library/scan'"));
+});
+
+// ---------------------------------------------------------------------------
+// Backup and restore.
+// ---------------------------------------------------------------------------
+
+/** Backups with no filesystem behind them; records what restore was handed. */
+function fakeBackups(over: { refuse?: BackupError } = {}): Backups & { restored: Buffer[] } {
+    const restored: Buffer[] = [];
+    return {
+        restored,
+        create: async () => ({ filename: 'musicbox-backup-20260917-0905.tar.gz', archive: Buffer.from([0x1f, 0x8b, 1, 2]) }),
+        pending: async () => false,
+        restore: async (archive) => {
+            if (over.refuse) throw over.refuse;
+            restored.push(archive);
+        },
+    };
+}
+
+function upload(port: number, body: Buffer | string, contentType = 'application/gzip') {
+    return fetch(`http://127.0.0.1:${port}/api/restore`, {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        body,
+    });
+}
+
+test('GET /api/backup downloads the archive as an attachment', async (t) => {
+    const { port } = await serverFor(t, { backups: fakeBackups() });
+    const res = await fetch(`http://127.0.0.1:${port}/api/backup`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'application/gzip');
+    assert.equal(
+        res.headers.get('content-disposition'),
+        'attachment; filename="musicbox-backup-20260917-0905.tar.gz"',
+    );
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), Buffer.from([0x1f, 0x8b, 1, 2]));
+});
+
+test('POST /api/restore hands the raw bytes over and answers 202', async (t) => {
+    const backups = fakeBackups();
+    const { port } = await serverFor(t, { backups });
+    const res = await upload(port, Buffer.from([0x1f, 0x8b, 9, 9]));
+    assert.equal(res.status, 202);
+    assert.deepEqual(await res.json(), { accepted: 'restore' });
+    assert.deepEqual(backups.restored, [Buffer.from([0x1f, 0x8b, 9, 9])]);
+});
+
+test('a restore that is not a gzip body never reaches the backups', async (t) => {
+    const backups = fakeBackups();
+    const { port } = await serverFor(t, { backups });
+    assert.equal((await upload(port, '{"a":1}', 'application/json')).status, 400);
+    assert.equal((await upload(port, 'hello', 'text/plain')).status, 400);
+    assert.equal((await upload(port, 'hello', 'application/x-tar')).status, 415);
+    assert.deepEqual(backups.restored, []);
+});
+
+test('an archive the backups refuse is reported with its own status', async (t) => {
+    const { port } = await serverFor(t, { backups: fakeBackups({ refuse: new BackupError('backup is missing mpd/state', 400) }) });
+    const res = await upload(port, Buffer.from('x'));
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: string }).error, /mpd\/state/);
+});
+
+test('restore is refused while a library scan runs', async (t) => {
+    const backups = fakeBackups();
+    const { port } = await serverFor(t, { backups, scanner: fakeScanner({ scanning: true }) });
+    assert.equal((await upload(port, Buffer.from('x'))).status, 409);
+    assert.deepEqual(backups.restored, []);
+});
+
+test('restore is refused while a phone is playing', async (t) => {
+    const backups = fakeBackups();
+    const { port, bridge } = await serverFor(t, { backups });
+    await bridge.setBluetooth(PHONE);
+    assert.equal((await upload(port, Buffer.from('x'))).status, 409);
+    assert.deepEqual(backups.restored, []);
+});
+
+test('backup routes answer 503 on a box with none wired up', async (t) => {
+    const { port } = await serverFor(t);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/backup`)).status, 503);
+    assert.equal((await upload(port, Buffer.from('x'))).status, 503);
 });

@@ -1154,3 +1154,32 @@ The wrapper now probes the URL's host and port with bash's `/dev/tcp` until
 rather than `curl` because `install.sh` does not install curl. Launching anyway
 is deliberate and matches the unit's existing `Wants=` rather than `Requires=`:
 a broken server should show as a broken page, not as a black panel.
+
+## Backup copies MPD's files; restore goes through a root helper (2026-09-17)
+
+**Files, not an MPD-protocol replay.** Rebuilding the queue with `clear` + `add`
+would need no privilege, but it cannot carry `tag_cache`, and the index is the
+expensive part: restoring it onto a fresh card skips a scan of most of an hour.
+MPD already gzips it, so the archive is ~3.7MB. A stale index is not dangerous; a normal scan corrects it.
+
+**Building the backup needs no root, but restoring does.** Every file under
+`/var/lib/mpd` is `0644`, so the server reads them directly. Writing needs root,
+and MPD rewrites `state` when it exits, so the files can only be swapped with MPD
+stopped. The server has no `child_process` and runs `NoNewPrivileges`, so this
+follows the power pattern: stage, drop `request`, and a `.path` unit runs a root
+oneshot. The server is stopped too, because it holds the database open.
+
+**The helper re-validates.** The payload was written by the `musicbox` user, and
+the helper runs as root, so it checks names and file types again itself. A
+symlink is the case that matters: `[[ -f ]]` follows links, so without its own
+`-L` check a link named `musicbox.db` would get `install`ed over the database as
+root. `tests/test-server-config.sh` runs the emitted helper against a scratch
+root with stubbed `systemctl`/`install` to prove the refusal and the always-restart.
+
+**Tar is hand-written** (`tar.ts`, ~120 lines), for the same reason as the MPD
+client: it keeps the runtime at one dependency, and a backup only ever holds
+regular files. It reads what GNU tar writes too, so an archive can be repacked by hand.
+
+**409 while a scan runs or a phone plays.** Restarting MPD mid-scan leaves a
+partial index (above). During Bluetooth the arbiter holds the DAC, and bringing
+MPD back under it is not a handoff anyone has tested.

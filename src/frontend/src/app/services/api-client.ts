@@ -90,6 +90,26 @@ export class ApiClient {
         if (!response.ok) throw new ApiError(await detail(response, path), response.status);
         return (await response.json()) as T;
     }
+
+    /** GET a file, with the name the server suggested for it. */
+    async getBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+        const response = await fetch(this.resolve(path));
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
+        const disposition = response.headers.get('content-disposition') ?? '';
+        const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? null;
+        return { blob: await response.blob(), filename };
+    }
+
+    /** POST raw bytes, returning the server's JSON answer. */
+    async postBlob<T>(path: string, body: Blob, contentType: string): Promise<T> {
+        const response = await fetch(this.resolve(path), {
+            method: 'POST',
+            headers: { 'content-type': contentType },
+            body,
+        });
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
+        return (await response.json()) as T;
+    }
 }
 
 /** The server's own message where there is one, the status code otherwise. */

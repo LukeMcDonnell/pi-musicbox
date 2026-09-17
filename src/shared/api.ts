@@ -752,3 +752,18 @@ export const LIBRARY_SCAN_HOURS: readonly number[] = [
  * Two routes rather than one with a flag, so the expensive one is not the easy
  * thing to reach by accident.
  */
+
+/*
+ * GET  /api/backup   — a .tar.gz of MPD's state and the box's database
+ * POST /api/restore  — upload one; 202, then MPD and the server restart
+ *
+ * Restore answers 400 for an archive it will not trust, 409 while a scan is
+ * running, a phone is playing or a restore is already pending, and 503 where
+ * the root helper is not installed.
+ */
+export const BACKUP_CONTENT_TYPE = 'application/gzip';
+export const BACKUP_MAX_BYTES = 32 * 1024 * 1024;
+
+export interface RestoreResponse {
+    accepted: 'restore';
+}

@@ -3,10 +3,11 @@ import { TestBed } from '@angular/core/testing';
 import type { SettingsResponse } from '@musicbox/shared';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
+import { IS_PANEL } from '../../../../services/panel-client';
 import { SystemSettings } from './system-settings';
 import { boxSettings } from '../../../../testing/fixtures';
 
-function create(minutes: number | null = 0) {
+function create(minutes: number | null = 0, panel = false) {
     const settings = signal<SettingsResponse | null>(
         minutes === null ? null : boxSettings({ panelSleepAfterMinutes: minutes }),
     );
@@ -20,7 +21,11 @@ function create(minutes: number | null = 0) {
     TestBed.configureTestingModule({
         imports: [SystemSettings],
         providers: [
-            { provide: MusicboxApi, useValue: { settings } },
+            {
+                provide: MusicboxApi,
+                useValue: { settings, library: signal(null), snapshot: signal(null), stream: signal('live') },
+            },
+            { provide: IS_PANEL, useValue: panel },
             { provide: ApiClient, useValue: { patchJson } },
         ],
     });
@@ -126,5 +131,17 @@ describe('SystemSettings', () => {
         expect(alert?.textContent).toContain('invalid value');
         // And the row falls back to what the box actually says.
         expect(row(fixture).textContent).toContain('Never');
+    });
+
+    it('offers backup and restore on a phone', () => {
+        const { fixture } = create(0, false);
+        expect((fixture.nativeElement as HTMLElement).querySelector('app-backup-restore')).not.toBeNull();
+    });
+
+    it('shows nothing about backups on the panel', () => {
+        const { fixture } = create(0, true);
+        const el = fixture.nativeElement as HTMLElement;
+        expect(el.querySelector('app-backup-restore')).toBeNull();
+        expect(el.textContent).not.toContain('Backup');
     });
 });

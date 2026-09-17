@@ -75,6 +75,15 @@ readonly POWER_UNIT="${UNIT_DIR}/musicbox-power.service"
 readonly POWER_PATH_UNIT="${UNIT_DIR}/musicbox-power.path"
 readonly POWER_TMPFILES="/etc/tmpfiles.d/musicbox-power.conf"
 readonly POWER_DIR="/run/musicbox-power"
+# Restore from a backup uploaded in the web UI. Same shape again: the server
+# stages a validated payload, root stops MPD and the server and swaps the files.
+readonly RESTORE_HELPER="/usr/local/bin/musicbox-restore"
+readonly RESTORE_UNIT="${UNIT_DIR}/musicbox-restore.service"
+readonly RESTORE_PATH_UNIT="${UNIT_DIR}/musicbox-restore.path"
+readonly RESTORE_TMPFILES="/etc/tmpfiles.d/musicbox-restore.conf"
+readonly RESTORE_DIR="/run/musicbox-restore"
+# Must match install/setup-mpd.sh and mpdStateDir in src/backend/src/config.ts.
+readonly MPD_STATE_DIR="/var/lib/mpd"
 
 DRY_RUN=0
 ASSUME_YES=0
@@ -341,6 +350,136 @@ WantedBy=multi-user.target
 UNIT
 }
 
+gen_restore_tmpfiles() {
+    cat <<CONF
+# musicbox: where the server stages a restore. On /run so a request cannot
+# survive a reboot and replay itself. See setup-server.sh.
+d ${RESTORE_DIR} 0750 ${APP_USER} ${APP_USER} -
+CONF
+}
+
+gen_restore_helper() {
+    cat <<HEADER
+#!/usr/bin/env bash
+#
+# musicbox — restore a backup the web server has staged.
+#
+# Started by musicbox-restore.path. The server validated the archive, but this
+# runs as root on files a less trusted user wrote, so it checks them again.
+set -euo pipefail
+
+readonly DIR="\${MUSICBOX_RESTORE_DIR:-${RESTORE_DIR}}"
+readonly MPD_DIR="\${MUSICBOX_MPD_DIR:-${MPD_STATE_DIR}}"
+readonly DB_DIR="\${MUSICBOX_DB_DIR:-${DATA_DIR}}"
+readonly PREVIOUS="\${MUSICBOX_RESTORE_PREVIOUS:-/var/lib/musicbox/restore-previous}"
+readonly APP_USER="${APP_USER}"
+HEADER
+    cat <<'HELPER'
+readonly PAYLOAD="${DIR}/payload"
+
+log() { logger -t musicbox-restore "$*"; }
+
+# Removed before acting: a request left behind would restore again at boot.
+rm -f "${DIR}/request"
+
+# Only regular files, only the names the server may stage. Mirrors backup.ts.
+valid_payload() {
+    local path rel
+    [[ -d "$PAYLOAD" && ! -L "$PAYLOAD" ]] || return 1
+    while IFS= read -r -d '' path; do
+        rel="${path#"$PAYLOAD"/}"
+        [[ ! -L "$path" ]] || return 1
+        if [[ -d "$path" ]]; then
+            [[ "$rel" == mpd || "$rel" == mpd/playlists ]] || return 1
+            continue
+        fi
+        [[ -f "$path" ]] || return 1
+        case "$rel" in
+            musicbox.db|mpd/state|mpd/tag_cache|mpd/sticker.sql) ;;
+            mpd/playlists/.*) return 1 ;;
+            mpd/playlists/*.m3u) [[ "${rel#mpd/playlists/}" != */* ]] || return 1 ;;
+            *) return 1 ;;
+        esac
+    done < <(find "$PAYLOAD" -mindepth 1 -print0)
+    [[ -f "${PAYLOAD}/musicbox.db" && -f "${PAYLOAD}/mpd/state" ]]
+}
+
+stopped=0
+finish() {
+    local status=$?
+    rm -rf "$PAYLOAD" "${DIR}"/payload.tmp-*
+    if [[ "$stopped" -eq 1 ]]; then
+        systemctl start mpd.service musicbox-server.service || status=1
+    fi
+    if [[ "$status" -eq 0 ]]; then
+        log "restore complete; the previous state is in ${PREVIOUS}"
+    else
+        log "restore FAILED (exit ${status}); the previous state is in ${PREVIOUS}"
+    fi
+}
+trap finish EXIT
+
+if ! valid_payload; then
+    log "refusing a staged payload that is missing, incomplete or has unexpected files"
+    exit 1
+fi
+
+# Both stopped: MPD rewrites its state file on exit, and the server holds the db open.
+stopped=1
+systemctl stop musicbox-server.service mpd.service
+
+rm -rf "$PREVIOUS"
+mkdir -p "${PREVIOUS}/mpd"
+for f in state tag_cache sticker.sql; do
+    if [[ -f "${MPD_DIR}/${f}" ]]; then cp -p "${MPD_DIR}/${f}" "${PREVIOUS}/mpd/"; fi
+done
+if [[ -d "${MPD_DIR}/playlists" ]]; then cp -rp "${MPD_DIR}/playlists" "${PREVIOUS}/mpd/"; fi
+for f in "${DB_DIR}"/musicbox.db*; do
+    if [[ -f "$f" ]]; then cp -p "$f" "${PREVIOUS}/"; fi
+done
+
+# A backup without tag_cache or stickers leaves the box's own copies alone.
+for f in state tag_cache sticker.sql; do
+    if [[ -f "${PAYLOAD}/mpd/${f}" ]]; then
+        install -o mpd -g audio -m 0644 "${PAYLOAD}/mpd/${f}" "${MPD_DIR}/${f}"
+    fi
+done
+install -d -o mpd -g audio -m 0755 "${MPD_DIR}/playlists"
+find "${MPD_DIR}/playlists" -maxdepth 1 -type f -name '*.m3u' -delete
+for p in "${PAYLOAD}"/mpd/playlists/*.m3u; do
+    if [[ -f "$p" ]]; then install -o mpd -g audio -m 0644 "$p" "${MPD_DIR}/playlists/${p##*/}"; fi
+done
+
+rm -f "${DB_DIR}/musicbox.db-wal" "${DB_DIR}/musicbox.db-shm"
+install -o "$APP_USER" -g "$APP_USER" -m 0644 "${PAYLOAD}/musicbox.db" "${DB_DIR}/musicbox.db"
+HELPER
+}
+
+gen_restore_unit() {
+    cat <<UNIT
+[Unit]
+Description=musicbox restore from a backup uploaded in the web UI
+
+[Service]
+Type=oneshot
+ExecStart=${RESTORE_HELPER}
+UNIT
+}
+
+gen_restore_path_unit() {
+    cat <<UNIT
+[Unit]
+Description=Watch for a restore staged by the web UI
+
+[Path]
+PathExists=${RESTORE_DIR}/request
+Unit=musicbox-restore.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
 emit_all() {
     local dest="$1"
     mkdir -p "$dest"
@@ -352,7 +491,11 @@ emit_all() {
     gen_power_helper    > "${dest}/musicbox-power"
     gen_power_unit      > "${dest}/musicbox-power.service"
     gen_power_path_unit > "${dest}/musicbox-power.path"
-    chmod 0755 "${dest}/musicbox-power"
+    gen_restore_tmpfiles  > "${dest}/musicbox-restore.conf"
+    gen_restore_helper    > "${dest}/musicbox-restore"
+    gen_restore_unit      > "${dest}/musicbox-restore.service"
+    gen_restore_path_unit > "${dest}/musicbox-restore.path"
+    chmod 0755 "${dest}/musicbox-power" "${dest}/musicbox-restore"
     printf '  wrote server.conf musicbox-server.service musicbox-server-restart.service musicbox-server.path -> %s\n' "$dest"
 }
 
@@ -431,6 +574,22 @@ do_apply() {
     if install_if_changed "$tmp" "$POWER_PATH_UNIT" 0644; then ok "$POWER_PATH_UNIT"; changed=1
     else skip "$POWER_PATH_UNIT already current"; fi
 
+    tmp="$(mktemp)"; gen_restore_tmpfiles > "$tmp"
+    if install_if_changed "$tmp" "$RESTORE_TMPFILES" 0644; then ok "$RESTORE_TMPFILES"; changed=1
+    else skip "$RESTORE_TMPFILES already current"; fi
+
+    tmp="$(mktemp)"; gen_restore_helper > "$tmp"
+    if install_if_changed "$tmp" "$RESTORE_HELPER" 0755; then ok "$RESTORE_HELPER"; changed=1
+    else skip "$RESTORE_HELPER already current"; fi
+
+    tmp="$(mktemp)"; gen_restore_unit > "$tmp"
+    if install_if_changed "$tmp" "$RESTORE_UNIT" 0644; then ok "$RESTORE_UNIT"; changed=1
+    else skip "$RESTORE_UNIT already current"; fi
+
+    tmp="$(mktemp)"; gen_restore_path_unit > "$tmp"
+    if install_if_changed "$tmp" "$RESTORE_PATH_UNIT" 0644; then ok "$RESTORE_PATH_UNIT"; changed=1
+    else skip "$RESTORE_PATH_UNIT already current"; fi
+
     phase "Enabling"
     if dry; then
         printf '    %s[dry-run]%s would enable musicbox-server.service and musicbox-server.path\n' \
@@ -448,6 +607,9 @@ do_apply() {
     systemd-tmpfiles --create "$POWER_TMPFILES" >/dev/null 2>&1 || true
     systemctl enable musicbox-power.path >/dev/null 2>&1 || true
     systemctl start  musicbox-power.path >/dev/null 2>&1 || true
+    systemd-tmpfiles --create "$RESTORE_TMPFILES" >/dev/null 2>&1 || true
+    systemctl enable musicbox-restore.path >/dev/null 2>&1 || true
+    systemctl start  musicbox-restore.path >/dev/null 2>&1 || true
     ok "units enabled"
 
     if [[ ! -f "${DEPLOY_DIR}/backend/server.js" ]]; then
@@ -498,13 +660,14 @@ do_revert() {
     phase "Removing the server"
 
     local u
-    for u in musicbox-power.path musicbox-server.path musicbox-server.service; do
+    for u in musicbox-restore.path musicbox-power.path musicbox-server.path musicbox-server.service; do
         if systemctl list-unit-files "$u" >/dev/null 2>&1; then
             run systemctl disable --now "$u" >/dev/null 2>&1 || true
         fi
     done
     run rm -f "$SERVICE" "$RESTART_UNIT" "$PATH_UNIT" "$CONF_FILE" \
-        "$POWER_UNIT" "$POWER_PATH_UNIT" "$POWER_HELPER" "$POWER_TMPFILES"
+        "$POWER_UNIT" "$POWER_PATH_UNIT" "$POWER_HELPER" "$POWER_TMPFILES" \
+        "$RESTORE_UNIT" "$RESTORE_PATH_UNIT" "$RESTORE_HELPER" "$RESTORE_TMPFILES"
     run systemctl daemon-reload
     ok "units and configuration removed"
     # The database is DATA, not configuration. Settings, and later favourites and

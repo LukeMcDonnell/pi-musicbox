@@ -55,6 +55,10 @@ export interface Config {
      * pick up. On tmpfs deliberately — see src/backend/src/power.ts.
      */
     powerDir: string;
+    /** MPD's state_file, tag_cache and playlists. Must match install/setup-mpd.sh. */
+    mpdStateDir: string;
+    /** Where a validated restore is staged for the root helper. On tmpfs, like powerDir. */
+    restoreDir: string;
     logLevel: string;
 }
 
@@ -72,6 +76,8 @@ export const DEFAULTS: Config = {
     bluetoothControl: '/run/musicbox/control',
     dbPath: '/var/lib/musicbox/data/musicbox.db',
     powerDir: '/run/musicbox-power',
+    mpdStateDir: '/var/lib/mpd',
+    restoreDir: '/run/musicbox-restore',
     logLevel: 'info',
 };
 
@@ -136,6 +142,8 @@ export function loadConfig(
         bluetoothControl: pick('MUSICBOX_BLUETOOTH_CONTROL') ?? DEFAULTS.bluetoothControl,
         dbPath: pick('MUSICBOX_DB') ?? DEFAULTS.dbPath,
         powerDir: pick('MUSICBOX_POWER_DIR') ?? DEFAULTS.powerDir,
+        mpdStateDir: pick('MUSICBOX_MPD_STATE_DIR') ?? DEFAULTS.mpdStateDir,
+        restoreDir: pick('MUSICBOX_RESTORE_DIR') ?? DEFAULTS.restoreDir,
         logLevel: pick('MUSICBOX_LOG_LEVEL') ?? DEFAULTS.logLevel,
     };
 }

@@ -921,6 +921,9 @@ PATCH /api/settings        {key: value}            change some of them
 GET   /api/library/state                           counts, last scan, is one running
 POST  /api/library/scan                            look for what changed
 POST  /api/library/rescan                          re-read every tag
+
+GET   /api/backup                                  download the box's state (.tar.gz)
+POST  /api/restore         <application/gzip>      replace it with an uploaded backup
 ```
 
 (`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
@@ -964,6 +967,38 @@ queried** snapshot on SSE connect and on `GET /api/status` — MPD's `idle` does
 fire as elapsed time advances, so the cached snapshot's `elapsed` dates from the
 last real event. Sending that to a new client made a page reload show the elapsed
 time as at the last pause/resume.
+
+### Backup and restore
+
+Settings → System, **on a phone** (the panel shows nothing: a download would land
+on the Pi, and a file picker there can only browse the Pi's own disk). One
+`.tar.gz`, readable with plain `tar tzf`:
+
+```
+manifest.json        format, build, schema version
+musicbox.db          the server's database, as one consistent file (VACUUM INTO)
+mpd/state            queue, position, repeat/random
+mpd/tag_cache        the library index — restoring it skips an hour-long scan
+mpd/sticker.sql      if present
+mpd/playlists/*.m3u
+```
+
+The backup is built by the server itself: every file is world-readable. A restore
+is not, because MPD's files are its own and MPD rewrites `state` when it stops.
+So the server validates the upload (only those names, only regular files, a
+database that passes `integrity_check` and is no newer than this build) and
+stages it in `/run/musicbox-restore/`; root's `musicbox-restore.path` then stops
+the server and MPD, keeps the current files in `/var/lib/musicbox/restore-previous/`,
+swaps in the new ones and starts both again. The helper re-checks the payload
+itself rather than trusting the user that wrote it.
+
+Refused with 409 while a library scan runs (restarting MPD mid-scan leaves a
+partial index) or a phone is playing. A backup without `tag_cache` or stickers
+leaves the box's own copies in place; playlists are replaced as a set.
+
+The helper comes from `setup-server.sh`, so **re-run it** on a box set up before
+this existed — until then restore answers 503. To undo a restore by hand, copy
+the files back from `restore-previous/` with MPD and the server stopped.
 
 ### The queue on screen
 

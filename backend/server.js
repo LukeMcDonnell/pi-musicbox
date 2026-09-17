@@ -7253,7 +7253,7 @@ var require_sonic_boom = __commonJS({
       if (!(this instanceof SonicBoom)) {
         return new SonicBoom(opts);
       }
-      let { fd, dest, minLength, maxLength, maxWrite, periodicFlush, sync, append = true, mkdir, retryEAGAIN, fsync, contentMode, mode } = opts || {};
+      let { fd, dest, minLength, maxLength, maxWrite, periodicFlush, sync, append = true, mkdir: mkdir2, retryEAGAIN, fsync, contentMode, mode } = opts || {};
       fd = fd || dest;
       this._len = 0;
       this.fd = -1;
@@ -7278,7 +7278,7 @@ var require_sonic_boom = __commonJS({
       this.append = append || false;
       this.mode = mode;
       this.retryEAGAIN = retryEAGAIN || (() => true);
-      this.mkdir = mkdir || false;
+      this.mkdir = mkdir2 || false;
       let fsWriteSync;
       let fsWrite;
       if (contentMode === kContentModeBuffer) {
@@ -7990,7 +7990,7 @@ var require_thread_stream = __commonJS({
     var { version } = require_package();
     var { EventEmitter } = __require("events");
     var { Worker } = __require("worker_threads");
-    var { join: join4 } = __require("path");
+    var { join: join5 } = __require("path");
     var { pathToFileURL } = __require("url");
     var { wait } = require_wait();
     var {
@@ -8041,7 +8041,7 @@ var require_thread_stream = __commonJS({
     function createWorker(stream, opts) {
       const { filename, workerData } = opts;
       const bundlerOverrides = "__bundlerPathsOverrides" in globalThis ? globalThis.__bundlerPathsOverrides : {};
-      const toExecute = bundlerOverrides["thread-stream-worker"] || join4(__dirname, "lib", "worker.js");
+      const toExecute = bundlerOverrides["thread-stream-worker"] || join5(__dirname, "lib", "worker.js");
       const worker = new Worker(toExecute, {
         ...opts.workerOpts,
         name: opts.workerOpts?.name || "thread-stream",
@@ -8509,7 +8509,7 @@ var require_transport = __commonJS({
     var { createRequire } = __require("module");
     var { existsSync } = __require("node:fs");
     var getCallers = require_caller();
-    var { join: join4, isAbsolute, sep: sep2 } = __require("node:path");
+    var { join: join5, isAbsolute, sep: sep2 } = __require("node:path");
     var { fileURLToPath } = __require("node:url");
     var sleep = require_atomic_sleep();
     var onExit = require_on_exit_leak_free();
@@ -8662,7 +8662,7 @@ var require_transport = __commonJS({
         throw new Error("only one of target or targets can be specified");
       }
       if (targets) {
-        target = bundlerOverrides["pino-worker"] || join4(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join5(__dirname, "worker.js");
         options.targets = targets.filter((dest) => dest.target).map((dest) => {
           return {
             ...dest,
@@ -8680,7 +8680,7 @@ var require_transport = __commonJS({
           });
         });
       } else if (pipeline) {
-        target = bundlerOverrides["pino-worker"] || join4(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join5(__dirname, "worker.js");
         options.pipelines = [pipeline.map((dest) => {
           return {
             ...dest,
@@ -8703,7 +8703,7 @@ var require_transport = __commonJS({
           return origin;
         }
         if (origin === "pino/file") {
-          return join4(__dirname, "..", "file.js");
+          return join5(__dirname, "..", "file.js");
         }
         let fixTarget2;
         for (const filePath of callers) {
@@ -9683,7 +9683,7 @@ var require_safe_stable_stringify = __commonJS({
               return circularValue;
             }
             let res = "";
-            let join4 = ",";
+            let join5 = ",";
             const originalIndentation = indentation;
             if (Array.isArray(value)) {
               if (value.length === 0) {
@@ -9697,7 +9697,7 @@ var require_safe_stable_stringify = __commonJS({
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join4 = `,
+                join5 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9705,13 +9705,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join4;
+                res += join5;
               }
               const tmp = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join4}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join5}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9732,7 +9732,7 @@ ${originalIndentation}`;
             let separator = "";
             if (spacer !== "") {
               indentation += spacer;
-              join4 = `,
+              join5 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9746,13 +9746,13 @@ ${indentation}`;
               const tmp = stringifyFnReplacer(key2, value, stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join4;
+                separator = join5;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...":${whitespace}"${getItemCount(removedKeys)} not stringified"`;
-              separator = join4;
+              separator = join5;
             }
             if (spacer !== "" && separator.length > 1) {
               res = `
@@ -9793,7 +9793,7 @@ ${originalIndentation}`;
             }
             const originalIndentation = indentation;
             let res = "";
-            let join4 = ",";
+            let join5 = ",";
             if (Array.isArray(value)) {
               if (value.length === 0) {
                 return "[]";
@@ -9806,7 +9806,7 @@ ${originalIndentation}`;
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join4 = `,
+                join5 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9814,13 +9814,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join4;
+                res += join5;
               }
               const tmp = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join4}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join5}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9833,7 +9833,7 @@ ${originalIndentation}`;
             let whitespace = "";
             if (spacer !== "") {
               indentation += spacer;
-              join4 = `,
+              join5 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9842,7 +9842,7 @@ ${indentation}`;
               const tmp = stringifyArrayReplacer(key2, value[key2], stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join4;
+                separator = join5;
               }
             }
             if (spacer !== "" && separator.length > 1) {
@@ -9900,20 +9900,20 @@ ${originalIndentation}`;
               indentation += spacer;
               let res2 = `
 ${indentation}`;
-              const join5 = `,
+              const join6 = `,
 ${indentation}`;
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
               let i = 0;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyIndent(String(i), value[i], stack, spacer, indentation);
                 res2 += tmp2 !== void 0 ? tmp2 : "null";
-                res2 += join5;
+                res2 += join6;
               }
               const tmp = stringifyIndent(String(i), value[i], stack, spacer, indentation);
               res2 += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res2 += `${join5}"... ${getItemCount(removedKeys)} not stringified"`;
+                res2 += `${join6}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               res2 += `
 ${originalIndentation}`;
@@ -9929,16 +9929,16 @@ ${originalIndentation}`;
               return '"[Object]"';
             }
             indentation += spacer;
-            const join4 = `,
+            const join5 = `,
 ${indentation}`;
             let res = "";
             let separator = "";
             let maximumPropertiesToStringify = Math.min(keyLength, maximumBreadth);
             if (isTypedArrayWithEntries(value)) {
-              res += stringifyTypedArray(value, join4, maximumBreadth);
+              res += stringifyTypedArray(value, join5, maximumBreadth);
               keys = keys.slice(value.length);
               maximumPropertiesToStringify -= value.length;
-              separator = join4;
+              separator = join5;
             }
             if (deterministic) {
               keys = sort(keys, comparator);
@@ -9949,13 +9949,13 @@ ${indentation}`;
               const tmp = stringifyIndent(key2, value[key2], stack, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}: ${tmp}`;
-                separator = join4;
+                separator = join5;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...": "${getItemCount(removedKeys)} not stringified"`;
-              separator = join4;
+              separator = join5;
             }
             if (separator !== "") {
               res = `
@@ -11795,15 +11795,15 @@ var require_reply = __commonJS({
       const req = reply.request;
       if (reply[kReplyTrailers] !== null) {
         const trailerHeaders = Object.keys(reply[kReplyTrailers]);
-        let header = "";
+        let header2 = "";
         for (const trailerName of trailerHeaders) {
           if (typeof reply[kReplyTrailers][trailerName] !== "function") continue;
-          header += " ";
-          header += trailerName;
+          header2 += " ";
+          header2 += trailerName;
         }
-        if (header !== "") {
+        if (header2 !== "") {
           reply.header("Transfer-Encoding", "chunked");
-          reply.header("Trailer", header.trim());
+          reply.header("Trailer", header2.trim());
         } else {
           reply[kReplyTrailers] = null;
         }
@@ -12171,35 +12171,35 @@ var require_forwarded = __commonJS({
       if (!req) {
         throw new TypeError("argument req is required");
       }
-      const header = req.headers["x-forwarded-for"];
+      const header2 = req.headers["x-forwarded-for"];
       const socketAddr = req.socket.remoteAddress;
-      if (!header || typeof header !== "string") {
+      if (!header2 || typeof header2 !== "string") {
         return [socketAddr];
-      } else if (header.indexOf(",") === -1) {
-        const remote = header.trim();
+      } else if (header2.indexOf(",") === -1) {
+        const remote = header2.trim();
         return remote.length ? [socketAddr, remote] : [socketAddr];
       } else {
-        return parse(header, socketAddr);
+        return parse(header2, socketAddr);
       }
     }
-    function parse(header, socketAddr) {
+    function parse(header2, socketAddr) {
       const result = [socketAddr];
-      let end = header.length;
+      let end = header2.length;
       let start = end;
       let char;
       let i;
       for (i = end - 1; i >= 0; --i) {
-        char = header[i];
+        char = header2[i];
         if (char === " " || char === "	") {
           start === end && (start = end = i);
         } else if (char === ",") {
-          start !== end && result.push(header.slice(start, end));
+          start !== end && result.push(header2.slice(start, end));
           start = end = i;
         } else {
           start = i;
         }
       }
-      start !== end && result.push(header.substring(start, end));
+      start !== end && result.push(header2.substring(start, end));
       return result;
     }
     module.exports = forwarded;
@@ -34449,13 +34449,13 @@ Content-Disposition: form-data`;
             yield textEncoder.encode(`${normalizeLinefeeds(value)}\r
 `);
           } else {
-            let header = `${prefix}; name="${escape2(normalizeLinefeeds(name))}"`;
-            value.name && (header += `; filename="${escape2(value.name)}"`);
-            header += `\r
+            let header2 = `${prefix}; name="${escape2(normalizeLinefeeds(name))}"`;
+            value.name && (header2 += `; filename="${escape2(value.name)}"`);
+            header2 += `\r
 Content-Type: ${value.type || "application/octet-stream"}\r
 \r
 `;
-            yield textEncoder.encode(header);
+            yield textEncoder.encode(header2);
             if (value.stream) {
               yield* value.stream();
             } else {
@@ -34532,14 +34532,14 @@ var require_request2 = __commonJS({
       this.headers = {};
       this.rawHeaders = [];
       const headers = options.headers || {};
-      for (const field in headers) {
-        const fieldLowerCase = field.toLowerCase();
-        if ((fieldLowerCase === "user-agent" || fieldLowerCase === "content-type") && headers[field] === void 0) {
+      for (const field2 in headers) {
+        const fieldLowerCase = field2.toLowerCase();
+        if ((fieldLowerCase === "user-agent" || fieldLowerCase === "content-type") && headers[field2] === void 0) {
           this.headers[fieldLowerCase] = void 0;
           continue;
         }
-        const value = headers[field];
-        assert(value !== void 0, 'invalid value "undefined" for header ' + field);
+        const value = headers[field2];
+        assert(value !== void 0, 'invalid value "undefined" for header ' + field2);
         this.headers[fieldLowerCase] = "" + value;
       }
       if ("user-agent" in this.headers === false) {
@@ -34580,8 +34580,8 @@ var require_request2 = __commonJS({
       if (payload && !payloadResume && !Object.hasOwn(this.headers, "content-length")) {
         this.headers["content-length"] = (Buffer.isBuffer(payload) ? payload.length : Buffer.byteLength(payload)).toString();
       }
-      for (const header of Object.keys(this.headers)) {
-        this.rawHeaders.push(header, this.headers[header]);
+      for (const header2 of Object.keys(this.headers)) {
+        this.rawHeaders.push(header2, this.headers[header2]);
       }
       this._lightMyRequest = {
         payload,
@@ -35035,9 +35035,9 @@ var require_response = __commonJS({
       response._lightMyRequest.headers = Object.assign({}, response.getHeaders());
       ["Date", "Connection", "Transfer-Encoding"].forEach((name) => {
         const regex = new RegExp("\\r\\n" + name + ": ([^\\r]*)\\r\\n");
-        const field = response._header?.match(regex);
-        if (field) {
-          response._lightMyRequest.headers[name.toLowerCase()] = field[1];
+        const field2 = response._header?.match(regex);
+        if (field2) {
+          response._lightMyRequest.headers[name.toLowerCase()] = field2[1];
         }
       });
     }
@@ -36885,6 +36885,8 @@ var DEFAULTS = {
   bluetoothControl: "/run/musicbox/control",
   dbPath: "/var/lib/musicbox/data/musicbox.db",
   powerDir: "/run/musicbox-power",
+  mpdStateDir: "/var/lib/mpd",
+  restoreDir: "/run/musicbox-restore",
   logLevel: "info"
 };
 function parseConf(text) {
@@ -36931,6 +36933,8 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
     bluetoothControl: pick("MUSICBOX_BLUETOOTH_CONTROL") ?? DEFAULTS.bluetoothControl,
     dbPath: pick("MUSICBOX_DB") ?? DEFAULTS.dbPath,
     powerDir: pick("MUSICBOX_POWER_DIR") ?? DEFAULTS.powerDir,
+    mpdStateDir: pick("MUSICBOX_MPD_STATE_DIR") ?? DEFAULTS.mpdStateDir,
+    restoreDir: pick("MUSICBOX_RESTORE_DIR") ?? DEFAULTS.restoreDir,
     logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
   };
 }
@@ -36984,6 +36988,8 @@ var LIBRARY_SCAN_HOURS = [
   22,
   23
 ];
+var BACKUP_CONTENT_TYPE = "application/gzip";
+var BACKUP_MAX_BYTES = 32 * 1024 * 1024;
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -38723,6 +38729,383 @@ function createLibraryScanner(opts) {
   };
 }
 
+// src/backup.ts
+import { access as access2, mkdir, mkdtemp, readdir, readFile as readFile2, rename, rm, writeFile as writeFile2, constants as fsConstants3 } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname as dirname3, join as join3 } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
+
+// src/db.ts
+import { DatabaseSync } from "node:sqlite";
+import { dirname as dirname2 } from "node:path";
+import { mkdirSync } from "node:fs";
+var MIGRATIONS = [
+  // v1 — settings. Values are TEXT because that is what survives: a setting
+  // that is a number today may be an enum tomorrow, and the typed layer above
+  // (settings.ts) is where the meaning lives.
+  `CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    ) STRICT;`,
+  // v2 — library scan history. The row is written when a scan STARTS, because
+  // a scan runs for the better part of an hour and this server is restarted by
+  // every deploy; recording it at the end would lose `started_at` entirely.
+  // `finished_at` therefore stays NULL both while it runs and for one whose end
+  // was never seen — a duration we did not measure is not one to invent.
+  `CREATE TABLE library_scan (
+        id           INTEGER PRIMARY KEY,
+        started_at   INTEGER NOT NULL,
+        finished_at  INTEGER,
+        trigger      TEXT NOT NULL,
+        outcome      TEXT,
+        songs_before INTEGER,
+        songs_after  INTEGER
+    ) STRICT;`
+];
+var SCHEMA_VERSION = MIGRATIONS.length;
+function openDb(options) {
+  const { path, onMigrate, migrations = MIGRATIONS } = options;
+  if (path !== ":memory:") mkdirSync(dirname2(path), { recursive: true });
+  const sqlite = new DatabaseSync(path);
+  if (path !== ":memory:") sqlite.exec("PRAGMA journal_mode = WAL;");
+  sqlite.exec("PRAGMA foreign_keys = ON;");
+  sqlite.exec("PRAGMA busy_timeout = 5000;");
+  const db = {
+    get(sql, ...params) {
+      return sqlite.prepare(sql).get(...params);
+    },
+    all(sql, ...params) {
+      return sqlite.prepare(sql).all(...params);
+    },
+    run(sql, ...params) {
+      sqlite.prepare(sql).run(...params);
+    },
+    transaction(fn) {
+      sqlite.exec("BEGIN");
+      try {
+        fn();
+        sqlite.exec("COMMIT");
+      } catch (err) {
+        sqlite.exec("ROLLBACK");
+        throw err;
+      }
+    },
+    snapshot(target) {
+      sqlite.prepare("VACUUM INTO ?").run(target);
+      const copy = new DatabaseSync(target);
+      try {
+        copy.exec("PRAGMA journal_mode = DELETE;");
+      } finally {
+        copy.close();
+      }
+    },
+    close() {
+      sqlite.close();
+    }
+  };
+  migrate(sqlite, migrations, onMigrate);
+  return db;
+}
+function checkDbFile(path, known = SCHEMA_VERSION) {
+  const sqlite = new DatabaseSync(path);
+  try {
+    const integrity = sqlite.prepare("PRAGMA integrity_check").get();
+    if (integrity?.integrity_check !== "ok") {
+      throw new Error(`database failed its integrity check: ${integrity?.integrity_check ?? "no answer"}`);
+    }
+    const row = sqlite.prepare("PRAGMA user_version").get();
+    const version = row?.user_version ?? 0;
+    if (version < 1) throw new Error("not a musicbox database");
+    if (version > known) {
+      throw new Error(`database is at schema v${version}, but this build only knows v${known}`);
+    }
+    return version;
+  } finally {
+    sqlite.close();
+  }
+}
+function migrate(sqlite, migrations, onMigrate) {
+  const row = sqlite.prepare("PRAGMA user_version").get();
+  let version = row?.user_version ?? 0;
+  if (version > migrations.length) {
+    throw new Error(
+      `database is at schema v${version}, but this build only knows v${migrations.length}`
+    );
+  }
+  while (version < migrations.length) {
+    const next = version + 1;
+    sqlite.exec("BEGIN");
+    try {
+      sqlite.exec(migrations[version]);
+      sqlite.exec(`PRAGMA user_version = ${next}`);
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
+    version = next;
+    onMigrate?.(next);
+  }
+}
+
+// src/tar.ts
+var BLOCK = 512;
+var TarError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TarError";
+  }
+};
+function octal(value, width) {
+  return value.toString(8).padStart(width - 1, "0") + "\0";
+}
+function splitName(name) {
+  if (Buffer.byteLength(name) <= 100) return ["", name];
+  for (let i = name.indexOf("/"); i !== -1; i = name.indexOf("/", i + 1)) {
+    const prefix = name.slice(0, i);
+    const rest = name.slice(i + 1);
+    if (Buffer.byteLength(prefix) <= 155 && Buffer.byteLength(rest) <= 100) return [prefix, rest];
+  }
+  throw new TarError(`name too long for ustar: ${name}`);
+}
+function header(entry, mtime) {
+  const block = Buffer.alloc(BLOCK);
+  const [prefix, name] = splitName(entry.name);
+  block.write(name, 0, 100);
+  block.write(octal(420, 8), 100);
+  block.write(octal(0, 8), 108);
+  block.write(octal(0, 8), 116);
+  block.write(octal(entry.data.length, 12), 124);
+  block.write(octal(mtime, 12), 136);
+  block.write("        ", 148);
+  block.write("0", 156);
+  block.write("ustar\0", 257);
+  block.write("00", 263);
+  block.write(prefix, 345, 155);
+  block.write(octal(checksum(block), 7) + " ", 148);
+  return block;
+}
+function checksum(block) {
+  let sum = 0;
+  for (let i = 0; i < BLOCK; i++) sum += i >= 148 && i < 156 ? 32 : block[i];
+  return sum;
+}
+function packTar(entries, mtime = Math.floor(Date.now() / 1e3)) {
+  const parts = [];
+  for (const entry of entries) {
+    parts.push(header(entry, mtime), entry.data);
+    const pad = (BLOCK - entry.data.length % BLOCK) % BLOCK;
+    if (pad) parts.push(Buffer.alloc(pad));
+  }
+  parts.push(Buffer.alloc(BLOCK * 2));
+  return Buffer.concat(parts);
+}
+function field(block, start, length) {
+  const raw = block.subarray(start, start + length);
+  const end = raw.indexOf(0);
+  return raw.subarray(0, end === -1 ? length : end).toString("utf8");
+}
+function readOctal(block, start, length) {
+  const text = field(block, start, length).trim();
+  if (!/^[0-7]+$/.test(text)) throw new TarError("malformed numeric field");
+  return Number.parseInt(text, 8);
+}
+function cleanName(raw) {
+  const name = raw.replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  if (name === "" || name.startsWith("/") || name.split("/").some((part) => part === ".." || part === "")) {
+    throw new TarError(`unsafe member name: ${raw}`);
+  }
+  return name;
+}
+function unpackTar(archive) {
+  const entries = [];
+  let offset = 0;
+  while (offset + BLOCK <= archive.length) {
+    const block = archive.subarray(offset, offset + BLOCK);
+    if (block.every((byte) => byte === 0)) return entries;
+    const magic = field(block, 257, 6).trim();
+    if (magic !== "ustar") throw new TarError("not a ustar archive");
+    if (readOctal(block, 148, 8) !== checksum(block)) throw new TarError("header checksum mismatch");
+    const size = readOctal(block, 124, 12);
+    const type = String.fromCharCode(block[156]);
+    offset += BLOCK;
+    if (type === "5") {
+      offset += Math.ceil(size / BLOCK) * BLOCK;
+      continue;
+    }
+    const prefix = field(block, 345, 155);
+    const name = cleanName(prefix ? `${prefix}/${field(block, 0, 100)}` : field(block, 0, 100));
+    if (type !== "0" && type !== "\0") throw new TarError(`not a regular file: ${name}`);
+    if (offset + size > archive.length) throw new TarError(`truncated member: ${name}`);
+    entries.push({ name, data: Buffer.from(archive.subarray(offset, offset + size)) });
+    offset += Math.ceil(size / BLOCK) * BLOCK;
+  }
+  throw new TarError("archive ends without an end-of-archive marker");
+}
+
+// src/backup.ts
+var BACKUP_FORMAT = 1;
+var MAX_UNPACKED_BYTES = 256 * 1024 * 1024;
+var DB_MEMBER = "musicbox.db";
+var MANIFEST_MEMBER = "manifest.json";
+var MPD_REQUIRED = ["state"];
+var MPD_OPTIONAL = ["tag_cache", "sticker.sql"];
+var PLAYLIST_MEMBER = /^mpd\/playlists\/[^/\x00-\x1f]+\.m3u$/;
+var BackupError = class extends Error {
+  code;
+  constructor(message, code) {
+    super(message);
+    this.name = "BackupError";
+    this.code = code;
+  }
+};
+function isAllowedMember(name) {
+  if (name === DB_MEMBER || name === MANIFEST_MEMBER) return true;
+  if ([...MPD_REQUIRED, ...MPD_OPTIONAL].some((file) => name === `mpd/${file}`)) return true;
+  return PLAYLIST_MEMBER.test(name) && !name.startsWith("mpd/playlists/.");
+}
+function backupFilename(now) {
+  const d = new Date(now);
+  const two = (n) => String(n).padStart(2, "0");
+  return `musicbox-backup-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.tar.gz`;
+}
+async function readOptional(path) {
+  try {
+    return await readFile2(path);
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+}
+async function readBackup(archive, known = SCHEMA_VERSION) {
+  let entries;
+  try {
+    entries = unpackTar(gunzipSync(archive, { maxOutputLength: MAX_UNPACKED_BYTES }));
+  } catch (err) {
+    if (err instanceof TarError) throw new BackupError(`not a valid backup: ${err.message}`, 400);
+    throw new BackupError("not a valid backup: not a gzip archive, or too large", 400);
+  }
+  const names = /* @__PURE__ */ new Set();
+  for (const { name } of entries) {
+    if (!isAllowedMember(name)) throw new BackupError(`unexpected file in backup: ${name}`, 400);
+    if (names.has(name)) throw new BackupError(`duplicate file in backup: ${name}`, 400);
+    names.add(name);
+  }
+  const manifestEntry = entries.find((e) => e.name === MANIFEST_MEMBER);
+  let manifest = null;
+  try {
+    manifest = manifestEntry ? JSON.parse(manifestEntry.data.toString("utf8")) : null;
+  } catch {
+  }
+  if (manifest?.format !== BACKUP_FORMAT) {
+    throw new BackupError("not a musicbox backup, or from an incompatible version", 400);
+  }
+  for (const required of [DB_MEMBER, ...MPD_REQUIRED.map((f) => `mpd/${f}`)]) {
+    if (!names.has(required)) throw new BackupError(`backup is missing ${required}`, 400);
+  }
+  const scratch = await mkdtemp(join3(tmpdir(), "musicbox-backup-check-"));
+  try {
+    const path = join3(scratch, DB_MEMBER);
+    await writeFile2(path, entries.find((e) => e.name === DB_MEMBER).data);
+    checkDbFile(path, known);
+  } catch (err) {
+    throw new BackupError(`backup database is unusable: ${err.message}`, 400);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+  return entries;
+}
+function createBackups(opts) {
+  const { mpdDir, restoreDir } = opts;
+  const now = opts.now ?? Date.now;
+  const request = join3(restoreDir, "request");
+  const payload = join3(restoreDir, "payload");
+  let staging = false;
+  async function pending() {
+    return await readOptional(request) !== null;
+  }
+  return {
+    pending,
+    async create() {
+      const createdAt = now();
+      const scratch = await mkdtemp(join3(tmpdir(), "musicbox-backup-"));
+      const entries = [];
+      try {
+        const dbCopy = join3(scratch, DB_MEMBER);
+        opts.db.snapshot(dbCopy);
+        const manifest = {
+          format: BACKUP_FORMAT,
+          createdAt,
+          build: opts.build,
+          schemaVersion: SCHEMA_VERSION
+        };
+        entries.push(
+          { name: MANIFEST_MEMBER, data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n") },
+          { name: DB_MEMBER, data: await readFile2(dbCopy) }
+        );
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+      for (const file of MPD_REQUIRED) {
+        const data = await readOptional(join3(mpdDir, file));
+        if (!data) throw new BackupError(`cannot read ${join3(mpdDir, file)} \u2014 is MPD installed?`, 503);
+        entries.push({ name: `mpd/${file}`, data });
+      }
+      for (const file of MPD_OPTIONAL) {
+        const data = await readOptional(join3(mpdDir, file));
+        if (data) entries.push({ name: `mpd/${file}`, data });
+      }
+      let playlists = [];
+      try {
+        playlists = (await readdir(join3(mpdDir, "playlists"))).sort();
+      } catch {
+      }
+      for (const file of playlists) {
+        const name = `mpd/playlists/${file}`;
+        if (!isAllowedMember(name)) continue;
+        const data = await readOptional(join3(mpdDir, "playlists", file));
+        if (data) entries.push({ name, data });
+      }
+      return {
+        filename: backupFilename(createdAt),
+        archive: gzipSync(packTar(entries, Math.floor(createdAt / 1e3)))
+      };
+    },
+    async restore(archive) {
+      if (archive.length > BACKUP_MAX_BYTES) throw new BackupError("backup is too large", 400);
+      try {
+        await access2(restoreDir, fsConstants3.W_OK);
+      } catch {
+        throw new BackupError("restore is not available \u2014 is setup-server.sh installed?", 503);
+      }
+      if (staging || await pending()) {
+        throw new BackupError("a restore is already in progress", 409);
+      }
+      staging = true;
+      try {
+        const entries = await readBackup(archive);
+        const next = await mkdtemp(join3(restoreDir, "payload.tmp-"));
+        try {
+          for (const entry of entries) {
+            if (entry.name === MANIFEST_MEMBER) continue;
+            const target = join3(next, entry.name);
+            await mkdir(dirname3(target), { recursive: true });
+            await writeFile2(target, entry.data, { mode: 420 });
+          }
+          await rm(payload, { recursive: true, force: true });
+          await rename(next, payload);
+        } catch (err) {
+          await rm(next, { recursive: true, force: true });
+          throw err;
+        }
+        await writeFile2(request, "");
+      } finally {
+        staging = false;
+      }
+    }
+  };
+}
+
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
 function isLoopback(ip) {
@@ -39100,6 +39483,48 @@ function registerRoutes(app, opts) {
     }
     return reply.code(202).send({ accepted: "rescan" });
   });
+  app.get("/api/backup", async (_request, reply) => {
+    const backups = opts.backups;
+    if (!backups) return reply.code(503).send({ error: "backups are unavailable" });
+    try {
+      const { filename, archive } = await backups.create();
+      return reply.type(BACKUP_CONTENT_TYPE).header("content-disposition", `attachment; filename="${filename}"`).header("cache-control", "no-store").send(archive);
+    } catch (err) {
+      if (err instanceof BackupError) return reply.code(err.code).send({ error: err.message });
+      throw err;
+    }
+  });
+  app.addContentTypeParser(
+    BACKUP_CONTENT_TYPE,
+    { parseAs: "buffer", bodyLimit: BACKUP_MAX_BYTES },
+    (_request, body, done) => done(null, body)
+  );
+  app.post(
+    "/api/restore",
+    { bodyLimit: BACKUP_MAX_BYTES },
+    async (request, reply) => {
+      const backups = opts.backups;
+      if (!backups) return reply.code(503).send({ error: "backups are unavailable" });
+      if (!Buffer.isBuffer(request.body)) {
+        return reply.code(400).send({ error: `body must be ${BACKUP_CONTENT_TYPE}` });
+      }
+      if (opts.scanner?.state().scanning) {
+        return reply.code(409).send({ error: "a library scan is running \u2014 try again when it finishes" });
+      }
+      if (bridge.current.source === "bluetooth") {
+        return reply.code(409).send({ error: "a phone is playing over Bluetooth \u2014 disconnect it first" });
+      }
+      try {
+        await backups.restore(request.body);
+      } catch (err) {
+        if (err instanceof BackupError) return reply.code(err.code).send({ error: err.message });
+        throw err;
+      }
+      app.log.warn("restore requested over the API");
+      const body = { accepted: "restore" };
+      return reply.code(202).send(body);
+    }
+  );
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -39113,95 +39538,9 @@ function registerRoutes(app, opts) {
   };
 }
 
-// src/db.ts
-import { DatabaseSync } from "node:sqlite";
-import { dirname as dirname2 } from "node:path";
-import { mkdirSync } from "node:fs";
-var MIGRATIONS = [
-  // v1 — settings. Values are TEXT because that is what survives: a setting
-  // that is a number today may be an enum tomorrow, and the typed layer above
-  // (settings.ts) is where the meaning lives.
-  `CREATE TABLE settings (
-        key   TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-    ) STRICT;`,
-  // v2 — library scan history. The row is written when a scan STARTS, because
-  // a scan runs for the better part of an hour and this server is restarted by
-  // every deploy; recording it at the end would lose `started_at` entirely.
-  // `finished_at` therefore stays NULL both while it runs and for one whose end
-  // was never seen — a duration we did not measure is not one to invent.
-  `CREATE TABLE library_scan (
-        id           INTEGER PRIMARY KEY,
-        started_at   INTEGER NOT NULL,
-        finished_at  INTEGER,
-        trigger      TEXT NOT NULL,
-        outcome      TEXT,
-        songs_before INTEGER,
-        songs_after  INTEGER
-    ) STRICT;`
-];
-var SCHEMA_VERSION = MIGRATIONS.length;
-function openDb(options) {
-  const { path, onMigrate, migrations = MIGRATIONS } = options;
-  if (path !== ":memory:") mkdirSync(dirname2(path), { recursive: true });
-  const sqlite = new DatabaseSync(path);
-  if (path !== ":memory:") sqlite.exec("PRAGMA journal_mode = WAL;");
-  sqlite.exec("PRAGMA foreign_keys = ON;");
-  sqlite.exec("PRAGMA busy_timeout = 5000;");
-  const db = {
-    get(sql, ...params) {
-      return sqlite.prepare(sql).get(...params);
-    },
-    all(sql, ...params) {
-      return sqlite.prepare(sql).all(...params);
-    },
-    run(sql, ...params) {
-      sqlite.prepare(sql).run(...params);
-    },
-    transaction(fn) {
-      sqlite.exec("BEGIN");
-      try {
-        fn();
-        sqlite.exec("COMMIT");
-      } catch (err) {
-        sqlite.exec("ROLLBACK");
-        throw err;
-      }
-    },
-    close() {
-      sqlite.close();
-    }
-  };
-  migrate(sqlite, migrations, onMigrate);
-  return db;
-}
-function migrate(sqlite, migrations, onMigrate) {
-  const row = sqlite.prepare("PRAGMA user_version").get();
-  let version = row?.user_version ?? 0;
-  if (version > migrations.length) {
-    throw new Error(
-      `database is at schema v${version}, but this build only knows v${migrations.length}`
-    );
-  }
-  while (version < migrations.length) {
-    const next = version + 1;
-    sqlite.exec("BEGIN");
-    try {
-      sqlite.exec(migrations[version]);
-      sqlite.exec(`PRAGMA user_version = ${next}`);
-      sqlite.exec("COMMIT");
-    } catch (err) {
-      sqlite.exec("ROLLBACK");
-      throw err;
-    }
-    version = next;
-    onMigrate?.(next);
-  }
-}
-
 // src/panel.ts
 import { readFileSync as readFileSync2, readdirSync, writeFileSync } from "node:fs";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 var BACKLIGHT_ROOT = "/sys/class/backlight";
 var defaultPanelDeps = {
   root: BACKLIGHT_ROOT,
@@ -39213,7 +39552,7 @@ function findDevice(deps, explicit) {
   if (explicit) return explicit;
   try {
     const entries = deps.listDir(deps.root).sort();
-    return entries.length > 0 ? join3(deps.root, entries[0]) : null;
+    return entries.length > 0 ? join4(deps.root, entries[0]) : null;
   } catch {
     return null;
   }
@@ -39224,7 +39563,7 @@ function createPanel(options = {}) {
   let max = 0;
   if (device !== null) {
     try {
-      max = Number.parseInt(deps.readFile(join3(device, "max_brightness")).trim(), 10);
+      max = Number.parseInt(deps.readFile(join4(device, "max_brightness")).trim(), 10);
     } catch {
       max = 0;
     }
@@ -39233,7 +39572,7 @@ function createPanel(options = {}) {
   const read = () => {
     if (!supported) return null;
     try {
-      const raw = deps.readFile(join3(device, "brightness")).trim();
+      const raw = deps.readFile(join4(device, "brightness")).trim();
       const value = Number.parseInt(raw, 10);
       return Number.isFinite(value) ? value : null;
     } catch (err) {
@@ -39251,7 +39590,7 @@ function createPanel(options = {}) {
     set(on) {
       if (!supported) return false;
       try {
-        deps.writeFile(join3(device, "brightness"), String(on ? max : 0));
+        deps.writeFile(join4(device, "brightness"), String(on ? max : 0));
         return true;
       } catch (err) {
         options.onError?.(err);
@@ -39262,7 +39601,7 @@ function createPanel(options = {}) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-17T03:50:48Z" : "dev";
+var BUILD = true ? "2026-09-17T08:24:16Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -39312,7 +39651,13 @@ async function main() {
     panel,
     settings,
     power: createPower(config.powerDir),
-    scanner
+    scanner,
+    backups: createBackups({
+      db,
+      build: BUILD,
+      mpdDir: config.mpdStateDir,
+      restoreDir: config.restoreDir
+    })
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({

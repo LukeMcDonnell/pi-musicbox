@@ -1,6 +1,6 @@
 # Testing
 
-`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**713 assertions**)
+`bash tests/run-all.sh` — syntax, shellcheck, nine bash suites (**745 assertions**)
 and the backend's 256 `node:test` cases. All green, shellcheck clean (2026-09-16). Safe on a dev machine:
 `setup.sh` is never executed on the host, only inside a throwaway container.
 
@@ -27,7 +27,7 @@ both, and `run-all.sh` says so rather than leaving a cryptic error.
 ## The frontend specs are NOT in run-all.sh
 
 ```sh
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 203 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 212 specs
 ```
 
 Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only
