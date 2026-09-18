@@ -1,0 +1,42 @@
+<section class="py-2">
+  <div class="flex items-baseline gap-3 pb-2">
+    <h2 class="text-lg font-bold">{{ heading() }}</h2>
+    @if (link(); as target) {
+      <a class="ms-auto flex min-h-11 items-center px-1 text-[0.85rem] font-semibold text-muted
+                select-none touch-manipulation active:text-accent"
+         [routerLink]="target">{{ linkLabel() }}</a>
+    }
+  </div>
+
+  <!-- The group is this wrapper, not the section: the buttons centre on the rail,
+       and hovering the heading is not hovering the row. -->
+  <div class="group/shelf relative">
+    <!-- overscroll-x-contain: a fling that runs out here must not become a page swipe. -->
+    <div #rail class="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto
+                      overscroll-x-contain"
+         (scroll)="measure()">
+      <ng-content />
+    </div>
+
+    @if (overflows()) {
+      <button type="button"
+              class="absolute start-0 top-1/2 grid size-11 -translate-y-1/2 cursor-pointer
+                     touch-manipulation place-items-center rounded-full bg-surface/90 text-text
+                     select-none active:bg-raised disabled:invisible
+                     fine:opacity-0 fine:focus-visible:opacity-100 fine:group-hover/shelf:opacity-100"
+              [disabled]="!canScrollLeft()" aria-label="Scroll left"
+              (click)="scrollBy(-1)">
+        <svg lucideChevronLeft class="size-6" aria-hidden="true"></svg>
+      </button>
+      <button type="button"
+              class="absolute end-0 top-1/2 grid size-11 -translate-y-1/2 cursor-pointer
+                     touch-manipulation place-items-center rounded-full bg-surface/90 text-text
+                     select-none active:bg-raised disabled:invisible
+                     fine:opacity-0 fine:focus-visible:opacity-100 fine:group-hover/shelf:opacity-100"
+              [disabled]="!canScrollRight()" aria-label="Scroll right"
+              (click)="scrollBy(1)">
+        <svg lucideChevronRight class="size-6" aria-hidden="true"></svg>
+      </button>
+    }
+  </div>
+</section>

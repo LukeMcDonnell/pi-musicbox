@@ -68,6 +68,12 @@
 @custom-variant short (@media (height < 40rem));
 
 /*
+  A real mouse. The shelf arrows are always there for a thumb and appear on hover
+  for a pointer; the panel is capacitive touch and never matches this.
+*/
+@custom-variant fine (@media (hover: hover) and (pointer: fine));
+
+/*
   The blurred, darkened cover behind now-playing and behind the mini bar.
 
   One definition so the two cannot drift apart — tune it here. The blur radius
@@ -115,4 +121,10 @@ body {
 
 * {
   scrollbar-width: thin;
+}
+
+/* A shelf scrolls by its buttons, so its scrollbar is noise. A plain class rather
+   than @utility: the rule above is unlayered, and unlayered beats every layer. */
+.no-scrollbar {
+  scrollbar-width: none;
 }

@@ -15,7 +15,7 @@ describe('Menu', () => {
             (fixture.nativeElement as HTMLElement).querySelectorAll('a'),
             (a) => a.getAttribute('href'),
         );
-        expect(hrefs).toEqual(['/library', '/favourites', '/settings']);
+        expect(hrefs).toEqual(['/home', '/library', '/favourites', '/settings']);
     });
 
     it('marks the current screen with aria-current, which is what styles it', async () => {

@@ -1222,3 +1222,36 @@ closed the sheet and went nowhere. `NowPlaying.follow` waits for the router's
 
 A reload lands on a marked entry with the sheet closed; the marker is stripped
 rather than reopening the sheet on boot.
+
+## The Home shelf: three things that look wrong and are not (2026-09-18)
+
+**`.no-scrollbar` is a plain class, not `@utility`.** `styles.scss` sets
+`* { scrollbar-width: thin }` **unlayered**, and unlayered CSS beats every
+`@layer` — including the `utilities` layer that `@utility` compiles into. Written
+the house way, next to `art-backdrop`, the rule loses to the `*` and the shelf
+shows a scrollbar in the kiosk while looking correct in dev. A plain class at
+specificity `0,1,0`, declared after the `*`, is what actually wins. Confirmed by
+reading the built stylesheet, which is the only way to see it.
+
+**The shelf is picked by hashing, not by shuffling.** `favourite-picks.ts` draws
+one seed per page load and ranks each album by `hash(seed + its name)`. Two
+properties come from that and neither is free with a shuffle: the `computed` can
+re-run as often as Angular likes for the same ten, and a heart tapped somewhere
+else does not rearrange Home — every other album's hash is unchanged, so an
+arriving favourite can displace at most one. The seed lives in a root service
+because navigating to an album and back rebuilds the screen, and a pick made in
+the component would come back different every time.
+
+**The arrows scroll instantly.** `behavior: 'auto'`, not `'smooth'`, to match
+`[scrollAnimationTime]="0"` on both virtual scrollers and the no-transition rule
+on the settings switch: every repaint on the DSI panel is a vc4 atomic commit.
+The rail is `snap-mandatory`, so a page still lands on a card edge.
+
+**`fine` is (hover: hover) and (pointer: fine), and non-matching is the safe
+direction.** The arrows are opaque by default and only hide themselves inside
+that query, so anything that cannot answer it — including headless Chrome, which
+reports `pointer: none` — gets permanently visible arrows, which is what the
+panel wants. Verified both ways: headless at 800x480 shows them at opacity 1,
+and a headed browser on a real mouse gives 0 at idle and 1 on hover. Neither
+`Emulation.setEmulatedMedia` nor `--blink-settings=primaryPointerType` moves
+`matchMedia` in this Chrome, so the fine-pointer half cannot be checked headless.

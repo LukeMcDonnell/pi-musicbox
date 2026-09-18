@@ -1000,6 +1000,27 @@ The helper comes from `setup-server.sh`, so **re-run it** on a box set up before
 this existed — until then restore answers 503. To undo a restore by hand, copy
 the files back from `restore-previous/` with MPD and the server stopped.
 
+### Home
+
+The screen the box opens on — `/` and anything unrecognised land here.
+
+It carries **shelves**: a heading, a row of cards that scrolls sideways with a
+button at each end, and a link through to the full list. The buttons are always
+visible to a thumb and fade in on hover where there is a mouse to hover with; the
+row has no scrollbar.
+
+The first shelf is **ten of your favourites, chosen at random**, with *See all*
+going to the Favourites screen. The ten are fixed for as long as the page is
+loaded — going into an album and coming back shows the same row — and they are
+picked by hashing a per-load seed with each album's name rather than by
+shuffling, so favouriting something elsewhere does not rearrange the screen. The
+panel reloads on a deploy or a reboot, which is when the ten change. Tapping a
+card opens the album.
+
+`Shelf` and `AlbumCard` under `routes/home/components/` are deliberately separate:
+the shelf knows nothing about what it carries, because albums and artists are both
+going to be shown in it.
+
 ### Favourites
 
 Albums are favourited with the heart on the album screen, and beside each album on

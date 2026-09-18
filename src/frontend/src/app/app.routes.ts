@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { Favourites } from './routes/favourites/favourites';
+import { Home } from './routes/home/home';
 import { Album } from './routes/album/album';
 import { Artist } from './routes/artist/artist';
 import { Library } from './routes/library/library';
@@ -11,7 +12,8 @@ import { Settings } from './routes/settings/settings';
   navigation to each screen.
 */
 export const routes: Routes = [
-    { path: '', pathMatch: 'full', redirectTo: 'library' },
+    { path: '', pathMatch: 'full', redirectTo: 'home' },
+    { path: 'home', component: Home, title: 'Home · musicbox' },
     { path: 'library', component: Library, title: 'Library · musicbox' },
     /*
       Artist and album are addressed by QUERY PARAMETER, not by a path segment:
@@ -26,5 +28,5 @@ export const routes: Routes = [
     { path: 'favourites', component: Favourites, title: 'Favourites · musicbox' },
     { path: 'settings', component: Settings, title: 'Settings · musicbox' },
     // The panel never types a URL, but a phone can hold a stale bookmark.
-    { path: '**', redirectTo: 'library' },
+    { path: '**', redirectTo: 'home' },
 ];

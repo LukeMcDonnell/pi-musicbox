@@ -85,7 +85,7 @@ run directly. Debian's node 20 does neither.
 
 ```sh
 bash tests/run-all.sh          # shellcheck + 9 suites (745 asserts) + 329 node tests
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 264 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 292 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s
