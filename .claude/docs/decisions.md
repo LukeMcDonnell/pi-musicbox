@@ -1242,10 +1242,28 @@ arriving favourite can displace at most one. The seed lives in a root service
 because navigating to an album and back rebuilds the screen, and a pick made in
 the component would come back different every time.
 
-**The arrows scroll instantly.** `behavior: 'auto'`, not `'smooth'`, to match
-`[scrollAnimationTime]="0"` on both virtual scrollers and the no-transition rule
-on the settings switch: every repaint on the DSI panel is a vc4 atomic commit.
-The rail is `snap-mandatory`, so a page still lands on a card edge.
+**The arrows scroll smoothly, except on the panel (revised 2026-09-18).** They
+were `behavior: 'auto'` everywhere, to match `[scrollAnimationTime]="0"` on both
+virtual scrollers and the no-transition rule on the settings switch. That reason
+holds for exactly one device. An animated scroll is a repaint per frame, and on
+the DSI panel every one of those is a vc4 atomic commit — the display half of
+the mutex deadlock in `clock-deadlock.md`, which is open, and whose
+`performance`-governor fix is not proven to cover a vc4/v3d-only lock. Aiming a
+burst of commits per gesture at that is not worth a nicer scroll.
+
+A phone or a desktop browser has none of that, so the split is by device rather
+than by taste: `IS_PANEL` in `panel-client.ts`, which already tells the box's own
+screen from a remote for panel sleep and the on-screen keyboard, and which is
+`?panel` to force either way in development. `prefers-reduced-motion` turns the
+animation off as well. The rail is `snap-mandatory` either way, so a page still
+lands on a card edge.
+
+One thing this changes beyond the feel: `scrollBy` now returns before the row has
+moved, so the immediate `measure()` reads the old position and the arrows' own
+enabled state has to come from the `(scroll)` events the animation emits. It
+does — `shelf.spec.ts` waits on a real animation and checks the far arrow
+enables itself — but it is the reason that `measure()` call is still there rather
+than being replaced by something cleverer.
 
 **`fine` is (hover: hover) and (pointer: fine), and non-matching is the safe
 direction.** The arrows are opaque by default and only hide themselves inside
@@ -1255,6 +1273,40 @@ panel wants. Verified both ways: headless at 800x480 shows them at opacity 1,
 and a headed browser on a real mouse gives 0 at idle and 1 on hover. Neither
 `Emulation.setEmulatedMedia` nor `--blink-settings=primaryPointerType` moves
 `matchMedia` in this Chrome, so the fine-pointer half cannot be checked headless.
+
+**The blank cards are a still placeholder, and they go inside a real shelf.**
+Each of the three shelves fills at its own moment — plays and favourites off the
+stream, recently added off a query — and the lines of text they used to show
+while waiting ("Reading the library…", "Loading favourites…") were about 28px
+where the shelf that replaced them is about 240px. Every shelf below walked up
+the screen as the ones above it landed, which on the panel is the whole page
+moving under a thumb already reaching for a cover.
+
+So the skeleton is projected into an `app-shelf` with the same heading and the
+same link, rather than being a shelf of its own: the heading row, the `See all`
+link and the arrows are then right by construction, and the only thing that
+changes when the albums arrive is the cards. The link matters more than it looks
+— it is `min-h-11`, so a heading row without one is 44px shorter, and omitting it
+would reintroduce the jump it is there to remove.
+
+Two things were measured rather than assumed, in `shelf-skeleton.spec.ts` at the
+panel's 800px, against a real `AlbumCard` in the same flex row:
+
+- The blank card is **152x202**, byte-identical to a real one, because its blocks
+  hold `&nbsp;` under the card's own `text-[0.95rem]`/`text-[0.8rem]` instead of
+  carrying heights of their own. A hand-written height is a number that drifts the
+  first time the card's type scale moves.
+- A `mt-0.5` between the two text bars — which is what it took to make them read
+  as two lines rather than one block — measured **204**. Two pixels is not much,
+  but a placeholder whose entire job is that nothing moves cannot be the thing
+  that moves, so the gap went and the bars touch. Their widths are staggered
+  (`w-4/5` over `w-3/5`), and that is what reads as two lines.
+
+**And it does not shimmer.** The obvious skeleton animates a gradient across
+itself, which is a repaint per frame and so a vc4 atomic commit per frame on the
+DSI panel — the same reason the arrows scroll with `behavior: 'auto'`, the
+virtual scrollers run at `scrollAnimationTime` 0 and the settings switch has no
+transition on its knob. A still block says "not yet" well enough.
 
 ## Recently added is grouped out of a song window, not an album query (2026-09-18)
 
@@ -1323,3 +1375,44 @@ in a min/max aggregate from the row that supplied the extreme, so the art is the
 most recently played track's — which for a multi-disc album is the right disc
 directory. A documented guarantee, and the first thing a reader would rewrite into
 a subquery.
+
+## Most played artists: three things that look wrong and are not (2026-09-18)
+
+**`file` is a bare column beside `MAX(last_played)`, and the ranking is the
+`SUM`.** The query is `SELECT album_artist, file, SUM(play_count) AS plays,
+MAX(last_played) AS played_at ... GROUP BY album_artist ORDER BY plays DESC`.
+Two aggregates, and the bare `file` takes its value from the row that supplied
+the `MAX` — the same SQLite guarantee `recentAlbums` leans on for `image`, which
+holds as long as there is exactly one min/max in the query; a `SUM` alongside
+does not void it. So `MAX(last_played)` is in there for the *picture*, not for the
+order, and the picture is the artist's most recently played file. Reading the
+`MAX` as the sort key and deleting it is the rewrite to avoid.
+
+Ties break on `album_artist`, not on `played_at`. The list is cut by `limit`, and
+a tie-break that moved on every play would shuffle the last card on the shelf in
+and out for no reason a person could see.
+
+**The artist's picture is derived from a stored path, not joined against MPD.**
+An artist photo lives in the artist *directory*, and 48 of 487 names differ from
+the directory they are filed under, so the two must be joined rather than
+transformed into each other — which is why `library.ts` keeps an index at all.
+But `track_play` already stores the `file` that played, and the artist directory
+is its first path segment (`artistDirOf`, verified for all 487). So this answer
+needs no index, no join and no MPD, and the endpoint is as available as the
+database is. A file at the library root gets null rather than a guessed URI, as
+`artistImageOf` already decided: a confidently wrong picture is worse than an
+obviously missing one.
+
+**There is no SSE event for it, and that is not an oversight.** Recent Plays has
+one because that list is ordered by recency, so a single play reorders it and a
+client that missed the frame would be visibly stale. An all-time count does not:
+one play cannot reorder a top ten, and a frame per play would carry a hundred
+artists again to change nothing on screen. `PlaysStore` fetches the list and
+drops it when a `plays` frame lands, so the counts refresh on the next visit
+without the stream growing.
+
+That cache needs the same guard `LibraryStore`'s scan effect needs, for the same
+reason: the stream sends a `plays` frame the moment it connects, and treating
+that first one as news throws away the fetch in flight behind it and leaves the
+shelf on its blank cards forever. The first value is the baseline, not a change —
+`plays-store.spec.ts` pins it.

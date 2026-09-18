@@ -171,6 +171,11 @@ Not yet checked on the panel itself.
 4. **A UI-gated Bluetooth pairing window** — the box is currently discoverable to
    anyone in radio range. Designed for, deliberately deferred; see
    `bluetooth.md`.
+5. **Chase the flaky Bluetooth watcher test**, which is why `run-all.sh` goes red
+   on a clean tree about one run in five. Rates, the failing assertion and the
+   one clue worth following are in `testing.md`. It may be the test and it may be
+   the re-arm — the watcher is the thing that already failed silently on the
+   device once, so it is worth knowing which.
 
 
 ## Offered, not actioned
@@ -219,6 +224,30 @@ Not yet checked on the panel itself.
 - Reclaim the ~4s the kiosk currently waits on NetworkManager.
 - Read-only root via `raspi-config nonint enable_overlayfs` (planned from the
   start: "volatile logs now, overlayfs later").
+
+## Landed: Most Played Artists (2026-09-18)
+
+`GET /api/plays/artists`, the Home shelf that now sits second, and
+`/home/most-played-artists`. This is the half of `track_play` the entry below
+promised: a `GROUP BY album_artist` with `SUM(play_count)`, no migration, and no
+new index — `track_play_album` already leads on `album_artist`.
+
+Three things worth knowing before editing it, all in `decisions.md`: the artist's
+picture is derived from the stored file path rather than joined against MPD's
+artist index; `file` is a bare column beside `MAX(last_played)` while the ranking
+is the `SUM`; and there is deliberately no SSE event, because an all-time count
+does not reorder on one play. `PlaysStore` drops its cached list when a `plays`
+frame lands, which is the cheap version of the same liveness.
+
+The rail carrying round cards is what `shelf.ts` was written content-agnostic
+for, and `ShelfSkeleton` grew a `[round]` to match.
+
+**Follow-up: the Library's artist row is still inline markup.** It is the same
+row as `components/artist-row/`, and moving it over is the obvious tidy — left
+alone here because that screen carries the open renderer-crash issue above, and
+destabilising it to save fifteen lines of markup is a bad trade.
+
+Not yet checked on the panel itself.
 
 ## Landed: Recent Plays (2026-09-18)
 

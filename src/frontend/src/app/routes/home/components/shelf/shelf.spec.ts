@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { IS_PANEL } from '../../../../services/panel-client';
 import { Shelf } from './shelf';
 
 /* A real width and real cards: the buttons appear from measured overflow, so this
@@ -22,11 +23,26 @@ class Host {
     readonly link = signal<string | null>('/favourites');
 }
 
-function create() {
-    TestBed.configureTestingModule({ imports: [Host], providers: [provideRouter([])] });
+/**
+ * Defaults to the panel, where the scroll is instant — the row has moved by the
+ * time a click returns, so nothing has to wait on an animation. Pass
+ * `{ panel: false }` for the phone, which scrolls smoothly.
+ */
+function create({ panel = true }: { panel?: boolean } = {}) {
+    TestBed.configureTestingModule({
+        imports: [Host],
+        providers: [provideRouter([]), { provide: IS_PANEL, useValue: panel }],
+    });
     const fixture = TestBed.createComponent(Host);
     fixture.detectChanges();
     return fixture;
+}
+
+/** What a click asked the rail for, without letting it actually animate. */
+function behaviorOf(fixture: ReturnType<typeof create>, button: 0 | 1): ScrollBehavior {
+    const scrollBy = spyOn(rail(fixture), 'scrollBy');
+    buttons(fixture)[button].click();
+    return (scrollBy.calls.mostRecent().args[0] as ScrollToOptions).behavior!;
 }
 
 function buttons(fixture: ReturnType<typeof create>): HTMLButtonElement[] {
@@ -97,5 +113,46 @@ describe('Shelf', () => {
         buttons(fixture)[0].click();
         fixture.detectChanges();
         expect(rail(fixture).scrollLeft).toBeLessThan(moved);
+    });
+
+    /* The panel is the one device where an animated scroll is not free: a repaint
+       per frame is a vc4 atomic commit per frame, and clock-deadlock.md is open.
+       Everywhere else it is a phone or a desktop browser and costs nothing. */
+    it('scrolls smoothly on a phone', () => {
+        expect(behaviorOf(create({ panel: false }), 1)).toBe('smooth');
+    });
+
+    it('scrolls instantly on the panel', () => {
+        expect(behaviorOf(create(), 1)).toBe('auto');
+    });
+
+    it('scrolls instantly on a phone too when reduced motion is asked for', () => {
+        const fixture = create({ panel: false });
+        spyOn(window, 'matchMedia').and.returnValue({ matches: true } as MediaQueryList);
+        expect(behaviorOf(fixture, 1)).toBe('auto');
+    });
+
+    /* The arrows' own state is the thing a smooth scroll could break: `scrollBy`
+       returns before the row has moved, so the measurement has to come from the
+       scroll events it emits on the way. Real animation, really waited on. */
+    it('the arrows still catch up after a smooth scroll has settled', async () => {
+        const fixture = create({ panel: false });
+        expect(buttons(fixture)[0].disabled).toBe(true);
+
+        buttons(fixture)[1].click();
+        const deadline = Date.now() + 2_000;
+        while (rail(fixture).scrollLeft === 0 && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 16));
+        }
+        // Settle: wait for scrollLeft to stop changing.
+        let last = -1;
+        while (last !== rail(fixture).scrollLeft && Date.now() < deadline) {
+            last = rail(fixture).scrollLeft;
+            await new Promise((r) => setTimeout(r, 50));
+        }
+        fixture.detectChanges();
+
+        expect(rail(fixture).scrollLeft).toBeGreaterThan(0);
+        expect(buttons(fixture)[0].disabled).toBe(false);
     });
 });

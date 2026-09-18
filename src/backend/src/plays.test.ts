@@ -153,3 +153,92 @@ test('listeners get the new list, and stop when they unsubscribe', () => {
     assert.deepEqual(seen, [['Ænima'], ['Doolittle', 'Ænima']]);
     db.close();
 });
+
+// ---------------------------------------------------------------------------
+// Most played artists
+// ---------------------------------------------------------------------------
+
+test('a box that has played nothing has no artists', () => {
+    const { db, plays } = fresh();
+    assert.deepEqual(plays.mostPlayedArtists(10), []);
+    db.close();
+});
+
+test("an artist's plays are added up across their albums", () => {
+    const { db, plays } = fresh();
+    plays.record(track('Tool', 'Ænima', '01'));
+    plays.record(track('Tool', 'Ænima', '02'));
+    plays.record(track('Tool', 'Lateralus', '01'));
+    assert.deepEqual(
+        plays.mostPlayedArtists(10).map((a) => [a.name, a.plays]),
+        [['Tool', 3]],
+    );
+    db.close();
+});
+
+test('most played first, and a tie goes alphabetically rather than by recency', () => {
+    const { db, plays } = fresh();
+    // Zappa plays first and Boards second, so recency would put Boards on top.
+    plays.record(track('Zappa', 'Hot Rats', '01'));
+    plays.record(track('Boards of Canada', 'Geogaddi', '01'));
+    plays.record(track('Pixies', 'Doolittle', '01'));
+    plays.record(track('Pixies', 'Doolittle', '02'));
+    assert.deepEqual(
+        plays.mostPlayedArtists(10).map((a) => [a.name, a.plays]),
+        [
+            ['Pixies', 2],
+            ['Boards of Canada', 1],
+            ['Zappa', 1],
+        ],
+    );
+    db.close();
+});
+
+test("the picture is the first path segment of a played file, not the artist's name", () => {
+    const { db, plays } = fresh();
+    // The name MPD reports and the directory it is filed under differ, which is
+    // true of 48 of this library's 487 artists.
+    plays.record({ ...track('AC/DC', 'Back in Black', '01'), file: 'AC-DC/Back in Black/01.flac' });
+    assert.deepEqual(plays.mostPlayedArtists(10), [
+        { name: 'AC/DC', image: '/api/art?album=AC-DC', plays: 1 },
+    ]);
+    db.close();
+});
+
+test('a file at the library root has no artist directory, so no picture', () => {
+    const { db, plays } = fresh();
+    plays.record({ ...track('Tool', 'Ænima', '01'), file: 'stray.flac' });
+    assert.equal(plays.mostPlayedArtists(10)[0]!.image, null);
+    db.close();
+});
+
+test('the picture comes from the most recently played file, so a retag corrects it', () => {
+    const { db, plays } = fresh();
+    plays.record({ ...track('Tool', 'Ænima', '01'), file: 'Tool (old)/Ænima/01.flac' });
+    plays.record({ ...track('Tool', 'Ænima', '02'), file: 'Tool/Ænima/02.flac' });
+    assert.equal(plays.mostPlayedArtists(10)[0]!.image, '/api/art?album=Tool');
+    db.close();
+});
+
+test('an untagged album artist is left out — there would be nothing to open', () => {
+    const { db, plays } = fresh();
+    plays.record({ ...track('Tool', 'Ænima', '01'), albumArtist: undefined });
+    plays.record(track('Pixies', 'Doolittle', '01'));
+    assert.deepEqual(
+        plays.mostPlayedArtists(10).map((a) => a.name),
+        ['Pixies'],
+    );
+    db.close();
+});
+
+test('the limit cuts the list, keeping the most played', () => {
+    const { db, plays } = fresh();
+    plays.record(track('Pixies', 'Doolittle', '01'));
+    plays.record(track('Pixies', 'Doolittle', '02'));
+    plays.record(track('Tool', 'Ænima', '01'));
+    assert.deepEqual(
+        plays.mostPlayedArtists(1).map((a) => a.name),
+        ['Pixies'],
+    );
+    db.close();
+});

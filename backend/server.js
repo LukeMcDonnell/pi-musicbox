@@ -36997,6 +36997,8 @@ var RECENT_PLAYS_LIMIT = 100;
 var RECENT_PLAYS_MAX = 500;
 var PLAY_THRESHOLD_SECONDS = 30;
 var SSE_PLAYS_EVENT = "plays";
+var MOST_PLAYED_ARTISTS_LIMIT = 100;
+var MOST_PLAYED_ARTISTS_MAX = 500;
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -39711,6 +39713,22 @@ function registerRoutes(app, opts) {
     const body = { albums: plays.recentAlbums(count) };
     return body;
   });
+  app.get("/api/plays/artists", async (request, reply) => {
+    if (!plays) return reply.code(503).send({ error: "most played artists are unavailable" });
+    const { limit } = request.query;
+    let count = MOST_PLAYED_ARTISTS_LIMIT;
+    if (limit !== void 0 && limit !== "") {
+      if (typeof limit !== "string" || !/^\d+$/.test(limit)) {
+        return reply.code(400).send({ error: "'limit' must be a whole number" });
+      }
+      count = Number(limit);
+      if (count < 1 || count > MOST_PLAYED_ARTISTS_MAX) {
+        return reply.code(400).send({ error: `'limit' must be between 1 and ${MOST_PLAYED_ARTISTS_MAX}` });
+      }
+    }
+    const body = { artists: plays.mostPlayedArtists(count) };
+    return body;
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -39891,8 +39909,22 @@ function createPlays(db, now = Date.now) {
       plays: row.plays
     }));
   };
+  const mostPlayedArtists = (limit) => {
+    return db.all(
+      "SELECT album_artist, file, SUM(play_count) AS plays, MAX(last_played) AS played_at FROM track_play WHERE album_artist IS NOT NULL GROUP BY album_artist ORDER BY plays DESC, album_artist LIMIT ?",
+      Math.max(0, Math.trunc(limit))
+    ).map((row) => {
+      const dir = artistDirOf(row.file);
+      return {
+        name: row.album_artist,
+        image: dir === "" ? null : artUriForDir(dir),
+        plays: row.plays
+      };
+    });
+  };
   return {
     recentAlbums,
+    mostPlayedArtists,
     record(play) {
       db.run(
         "INSERT INTO track_play (file, title, artist, album, album_artist, image, play_count, last_played) VALUES (?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(file) DO UPDATE SET play_count = play_count + 1, last_played = excluded.last_played, title = excluded.title, artist = excluded.artist, album = excluded.album, album_artist = excluded.album_artist, image = excluded.image",
@@ -39967,7 +39999,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-18T04:03:36Z" : "dev";
+var BUILD = true ? "2026-09-18T07:27:21Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

@@ -1007,18 +1007,25 @@ The screen the box opens on — `/` and anything unrecognised land here.
 It carries **shelves**: a heading, a row of cards that scrolls sideways with a
 button at each end, and a link through to the full list. The buttons are always
 visible to a thumb and fade in on hover where there is a mouse to hover with; the
-row has no scrollbar.
+row has no scrollbar. On a phone or a desktop browser the buttons scroll
+smoothly; on the panel they jump, because an animation there is a vc4 atomic
+commit per frame and the box has a display-clock deadlock that is not closed.
+The row snaps either way, so a page lands on a card edge.
 
 The first shelf is **Recent Plays** — the ten albums the box played most
 recently, *See all* going to the screen below. It leads because picking up where
 you left off is the commonest reason to walk up to the box, and it is the shelf
 that changes most. A box that has played nothing shows no shelf for it.
 
-The second is **Recently Added** — the ten newest albums, in order, *See
+The second is **Most Played Artists** — the ten artists the box has played most,
+all time, as round pictures rather than square covers. Tapping one opens the
+artist. A box that has played nothing shows no shelf for this either.
+
+The third is **Recently Added** — the ten newest albums, in order, *See
 all* going to the screen below. Nothing about it is random; the list is the same
 one that screen shows, fetched once and cached.
 
-The third is **ten of your favourites, chosen at random**, with *See all*
+The fourth is **ten of your favourites, chosen at random**, with *See all*
 going to the Favourites screen. The ten are fixed for as long as the page is
 loaded — going into an album and coming back shows the same row — and they are
 picked by hashing a per-load seed with each album's name rather than by
@@ -1026,9 +1033,18 @@ shuffling, so favouriting something elsewhere does not rearrange the screen. The
 panel reloads on a deploy or a reboot, which is when the ten change. Tapping a
 card opens the album.
 
-`Shelf` and `AlbumCard` under `routes/home/components/` are deliberately separate:
-the shelf knows nothing about what it carries, because albums and artists are both
-going to be shown in it.
+Each shelf fills at its own moment, and while one is still waiting it shows a
+row of **blank cards** the exact size of the real ones rather than a line of
+text — so a shelf that lands does not shove the shelves below it up the screen.
+The blank cards do not shimmer or pulse: an animation is a repaint per frame, and
+on the panel every one of those is a vc4 atomic commit.
+
+`Shelf`, `AlbumCard` and `ArtistCard` under `routes/home/components/` are
+deliberately separate: the shelf knows nothing about what it carries, which is
+what lets one rail hold square albums and round artists. `ShelfSkeleton` beside
+them is what fills the rail while a shelf waits — `[round]` for the artists — and
+it goes *inside* a real `Shelf` so the heading and arrows are right by
+construction.
 
 ### Recently added
 
@@ -1087,6 +1103,41 @@ art, so there would be nothing for a card to be.
 per song ever played — file, tags, a play count and the last time — and the album
 list is a `GROUP BY` over it. Most-played track, album or artist is then a query
 rather than another migration. Nothing is pruned: the ceiling is the library.
+
+### Most played artists
+
+`/home/most-played-artists`: the artists the box has played most, all time, and
+the second shelf on Home. A list, not a grid, for the reason the Library gives —
+a row carries the picture, the name *and* the count, where a grid of squares
+gives up the last two to fit more of the first. A row carries the name on the
+left and "412 plays" on the right, and opens the artist; there is no Play or
+Queue on it, because the library's play and queue take an album.
+
+```
+GET /api/plays/artists            the default 100
+GET /api/plays/artists?limit=10   1..500; 400 for anything else
+```
+
+**Ties break alphabetically, not by recency.** The list is cut off by `limit`,
+and an order that moved on every play would shuffle the last card in and out of
+the shelf.
+
+**The picture comes from a path, never from the name.** An artist's photo lives
+in their directory, and 48 of this library's 487 names differ from the directory
+they are filed under — `AC/DC` is `AC-DC`. `track_play` stores the file that
+played, so the directory is its first path segment, exactly as the artist list
+derives it. An artist whose files sit at the library root gets no picture rather
+than a confidently wrong one, and like every art URI here it may still 404.
+
+**It is fetched, not streamed.** Recent Plays arrives on the stream because that
+list is ordered by recency and one play reorders it. An all-time count barely
+moves, so a frame per play would carry the whole list again to change nothing on
+screen. The client caches it instead and drops that cache when a `plays` frame
+says something was played, so coming back to Home after listening shows the new
+counts.
+
+**No MPD.** This answer comes out of the database alone, which is why it has no
+503-when-MPD-is-down case the way Recently Added does.
 
 ### Favourites
 

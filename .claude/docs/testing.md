@@ -125,3 +125,42 @@ kills the suite mid-way, and the summary line never prints.
 
 All three suites that source a script — nas, mpd and bluetooth — call `set +e`
 immediately afterwards. If you add a fourth, do the same.
+
+## Known flake: the Bluetooth watcher's "replaced directory" test
+
+`THE REPLACED DIRECTORY: the watch re-arms when the run dir is recreated`, in
+`src/backend/src/bluetooth.test.ts`, fails intermittently and is the one reason
+`tests/run-all.sh` sometimes ends in `FAILURES` on a clean tree. It is a real
+open question, not something to paper over. Measured 2026-09-18:
+
+| how it is run | result |
+|---|---|
+| `node --test "src/**/*.test.ts"` (what `run-all.sh` does) | red in 3 of 14 runs |
+| `node --test src/bluetooth.test.ts` (the whole file) | 8 of 8 clean |
+| `--test-name-pattern "REPLACED DIRECTORY"` on that file | **red in 11 of 12** |
+
+The failure is always the same and always the last assertion:
+
+```
+timed out after 5000ms waiting for an event from the re-armed watch
+```
+
+**The re-arm itself is not what breaks.** `w.watching()` is `true` immediately
+before, so `dropStaleWatch` noticed the new inode and `arm()` established a
+watch. What never arrives is the inotify event for the write *after* that — and
+because the test sets `pollMs` to an hour on purpose, no backstop poll can cover
+for it. So the suspect is `arm()` on a directory created moments earlier, or the
+test's own sequencing, rather than the inode comparison.
+
+That the whole file passes while the single test alone fails 11 times in 12 is
+the useful clue, and it points away from machine load: what changes is which
+other tests ran first, so something the file does earlier is making this one
+work. Start there.
+
+**Do not "fix" it by raising the 5000ms.** The `within` helper's own comment
+explains why it exists: the first version of the rename test below it sat until
+the backstop poll rescued it and then *passed*, surviving the mutation it was
+written to catch. A bomb longer than `pollMs` is not a slower test, it is a test
+that cannot fail. If the timeout has to move, `pollMs` is the number that keeps
+it honest.
+

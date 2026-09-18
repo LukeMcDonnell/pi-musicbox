@@ -1,15 +1,18 @@
+import { DOCUMENT } from '@angular/common';
 import {
     AfterViewInit,
     ChangeDetectionStrategy,
     Component,
     ElementRef,
     computed,
+    inject,
     input,
     signal,
     viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
+import { IS_PANEL } from '../../../../services/panel-client';
 
 /*
   One horizontal row of whatever is projected into it, with a button at each end.
@@ -21,10 +24,13 @@ import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
   is a pointer to hover with: `fine` is (hover: hover) and (pointer: fine), which
   the panel never matches. See styles.scss.
 
-  SCROLLING IS INSTANT. The rail snaps, so a page lands on a card edge either way,
-  and an animated scroll is a repaint per frame — on the DSI panel every one of
-  those is a vc4 atomic commit. Same reason the virtual scrollers run with
-  `scrollAnimationTime` at 0.
+  SCROLLING IS SMOOTH EVERYWHERE BUT THE PANEL. An animated scroll is a repaint
+  per frame, and on the DSI panel every one of those is a vc4 atomic commit —
+  one half of the deadlock in clock-deadlock.md, which is not called closed. A
+  phone's GPU does not care, so it is the device that decides, not the taste:
+  `IS_PANEL`, the same token panel sleep and the on-screen keyboard use. Reduced
+  motion turns it off too. The rail snaps either way, so a page still lands on a
+  card edge. See decisions.md.
 */
 @Component({
     selector: 'app-shelf',
@@ -34,6 +40,9 @@ import { LucideChevronLeft, LucideChevronRight } from '@lucide/angular';
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Shelf implements AfterViewInit {
+    private readonly isPanel = inject(IS_PANEL);
+    private readonly window = inject(DOCUMENT).defaultView;
+
     readonly heading = input.required<string>();
 
     /** Where the heading's link goes, if it has one. */
@@ -69,7 +78,19 @@ export class Shelf implements AfterViewInit {
     /** Most of a screenful, so the card at the edge stays as a handhold. */
     scrollBy(direction: -1 | 1): void {
         const rail = this.rail().nativeElement;
-        rail.scrollBy({ left: direction * Math.round(rail.clientWidth * 0.85), behavior: 'auto' });
+        rail.scrollBy({
+            left: direction * Math.round(rail.clientWidth * 0.85),
+            behavior: this.behavior(),
+        });
+        // Instant has already landed. A smooth scroll re-measures from the scroll
+        // events it emits on the way, the last of which is the one that counts.
         this.measure();
+    }
+
+    /** Animated only where a frame is cheap, and only if motion is wanted. */
+    private behavior(): ScrollBehavior {
+        if (this.isPanel) return 'auto';
+        const reduced = this.window?.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        return reduced ? 'auto' : 'smooth';
     }
 }

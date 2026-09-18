@@ -22,7 +22,13 @@ import { registerRoutes } from './routes.ts';
 import type { LibraryState } from '../../shared/api.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
-import { RECENT_PLAYS_MAX, SSE_SETTINGS_EVENT, SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
+import {
+    MOST_PLAYED_ARTISTS_MAX,
+    RECENT_PLAYS_MAX,
+    SSE_SETTINGS_EVENT,
+    SSE_SNAPSHOT_EVENT,
+    type Snapshot,
+} from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
 import { isLoopback } from './routes.ts';
 import type { Panel } from './panel.ts';
@@ -1640,10 +1646,63 @@ test('a closed stream stops being written to', async (t) => {
     assert.equal(stream.text().length, before);
 });
 
-test('the recent plays route is the last route in the file', () => {
+test('most played artists are empty until something has been played', async (t) => {
+    const { port } = await serverFor(t, { plays: memoryPlays() });
+    const res = await api(port, '/api/plays/artists');
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.artists, []);
+});
+
+test('artists come back most played first, with their picture', async (t) => {
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    plays.record(played('Tool', 'Ænima', '01'));
+    plays.record(played('Pixies', 'Doolittle', '01'));
+    plays.record(played('Pixies', 'Doolittle', '02'));
+    const res = await api(port, '/api/plays/artists');
+    assert.deepEqual(res.body.artists, [
+        { name: 'Pixies', image: '/api/art?album=Pixies', plays: 2 },
+        { name: 'Tool', image: '/api/art?album=Tool', plays: 1 },
+    ]);
+});
+
+test('most played artists honours limit, and refuses one that is not a whole number', async (t) => {
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    for (let i = 0; i < 5; i++) plays.record(played(`Artist ${i}`, 'Album', '01'));
+    assert.equal((await api(port, '/api/plays/artists?limit=2')).body.artists.length, 2);
+    assert.equal((await api(port, '/api/plays/artists?limit=5x')).status, 400);
+    assert.equal((await api(port, '/api/plays/artists?limit=2.5')).status, 400);
+    assert.equal((await api(port, '/api/plays/artists?limit=0')).status, 400);
+    assert.equal(
+        (await api(port, `/api/plays/artists?limit=${MOST_PLAYED_ARTISTS_MAX + 1}`)).status,
+        400,
+    );
+    // Empty is "not given", as it is for recently added.
+    assert.equal((await api(port, '/api/plays/artists?limit=')).status, 200);
+});
+
+test('most played artists answer 503 with no store behind them', async (t) => {
+    const { port } = await serverFor(t);
+    assert.equal((await api(port, '/api/plays/artists')).status, 503);
+});
+
+test('the artists list is fetched, never pushed on the stream', async (t) => {
+    // An all-time count does not reorder on one play, so it is deliberately not
+    // a frame. See api.ts.
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    const stream = await streamFor(t, port);
+    plays.record(played('Tool', 'Ænima', '01'));
+    await settle();
+    assert.ok(!stream.text().includes('event: artists'));
+});
+
+test('the most played artists route is the last route in the file', () => {
     // Same reason as the assertions above: three tests slice this file's source
     // between route literals, so new routes go at the end.
     const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
     assert.ok(src.indexOf("app.post('/api/restore'") < src.indexOf("app.get('/api/library/recent'"));
     assert.ok(src.indexOf("app.get('/api/library/recent'") < src.indexOf("app.get('/api/plays/recent'"));
+    assert.ok(src.indexOf("app.get('/api/plays/recent'") < src.indexOf("app.get('/api/plays/artists'"));
 });

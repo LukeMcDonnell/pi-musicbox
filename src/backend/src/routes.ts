@@ -17,6 +17,8 @@ import {
     API_VERSION,
     BACKUP_CONTENT_TYPE,
     BACKUP_MAX_BYTES,
+    MOST_PLAYED_ARTISTS_LIMIT,
+    MOST_PLAYED_ARTISTS_MAX,
     RECENTLY_ADDED_LIMIT,
     RECENTLY_ADDED_MAX,
     RECENT_PLAYS_LIMIT,
@@ -29,6 +31,7 @@ import {
     type FavouritesResponse,
     type HealthResponse,
     type LibraryState,
+    type MostPlayedArtistsResponse,
     type PanelState,
     type PlaybackCommand,
     type RecentlyAddedResponse,
@@ -947,6 +950,30 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             }
         }
         const body: RecentPlaysResponse = { albums: plays.recentAlbums(count) };
+        return body;
+    });
+
+    // -----------------------------------------------------------------------
+    // Most played artists. Appended for the same reason as the routes above.
+    // -----------------------------------------------------------------------
+
+    app.get('/api/plays/artists', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!plays) return reply.code(503).send({ error: 'most played artists are unavailable' });
+        const { limit } = request.query as { limit?: unknown };
+        let count = MOST_PLAYED_ARTISTS_LIMIT;
+        if (limit !== undefined && limit !== '') {
+            // The whole string, so '5x' and '2.5' are refused rather than read as 5 and 2.
+            if (typeof limit !== 'string' || !/^\d+$/.test(limit)) {
+                return reply.code(400).send({ error: "'limit' must be a whole number" });
+            }
+            count = Number(limit);
+            if (count < 1 || count > MOST_PLAYED_ARTISTS_MAX) {
+                return reply
+                    .code(400)
+                    .send({ error: `'limit' must be between 1 and ${MOST_PLAYED_ARTISTS_MAX}` });
+            }
+        }
+        const body: MostPlayedArtistsResponse = { artists: plays.mostPlayedArtists(count) };
         return body;
     });
 

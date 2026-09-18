@@ -10,8 +10,14 @@
  * stores what it is told.
  */
 
-import { RECENT_PLAYS_LIMIT, type RecentPlayAlbum } from '../../shared/api.ts';
+import {
+    RECENT_PLAYS_LIMIT,
+    type MostPlayedArtist,
+    type RecentPlayAlbum,
+} from '../../shared/api.ts';
+import { artUriForDir } from './art.ts';
 import type { Db } from './db.ts';
+import { artistDirOf } from './library.ts';
 
 export type PlaysListener = (albums: RecentPlayAlbum[]) => void;
 
@@ -28,6 +34,8 @@ export interface TrackPlay {
 export interface Plays {
     /** Albums, most recently played first. */
     recentAlbums(limit: number): RecentPlayAlbum[];
+    /** Artists, most played first, all time. */
+    mostPlayedArtists(limit: number): MostPlayedArtist[];
     /** Record one play: a new row, or a bump of the count and the timestamp. */
     record(play: TrackPlay): void;
     onChange(listener: PlaysListener): () => void;
@@ -39,6 +47,13 @@ interface AlbumRow {
     image: string | null;
     played_at: number;
     plays: number;
+}
+
+interface ArtistRow {
+    album_artist: string;
+    file: string;
+    plays: number;
+    played_at: number;
 }
 
 export function createPlays(db: Db, now: () => number = Date.now): Plays {
@@ -72,8 +87,42 @@ export function createPlays(db: Db, now: () => number = Date.now): Plays {
             }));
     };
 
+    const mostPlayedArtists = (limit: number): MostPlayedArtist[] => {
+        /*
+          `file` is the bare column beside MAX() here, on the same SQLite
+          guarantee `recentAlbums` uses for `image` — it is the most recently
+          played track's, and all that is wanted from it is the artist directory.
+          MAX(last_played) does NOT order this list: the ranking is the SUM, and
+          ties go alphabetically so a `limit` cuts the same place twice.
+
+          GROUP BY album_artist rides the leading column of track_play_album, so
+          there is no index to add. Untagged artists are left out, as the album
+          list leaves out untagged albums: one that cannot be opened is not one
+          to offer.
+        */
+        return db
+            .all<ArtistRow>(
+                'SELECT album_artist, file, SUM(play_count) AS plays, ' +
+                    'MAX(last_played) AS played_at FROM track_play ' +
+                    'WHERE album_artist IS NOT NULL ' +
+                    'GROUP BY album_artist ORDER BY plays DESC, album_artist LIMIT ?',
+                Math.max(0, Math.trunc(limit)),
+            )
+            .map((row) => {
+                // Null rather than a guessed URI for a file at the library root,
+                // as artistImageOf does — see library.ts.
+                const dir = artistDirOf(row.file);
+                return {
+                    name: row.album_artist,
+                    image: dir === '' ? null : artUriForDir(dir),
+                    plays: row.plays,
+                };
+            });
+    };
+
     return {
         recentAlbums,
+        mostPlayedArtists,
         record(play) {
             // The tags are rewritten on conflict, so a retag corrects the row the
             // next time that song plays.

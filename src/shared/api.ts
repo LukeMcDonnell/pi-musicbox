@@ -871,3 +871,49 @@ export interface RecentPlayAlbum extends AlbumIdentity {
 export interface RecentPlaysResponse {
     albums: RecentPlayAlbum[];
 }
+
+/*
+ * MOST PLAYED ARTISTS: GET /api/plays/artists?limit=
+ *
+ * The artists the box has played most, all time, most played first. `limit`
+ * behaves exactly as Recent Plays' does. A GROUP BY over the same `track_play`
+ * table, which is what it was built per track for.
+ *
+ * TIES BREAK ALPHABETICALLY, not by recency: the list is cut off by `limit`, and
+ * an order that moves on every play would shuffle the last card in and out.
+ *
+ * WHY THERE IS NO SSE EVENT
+ *   Recent Plays has one because that list is ordered by recency and a single
+ *   play reorders it. An all-time count barely moves — one play cannot reorder a
+ *   top ten — so a frame per play would carry the whole list again to change
+ *   nothing on screen. Clients fetch this and refetch when a `plays` frame says
+ *   something was played.
+ *
+ * WHY AN ARTIST HERE CARRIES LESS THAN AN ArtistSummary
+ *   `albumCount`, `trackCount` and `duration` all come from MPD, and this answer
+ *   comes from the database alone. Counting them here would mean asking MPD per
+ *   artist; carrying them as zero would be a number that is simply wrong. So
+ *   this type carries only what the query honestly knows, as RecentlyAddedAlbum
+ *   does.
+ */
+export const MOST_PLAYED_ARTISTS_LIMIT = 100;
+
+/** The ceiling on `limit`, as Recent Plays has. */
+export const MOST_PLAYED_ARTISTS_MAX = 500;
+
+export interface MostPlayedArtist {
+    /** The `AlbumArtist` tag, as `ArtistSummary.name`. This is the string to display. */
+    name: string;
+    /**
+     * `/api/art?album=<artist directory>`, or null when there is no directory to
+     * look in. Derived from a played file's path, never from the name — see
+     * ArtistSummary.image. May 404, as every art URI here may.
+     */
+    image: string | null;
+    /** Track plays recorded for this artist, all time. */
+    plays: number;
+}
+
+export interface MostPlayedArtistsResponse {
+    artists: MostPlayedArtist[];
+}

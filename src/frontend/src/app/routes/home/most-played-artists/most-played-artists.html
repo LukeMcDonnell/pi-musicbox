@@ -1,0 +1,57 @@
+<section aria-label="Most Played Artists">
+  <!-- The panel's way back, as on the artist and album screens. -->
+  <div class="hidden short:flex sticky top-0 px-4 py-0 bg-bg z-1">
+    <button class="flex py-4 cursor-pointer touch-manipulation" (click)="back()" aria-label="Back">
+      <svg lucideChevronLeft class="size-6 text-muted" aria-hidden="true"></svg>
+      <h2 class="flex-none font-bold text-muted">Back</h2>
+    </button>
+  </div>
+
+  <div class="px-4 py-3 pt-0">
+    <h1 class="text-2xl font-bold py-2 short:pt-0">Most Played Artists</h1>
+
+    @if (error(); as message) {
+      <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+      <button class="mt-3 min-h-11 cursor-pointer touch-manipulation rounded-full border
+                     border-muted px-[0.9rem] py-[0.4rem] text-[0.9rem] font-semibold text-muted
+                     select-none active:bg-raised"
+              (click)="load()">
+        Try again
+      </button>
+    }
+    @if (loading()) {
+      <p class="pt-3 text-[0.95rem] text-muted">Asking the box…</p>
+    } @else if (artists()?.length === 0) {
+      <p class="py-6 text-[0.95rem] text-muted">
+        Nothing played yet. Artists turn up here once their music has been playing for a while.
+      </p>
+    } @else if (artists()) {
+      <p class="py-2 text-[0.95rem] text-muted tabular-nums">{{ countLabel() }}</p>
+    }
+
+    <!-- Virtualised on <main>, as the Library and Favourites are: see Library's
+         header for the frame and the resize contract. -->
+    @if (frame(); as scrollFrame) {
+      <virtual-scroller [items]="artists() ?? []"
+                        [childHeight]="rowHeight"
+                        [bufferAmount]="5"
+                        [scrollAnimationTime]="0"
+                        [modifyOverflowStyleOfParentScroll]="false"
+                        [checkResizeInterval]="0"
+                        [parentScroll]="scrollFrame"
+                        (vsUpdate)="onViewport($event)">
+        <ul #container class="flex flex-col">
+          @for (artist of visible(); track artist.name) {
+            <li class="flex items-center gap-1"
+                [attr.aria-posinset]="firstIndex() + $index + 1"
+                [attr.aria-setsize]="artists()?.length ?? 0">
+              <app-artist-row [name]="artist.name" [cover]="artOf(artist)"
+                              [detail]="detailOf(artist)" (open)="open(artist)"
+                              (failed)="onArtError($event)" />
+            </li>
+          }
+        </ul>
+      </virtual-scroller>
+    }
+  </div>
+</section>

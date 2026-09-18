@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { Favourites } from './routes/favourites/favourites';
 import { Home } from './routes/home/home';
+import { MostPlayedArtists } from './routes/home/most-played-artists/most-played-artists';
 import { RecentPlays } from './routes/home/recent-plays/recent-plays';
 import { RecentlyAdded } from './routes/home/recently-added/recently-added';
 import { Album } from './routes/album/album';
@@ -18,6 +19,11 @@ export const routes: Routes = [
     { path: 'home', component: Home, title: 'Home · musicbox' },
     { path: 'home/recently-added', component: RecentlyAdded, title: 'Recently Added · musicbox' },
     { path: 'home/recent-plays', component: RecentPlays, title: 'Recent Plays · musicbox' },
+    {
+        path: 'home/most-played-artists',
+        component: MostPlayedArtists,
+        title: 'Most Played Artists · musicbox',
+    },
     { path: 'library', component: Library, title: 'Library · musicbox' },
     /*
       Artist and album are addressed by QUERY PARAMETER, not by a path segment:

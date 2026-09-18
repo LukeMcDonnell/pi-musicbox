@@ -10,6 +10,7 @@ function recorder(): Plays & { recorded: TrackPlay[] } {
     return {
         recorded,
         recentAlbums: () => [],
+        mostPlayedArtists: () => [],
         record: (play) => void recorded.push(play),
         onChange: () => () => {},
     };
