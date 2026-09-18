@@ -2,7 +2,8 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import type { FavouriteAlbum } from '@musicbox/shared';
-import { FAVOURITE_ROW_HEIGHT, Favourites, filterFavourites, sortFavourites } from './favourites';
+import { Favourites, filterFavourites, sortFavourites } from './favourites';
+import { ALBUM_ROW_HEIGHT } from '../../components/album-row/album-row';
 import { FavouritesStore } from '../../services/favourites-store';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
@@ -239,12 +240,12 @@ describe('Favourites', () => {
         expect(rows(fixture).length).toBe(4);
     });
 
-    it('renders a row exactly FAVOURITE_ROW_HEIGHT tall', async () => {
+    it('renders a row exactly ALBUM_ROW_HEIGHT tall', async () => {
         // Every index the scroller computes comes from this number, so the row's padding must agree with it.
         const { fixture } = await create([BACK]);
         const row = fixture.nativeElement.querySelector('li') as HTMLElement | null;
         expect(row).withContext('no row rendered').not.toBeNull();
-        expect(row!.offsetHeight).toBe(FAVOURITE_ROW_HEIGHT);
+        expect(row!.offsetHeight).toBe(ALBUM_ROW_HEIGHT);
     });
 
     it('renders only the rows near the screen, not every favourite', async () => {
@@ -256,7 +257,7 @@ describe('Favourites', () => {
         expect(count()).toBeGreaterThan(0);
         expect(count()).toBeLessThan(40);
 
-        frame.scrollTop = FAVOURITE_ROW_HEIGHT * 100;
+        frame.scrollTop = ALBUM_ROW_HEIGHT * 100;
         await animationFrames(6);
         fixture.detectChanges();
         expect(fixture.componentInstance.firstIndex()).toBeGreaterThan(90);
@@ -273,7 +274,7 @@ describe('Favourites', () => {
         spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
         const cmp = fixture.componentInstance;
         for (const change of [() => cmp.setQuery('Artist'), () => cmp.setSort(2), () => cmp.toggleDirection()]) {
-            frame.scrollTop = FAVOURITE_ROW_HEIGHT * 50;
+            frame.scrollTop = ALBUM_ROW_HEIGHT * 50;
             expect(frame.scrollTop).toBeGreaterThan(0);
             change();
             expect(frame.scrollTop).toBe(0);

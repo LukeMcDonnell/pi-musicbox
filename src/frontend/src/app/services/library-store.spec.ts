@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type { ArtistSummary, LibraryScan, LibraryState } from '@musicbox/shared';
+import type { ArtistSummary, LibraryScan, LibraryState, RecentlyAddedAlbum } from '@musicbox/shared';
 import { ApiClient } from './api-client';
 import { LibraryStore } from './library-store';
 import { MusicboxApi } from './musicbox-api';
@@ -111,6 +111,56 @@ describe('LibraryStore', () => {
 
         // And the next ask is a real fetch, not the dropped promise.
         void store.loadArtists();
+        expect(getJson).toHaveBeenCalledTimes(2);
+    });
+
+    // -----------------------------------------------------------------------
+    // Recently added: the same cache and the same invalidation as the artists.
+    // -----------------------------------------------------------------------
+
+    const RECENT: RecentlyAddedAlbum[] = [
+        { album: 'Kid A', albumArtist: 'Radiohead', date: '2000', image: null, addedAt: '2026-09-18T10:00:00Z' },
+    ];
+
+    /** The recently-added fetch resolves when the test says so, like the artists one. */
+    function recentSetup() {
+        const base = setup();
+        base.getJson.and.callFake(
+            (path: string) =>
+                new Promise((resolve) => {
+                    expect(path).toBe('/api/library/recent?limit=100');
+                    base.pending.push(() => resolve({ albums: RECENT }));
+                }),
+        );
+        return base;
+    }
+
+    it('asks for the capped list once and serves the shelf and the screen from it', async () => {
+        const { store, getJson, pending } = recentSetup();
+        const first = store.loadRecentlyAdded();
+        const second = store.loadRecentlyAdded();
+        pending[0]([]);
+        expect(await first).toEqual(RECENT);
+        expect(await second).toEqual(RECENT);
+        expect(store.recentlyAdded()).toEqual(RECENT);
+
+        await store.loadRecentlyAdded();
+        expect(getJson).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the cached list when a scan finishes, because a scan is what changes it', async () => {
+        const { store, library, getJson, pending } = recentSetup();
+        const load = store.loadRecentlyAdded();
+        pending[0]([]);
+        await load;
+
+        library.set(libraryState({ lastScan: scan(1_700_000_000_000) }));
+        TestBed.tick();
+        library.set(libraryState({ lastScan: scan(1_700_000_100_000) }));
+        TestBed.tick();
+        expect(store.recentlyAdded()).toBeNull();
+
+        void store.loadRecentlyAdded();
         expect(getJson).toHaveBeenCalledTimes(2);
     });
 });

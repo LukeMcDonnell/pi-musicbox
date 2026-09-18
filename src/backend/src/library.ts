@@ -34,7 +34,12 @@
  *   The artist and album screens need no index — each is a single `find`.
  */
 
-import type { AlbumSummary, ArtistSummary, Track } from '../../shared/api.ts';
+import type {
+    AlbumSummary,
+    ArtistSummary,
+    RecentlyAddedAlbum,
+    Track,
+} from '../../shared/api.ts';
 import { artUriForDir } from './art.ts';
 import { groupBy } from './mpd/protocol.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
@@ -256,12 +261,56 @@ export function artistImageOf(songs: LibrarySong[]): string | null {
     return dir === '' ? null : artUriForDir(dir);
 }
 
+/**
+ * How many songs to ask for at a time when collecting recent albums.
+ *
+ * Measured on this library: 1000 songs cost 372ms and group into 80 albums, so
+ * the default limit of 100 is usually one round trip and never many. Chunking
+ * rather than one huge window keeps a small limit cheap — Home wants ten.
+ */
+const RECENT_CHUNK = 1000;
+
+/**
+ * The albums MPD saw most recently, newest first.
+ *
+ * GROUPED OUT OF A SONG STREAM, because MPD sorts songs by `Added` and has no
+ * album listing that carries a date at all. The stream is already in order, so
+ * the FIRST song of an album is its newest and sets its `addedAt`.
+ *
+ * Deliberately not an AlbumSummary: the window cuts albums off part way, so a
+ * track count or runtime read from it would be wrong. See the note in api.ts.
+ */
+export function recentAlbumsFrom(
+    songs: LibrarySong[],
+    into: Map<string, RecentlyAddedAlbum>,
+    limit: number,
+): void {
+    for (const song of songs) {
+        if (into.size >= limit) return;
+        const { album, albumArtist } = song.track;
+        // Untagged either way: the library screens are keyed by both, so an
+        // album that cannot be opened is not one to offer.
+        if (album === undefined || albumArtist === undefined) continue;
+        const key = JSON.stringify([albumArtist, album]);
+        if (into.has(key)) continue;
+        into.set(key, {
+            album,
+            albumArtist,
+            date: releaseDateOf(song.track),
+            image: song.track.image,
+            addedAt: song.track.addedAt ?? null,
+        });
+    }
+}
+
 export interface Library {
     /** The browse list. Built once, then served from memory until invalidated. */
     artists: () => Promise<ArtistSummary[]>;
     albumsOf: (albumArtist: string) => Promise<{ image: string | null; albums: AlbumSummary[] }>;
     /** The album's songs, in playing order. Routes take `.track` for the wire. */
     songsOf: (albumArtist: string, album: string) => Promise<LibrarySong[]>;
+    /** The most recently added albums, newest first. Cached until a scan. */
+    recentlyAdded: (limit: number) => Promise<RecentlyAddedAlbum[]>;
     /** Drop the cached index. Called when MPD reports a database update. */
     invalidate: () => void;
     /** Test seam: how many index builds have actually run. */
@@ -271,6 +320,9 @@ export interface Library {
 export function createLibrary(bridge: MpdBridge): Library {
     let cached: ArtistSummary[] | null = null;
     let building: Promise<ArtistSummary[]> | null = null;
+    /** The last recent-albums answer, and the limit it was asked for. */
+    let recent: { limit: number; albums: RecentlyAddedAlbum[] } | null = null;
+    let collecting: { limit: number; albums: Promise<RecentlyAddedAlbum[]> } | null = null;
     /** Bumped by invalidate(), so a build that started before it cannot win. */
     let generation = 0;
     let builds = 0;
@@ -372,6 +424,8 @@ export function createLibrary(bridge: MpdBridge): Library {
         invalidate: () => {
             cached = null;
             building = null;
+            recent = null;
+            collecting = null;
             // A build already in flight must not install its result: it read the
             // library BEFORE the scan that just invalidated it, and dropping the
             // promise is not enough to stop its `.then`. That would cache a stale
@@ -408,5 +462,35 @@ export function createLibrary(bridge: MpdBridge): Library {
         },
         songsOf: async (albumArtist, album) =>
             sortAlbumSongs(await bridge.findSongs(['albumartist', albumArtist], ['album', album])),
+        recentlyAdded: async (limit) => {
+            if (recent !== null && recent.limit >= limit) return recent.albums.slice(0, limit);
+            // Share one collection between concurrent callers, as the index does
+            // — Home and its screen ask within a frame of each other.
+            if (collecting === null || collecting.limit < limit) {
+                const mine = generation;
+                const albums = collectRecent(bridge, limit)
+                    .then((collected) => {
+                        if (mine === generation) recent = { limit, albums: collected };
+                        return collected;
+                    })
+                    .finally(() => {
+                        if (collecting?.albums === albums) collecting = null;
+                    });
+                collecting = { limit, albums };
+            }
+            return (await collecting.albums).slice(0, limit);
+        },
     };
+}
+
+/** Page MPD's newest-first song stream until `limit` albums are in hand. */
+async function collectRecent(bridge: MpdBridge, limit: number): Promise<RecentlyAddedAlbum[]> {
+    const albums = new Map<string, RecentlyAddedAlbum>();
+    for (let offset = 0; albums.size < limit; offset += RECENT_CHUNK) {
+        const songs = await bridge.songsByAdded(offset, RECENT_CHUNK);
+        recentAlbumsFrom(songs, albums, limit);
+        // A short reply is the end of the library, not a full page of albums.
+        if (songs.length < RECENT_CHUNK) break;
+    }
+    return [...albums.values()];
 }

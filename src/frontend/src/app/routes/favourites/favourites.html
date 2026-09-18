@@ -81,38 +81,9 @@
           <li class="flex items-center gap-1"
               [attr.aria-posinset]="firstIndex() + $index + 1"
               [attr.aria-setsize]="albums().length">
-            <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
-                           gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised"
-                    (click)="open(album)">
-              <span class="grid size-12 flex-none place-items-center overflow-hidden rounded bg-surface">
-                @if (coverOf(album); as uri) {
-                  <img class="h-full w-full object-cover" [src]="uri" alt=""
-                       width="48" height="48" loading="lazy" decoding="async"
-                       (error)="onCoverError(uri)">
-                } @else {
-                  <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
-                }
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="text-xl block truncate">{{ album.album }}</span>
-                <span class="block truncate text-[0.85rem] text-muted tabular-nums">{{ subtitleOf(album) }}</span>
-              </span>
-            </button>
-            <button type="button"
-                    class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
-                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
-                    [disabled]="busy()" [attr.aria-label]="'Add ' + album.album + ' to the queue'"
-                    (click)="queue(album)">
-              <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
-            </button>
-            <!-- -me-3: the icon lines up with the sort toggle's and the page edge. -->
-            <button type="button"
-                    class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
-                           rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
-                    [disabled]="busy()" [attr.aria-label]="'Play ' + album.album"
-                    (click)="play(album)">
-              <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
-            </button>
+            <app-album-row [album]="album" [cover]="coverOf(album)" [subtitle]="subtitleOf(album)"
+                           [busy]="busy()" (open)="open(album)" (play)="play(album)"
+                           (queue)="queue(album)" (failed)="onCoverError($event)" />
           </li>
         }
       </ul>

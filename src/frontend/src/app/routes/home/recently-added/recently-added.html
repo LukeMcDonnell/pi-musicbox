@@ -1,1 +1,51 @@
-<p class="py-6 text-[0.95rem] text-muted">Recently Added is not built yet.</p>
+<section aria-label="Recently Added">
+  <!-- The panel's way back, as on the artist and album screens. -->
+  <div class="hidden short:flex sticky top-0 px-4 py-0 bg-bg z-1">
+    <button class="flex py-4 cursor-pointer touch-manipulation" (click)="back()" aria-label="Back">
+      <svg lucideChevronLeft class="size-6 text-muted" aria-hidden="true"></svg>
+      <h2 class="flex-none font-bold text-muted">Back</h2>
+    </button>
+  </div>
+
+  <div class="px-4 py-3 pt-0">
+    <h1 class="text-2xl font-bold py-2 short:pt-0">Recently Added</h1>
+
+    @if (error(); as message) {
+      <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+    }
+    @if (loading()) {
+      <p class="pt-3 text-[0.95rem] text-muted">Reading the library…</p>
+    } @else if (albums()?.length === 0) {
+      <p class="py-6 text-[0.95rem] text-muted">
+        Nothing added yet. Scan the library from Settings once there is music to find.
+      </p>
+    } @else if (albums()) {
+      <p class="py-2 text-[0.95rem] text-muted tabular-nums">{{ countLabel() }}</p>
+    }
+
+    <!-- Virtualised on <main>, as the Library and Favourites are: see Library's
+         header for the frame and the resize contract. -->
+    @if (frame(); as scrollFrame) {
+      <virtual-scroller [items]="albums() ?? []"
+                        [childHeight]="rowHeight"
+                        [bufferAmount]="5"
+                        [scrollAnimationTime]="0"
+                        [modifyOverflowStyleOfParentScroll]="false"
+                        [checkResizeInterval]="0"
+                        [parentScroll]="scrollFrame"
+                        (vsUpdate)="onViewport($event)">
+        <ul #container class="flex flex-col">
+          @for (album of visible(); track trackKey(album)) {
+            <li class="flex items-center gap-1"
+                [attr.aria-posinset]="firstIndex() + $index + 1"
+                [attr.aria-setsize]="albums()?.length ?? 0">
+              <app-album-row [album]="album" [cover]="coverOf(album)" [subtitle]="subtitleOf(album)"
+                             [busy]="busy()" (open)="open(album)" (play)="play(album)"
+                             (queue)="queue(album)" (failed)="onCoverError($event)" />
+            </li>
+          }
+        </ul>
+      </virtual-scroller>
+    }
+  </div>
+</section>

@@ -36991,6 +36991,12 @@ var LIBRARY_SCAN_HOURS = [
 var BACKUP_CONTENT_TYPE = "application/gzip";
 var BACKUP_MAX_BYTES = 32 * 1024 * 1024;
 var SSE_FAVOURITES_EVENT = "favourites";
+var RECENTLY_ADDED_LIMIT = 100;
+var RECENTLY_ADDED_MAX = 500;
+var RECENT_PLAYS_LIMIT = 100;
+var RECENT_PLAYS_MAX = 500;
+var PLAY_THRESHOLD_SECONDS = 30;
+var SSE_PLAYS_EVENT = "plays";
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -37800,6 +37806,18 @@ var MpdBridge = class {
     const reply = await this.send(`find ${filterArgs(pairs)}`);
     return groupByMulti(reply, "file").map(songFromTags).filter((s) => s !== null);
   }
+  /**
+   * Songs newest first by the `Added` tag, one window of them.
+   *
+   * The filter is the whole library and is constant — nothing here is built
+   * from anything a client sent. Measured on this library: 1000 songs in
+   * 372ms, which is 80 albums once grouped. See library.recentlyAdded.
+   */
+  async songsByAdded(offset, count) {
+    const window = `${Math.max(0, Math.trunc(offset))}:${Math.max(0, Math.trunc(offset + count))}`;
+    const reply = await this.send(`find "(base \\"\\")" sort -Added window ${window}`);
+    return groupByMulti(reply, "file").map(songFromTags).filter((s) => s !== null);
+  }
   /** `findFirst`, keeping the album tags. See findSongs. */
   async findFirstSong(...pairs) {
     const reply = await this.send(`find ${filterArgs(pairs)} window 0:1`);
@@ -38005,9 +38023,28 @@ function artistImageOf(songs) {
   const dir = artistDirOf(file);
   return dir === "" ? null : artUriForDir(dir);
 }
+var RECENT_CHUNK = 1e3;
+function recentAlbumsFrom(songs, into, limit) {
+  for (const song of songs) {
+    if (into.size >= limit) return;
+    const { album, albumArtist } = song.track;
+    if (album === void 0 || albumArtist === void 0) continue;
+    const key = JSON.stringify([albumArtist, album]);
+    if (into.has(key)) continue;
+    into.set(key, {
+      album,
+      albumArtist,
+      date: releaseDateOf(song.track),
+      image: song.track.image,
+      addedAt: song.track.addedAt ?? null
+    });
+  }
+}
 function createLibrary(bridge) {
   let cached = null;
   let building = null;
+  let recent = null;
+  let collecting = null;
   let generation = 0;
   let builds = 0;
   async function build() {
@@ -38076,6 +38113,8 @@ function createLibrary(bridge) {
     invalidate: () => {
       cached = null;
       building = null;
+      recent = null;
+      collecting = null;
       generation += 1;
     },
     artists: async () => {
@@ -38101,8 +38140,31 @@ function createLibrary(bridge) {
         albums: albumsFromSongs(albumArtist, songs)
       };
     },
-    songsOf: async (albumArtist, album) => sortAlbumSongs(await bridge.findSongs(["albumartist", albumArtist], ["album", album]))
+    songsOf: async (albumArtist, album) => sortAlbumSongs(await bridge.findSongs(["albumartist", albumArtist], ["album", album])),
+    recentlyAdded: async (limit) => {
+      if (recent !== null && recent.limit >= limit) return recent.albums.slice(0, limit);
+      if (collecting === null || collecting.limit < limit) {
+        const mine = generation;
+        const albums = collectRecent(bridge, limit).then((collected) => {
+          if (mine === generation) recent = { limit, albums: collected };
+          return collected;
+        }).finally(() => {
+          if (collecting?.albums === albums) collecting = null;
+        });
+        collecting = { limit, albums };
+      }
+      return (await collecting.albums).slice(0, limit);
+    }
   };
+}
+async function collectRecent(bridge, limit) {
+  const albums = /* @__PURE__ */ new Map();
+  for (let offset = 0; albums.size < limit; offset += RECENT_CHUNK) {
+    const songs = await bridge.songsByAdded(offset, RECENT_CHUNK);
+    recentAlbumsFrom(songs, albums, limit);
+    if (songs.length < RECENT_CHUNK) break;
+  }
+  return [...albums.values()];
 }
 
 // src/bluetooth.ts
@@ -38770,7 +38832,24 @@ var MIGRATIONS = [
         added_at     INTEGER NOT NULL,
         summary      TEXT NOT NULL,
         PRIMARY KEY (album_artist, album)
-    ) STRICT;`
+    ) STRICT;`,
+  // v4 — one row per song ever played, not per play: a count and the last time.
+  // The screen shows recently played ALBUMS, which is a GROUP BY over this, but
+  // the table is the scrobble log that also answers most-played track or artist
+  // without a second migration. `image` is denormalised for the same reason
+  // `favourite_album.summary` is — the shelf must cost no MPD lookups. Keyed by
+  // `file`, which is the only song identity MPD and this box agree on.
+  `CREATE TABLE track_play (
+        file         TEXT PRIMARY KEY,
+        title        TEXT,
+        artist       TEXT,
+        album        TEXT,
+        album_artist TEXT,
+        image        TEXT,
+        play_count   INTEGER NOT NULL,
+        last_played  INTEGER NOT NULL
+    ) STRICT;
+     CREATE INDEX track_play_album ON track_play (album_artist, album);`
 ];
 var SCHEMA_VERSION = MIGRATIONS.length;
 function openDb(options) {
@@ -39154,6 +39233,11 @@ function registerRoutes(app, opts) {
   favourites?.onChange((albums) => {
     for (const sink of [...favouritesSinks]) sink(albums);
   });
+  const plays = opts.plays;
+  const playsSinks = /* @__PURE__ */ new Set();
+  plays?.onChange((albums) => {
+    for (const sink of [...playsSinks]) sink(albums);
+  });
   const settingsSinks = /* @__PURE__ */ new Set();
   settings?.onChange((values) => {
     for (const sink of [...settingsSinks]) sink(values);
@@ -39383,6 +39467,14 @@ function registerRoutes(app, opts) {
       sendFavourites(favourites.all());
       favouritesSinks.add(sendFavourites);
     }
+    const sendPlays = (albums) => {
+      const body = { albums };
+      reply.raw.write(sseFrame(SSE_PLAYS_EVENT, body));
+    };
+    if (plays) {
+      sendPlays(plays.recentAlbums(RECENT_PLAYS_LIMIT));
+      playsSinks.add(sendPlays);
+    }
     await bridge.refresh();
     send(bridge.current);
     const unsubscribe = bridge.onSnapshot(send);
@@ -39397,6 +39489,7 @@ function registerRoutes(app, opts) {
       settingsSinks.delete(sendSettings);
       librarySinks.delete(sendLibrary);
       favouritesSinks.delete(sendFavourites);
+      playsSinks.delete(sendPlays);
       streams.delete(close);
       if (fromPanel) {
         panelStreams.delete(close);
@@ -39583,6 +39676,41 @@ function registerRoutes(app, opts) {
     const body = { albums: favourites.remove(ref.artist, ref.album) };
     return body;
   });
+  app.get("/api/library/recent", async (request, reply) => {
+    const { limit } = request.query;
+    let count = RECENTLY_ADDED_LIMIT;
+    if (limit !== void 0 && limit !== "") {
+      if (typeof limit !== "string" || !/^\d+$/.test(limit)) {
+        return reply.code(400).send({ error: "'limit' must be a whole number" });
+      }
+      count = Number(limit);
+      if (count < 1 || count > RECENTLY_ADDED_MAX) {
+        return reply.code(400).send({ error: `'limit' must be between 1 and ${RECENTLY_ADDED_MAX}` });
+      }
+    }
+    try {
+      const body = { albums: await library.recentlyAdded(count) };
+      return body;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.get("/api/plays/recent", async (request, reply) => {
+    if (!plays) return reply.code(503).send({ error: "recent plays are unavailable" });
+    const { limit } = request.query;
+    let count = RECENT_PLAYS_LIMIT;
+    if (limit !== void 0 && limit !== "") {
+      if (typeof limit !== "string" || !/^\d+$/.test(limit)) {
+        return reply.code(400).send({ error: "'limit' must be a whole number" });
+      }
+      count = Number(limit);
+      if (count < 1 || count > RECENT_PLAYS_MAX) {
+        return reply.code(400).send({ error: `'limit' must be between 1 and ${RECENT_PLAYS_MAX}` });
+      }
+    }
+    const body = { albums: plays.recentAlbums(count) };
+    return body;
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -39748,8 +39876,98 @@ function createFavourites(db, now = Date.now) {
   };
 }
 
+// src/plays.ts
+function createPlays(db, now = Date.now) {
+  const listeners = /* @__PURE__ */ new Set();
+  const recentAlbums = (limit) => {
+    return db.all(
+      "SELECT album_artist, album, image, MAX(last_played) AS played_at, SUM(play_count) AS plays FROM track_play WHERE album IS NOT NULL AND album_artist IS NOT NULL GROUP BY album_artist, album ORDER BY played_at DESC, album_artist, album LIMIT ?",
+      Math.max(0, Math.trunc(limit))
+    ).map((row) => ({
+      album: row.album,
+      albumArtist: row.album_artist,
+      image: row.image,
+      playedAt: row.played_at,
+      plays: row.plays
+    }));
+  };
+  return {
+    recentAlbums,
+    record(play) {
+      db.run(
+        "INSERT INTO track_play (file, title, artist, album, album_artist, image, play_count, last_played) VALUES (?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(file) DO UPDATE SET play_count = play_count + 1, last_played = excluded.last_played, title = excluded.title, artist = excluded.artist, album = excluded.album, album_artist = excluded.album_artist, image = excluded.image",
+        play.file,
+        play.title ?? null,
+        play.artist ?? null,
+        play.album ?? null,
+        play.albumArtist ?? null,
+        play.image,
+        now()
+      );
+      const albums = recentAlbums(RECENT_PLAYS_LIMIT);
+      for (const listener of listeners) listener(albums);
+    },
+    onChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  };
+}
+
+// src/play-watch.ts
+var PLAY_THRESHOLD_MS = PLAY_THRESHOLD_SECONDS * 1e3;
+var RESTART_SLACK_SECONDS = 2;
+function createPlayWatch(plays) {
+  let tracking = null;
+  const finalise = () => {
+    if (tracking !== null && tracking.playedMs >= PLAY_THRESHOLD_MS) {
+      plays.record(tracking.play);
+    }
+    tracking = null;
+  };
+  return {
+    observe(snapshot) {
+      if (tracking !== null && tracking.playing) {
+        tracking.playedMs += Math.max(0, snapshot.serverTime - tracking.lastAt);
+      }
+      const track = snapshot.track;
+      if (snapshot.source !== "mpd" || snapshot.status !== "ok" || snapshot.state === "stop" || track?.file === void 0) {
+        finalise();
+        return;
+      }
+      if (tracking !== null) {
+        const restarted = tracking.elapsed !== null && snapshot.elapsed !== null && snapshot.elapsed < tracking.elapsed - RESTART_SLACK_SECONDS;
+        if (track.file !== tracking.play.file || track.id !== tracking.id || restarted) {
+          finalise();
+        }
+      }
+      if (tracking === null) {
+        tracking = {
+          play: {
+            file: track.file,
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            albumArtist: track.albumArtist,
+            image: track.image
+          },
+          id: track.id,
+          playedMs: 0,
+          lastAt: snapshot.serverTime,
+          playing: snapshot.state === "play",
+          elapsed: snapshot.elapsed
+        };
+        return;
+      }
+      tracking.lastAt = snapshot.serverTime;
+      tracking.playing = snapshot.state === "play";
+      tracking.elapsed = snapshot.elapsed;
+    }
+  };
+}
+
 // src/server.ts
-var BUILD = true ? "2026-09-18T01:08:49Z" : "dev";
+var BUILD = true ? "2026-09-18T04:03:36Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -39777,6 +39995,9 @@ async function main() {
     onMigrate: (to) => app.log.info(`database migrated to schema v${to}`)
   });
   const settings = createSettings(db);
+  const plays = createPlays(db);
+  const playWatch = createPlayWatch(plays);
+  bridge.onSnapshot((snapshot) => playWatch.observe(snapshot));
   const scanner = createLibraryScanner({
     bridge,
     db,
@@ -39806,7 +40027,8 @@ async function main() {
       mpdDir: config.mpdStateDir,
       restoreDir: config.restoreDir
     }),
-    favourites: createFavourites(db)
+    favourites: createFavourites(db),
+    plays
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({

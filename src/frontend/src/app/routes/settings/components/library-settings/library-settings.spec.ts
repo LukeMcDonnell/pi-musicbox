@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import type { LibraryScan, LibraryState, SettingsResponse } from '@musicbox/shared';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
-import { LibrarySettings, ago, duration, hourLabel } from './library-settings';
+import { LibrarySettings, duration, hourLabel } from './library-settings';
 import { boxSettings, libraryState } from '../../../../testing/fixtures';
 
 function create(
@@ -100,15 +100,6 @@ describe('library-settings helpers', () => {
         expect(duration(2 * 3600 * 1000)).toBe('2h 0m');
     });
 
-    it('says how long ago without a date for anything recent', () => {
-        const now = new Date(2026, 0, 15, 12, 0, 0).getTime();
-        expect(ago(now - 30_000, now)).toBe('just now');
-        expect(ago(now - 20 * 60_000, now)).toBe('20 minutes ago');
-        // Twelve-hour, like the hour picker: "today at 4:02" alone is ambiguous.
-        expect(ago(new Date(2026, 0, 15, 4, 2, 0).getTime(), now)).toBe('today at 4:02 am');
-        expect(ago(new Date(2026, 0, 14, 16, 2, 0).getTime(), now)).toBe('yesterday at 4:02 pm');
-        expect(ago(new Date(2026, 0, 12, 4, 0, 0).getTime(), now)).toBe('3 days ago');
-    });
 });
 
 describe('LibrarySettings', () => {

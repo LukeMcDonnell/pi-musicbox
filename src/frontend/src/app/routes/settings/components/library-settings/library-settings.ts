@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LIBRARY_SCAN_HOURS, type LibraryScan } from '@musicbox/shared';
+import { ago, clockLabel } from '../../../../services/ago';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
 import { SettingSelect, type SettingOption } from '../setting-select/setting-select';
@@ -11,13 +12,6 @@ export function hourLabel(hour: number): string {
     return `${clockLabel(hour, 0)}`;
 }
 
-/** '6:59 am'. Twelve-hour, to match the hour the scan is scheduled for. */
-function clockLabel(hour: number, minute: number): string {
-    const suffix = hour < 12 ? 'am' : 'pm';
-    const h = hour % 12 === 0 ? 12 : hour % 12;
-    return `${h}:${String(minute).padStart(2, '0')} ${suffix}`;
-}
-
 /** '48m 40s'. Scans here run for the better part of an hour. */
 export function duration(ms: number): string {
     const total = Math.max(0, Math.round(ms / 1000));
@@ -27,23 +21,6 @@ export function duration(ms: number): string {
     if (h > 0) return `${h}h ${m}m`;
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
-}
-
-/** 'yesterday', 'today at 4:02'. Nobody needs a date for something 20 minutes old. */
-export function ago(at: number, now: number): string {
-    const seconds = Math.round((now - at) / 1000);
-    if (seconds < 90) return 'just now';
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `${minutes} minutes ago`;
-    const when = new Date(at);
-    const time = clockLabel(when.getHours(), when.getMinutes());
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    if (at >= startOfToday.getTime()) return `today at ${time}`;
-    if (at >= startOfToday.getTime() - 86_400_000) return `yesterday at ${time}`;
-    const days = Math.floor((startOfToday.getTime() - at) / 86_400_000) + 1;
-    if (days < 7) return `${days} days ago`;
-    return when.toLocaleDateString();
 }
 
 /**

@@ -1,7 +1,23 @@
-<section aria-label="Home" class="px-4 py-3 pt-0">
-  <div class="sticky top-0 z-1 bg-bg py-2">
-    <h1 class="text-2xl font-bold">Home</h1>
-  </div>
+<section aria-label="Home" class="px-4 py-3">
+  @if (played().length) {
+    <app-shelf heading="Recent Plays" link="/home/recent-plays">
+      @for (album of played(); track trackKey(album)) {
+        <app-album-card [album]="album" [cover]="coverOf(album)"
+                        (failed)="onCoverError($event)" (open)="open(album)" />
+      }
+    </app-shelf>
+  }
+
+  @if (recentLoading()) {
+    <p class="pt-3 text-[0.95rem] text-muted">Reading the library…</p>
+  } @else if (recent().length) {
+    <app-shelf heading="Recently Added" link="/home/recently-added">
+      @for (album of recent(); track trackKey(album)) {
+        <app-album-card [album]="album" [cover]="coverOf(album)"
+                        (failed)="onCoverError($event)" (open)="open(album)" />
+      }
+    </app-shelf>
+  }
 
   @if (loading()) {
     <p class="pt-3 text-[0.95rem] text-muted">Loading favourites…</p>

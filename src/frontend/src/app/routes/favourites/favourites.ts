@@ -1,16 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { VirtualScrollerComponent, VirtualScrollerModule } from '@iharbeck/ngx-virtual-scroller';
-import {
-    LucideArrowDownWideNarrow,
-    LucideArrowUpNarrowWide,
-    LucideDisc3,
-    LucideListPlus,
-    LucidePlay,
-    LucideSearch,
-    LucideX,
-} from '@lucide/angular';
+import { LucideArrowDownWideNarrow, LucideArrowUpNarrowWide, LucideSearch, LucideX } from '@lucide/angular';
 import type { FavouriteAlbum } from '@musicbox/shared';
+import { ALBUM_ROW_HEIGHT, AlbumRow } from '../../components/album-row/album-row';
 import { FavouritesStore } from '../../services/favourites-store';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
@@ -23,18 +16,13 @@ import {
 } from '../../services/preferences';
 import { SettingSelect, type SettingOption } from '../settings/components/setting-select/setting-select';
 
-/** One row: a 48px cover plus `py-2`. favourites.spec measures a rendered row against it. */
-export const FAVOURITE_ROW_HEIGHT = 64;
-
 /** The favourite albums, sorted as this device last asked. Play and Queue as on the album screen. */
 @Component({
     selector: 'app-favourites',
     imports: [
+        AlbumRow,
         LucideArrowDownWideNarrow,
         LucideArrowUpNarrowWide,
-        LucideDisc3,
-        LucideListPlus,
-        LucidePlay,
         LucideSearch,
         LucideX,
         SettingSelect,
@@ -85,7 +73,7 @@ export class Favourites {
 
     /** The <main> element, or null before App's view exists. See ScrollFrame. */
     readonly frame = inject(ScrollFrame).element;
-    readonly rowHeight = FAVOURITE_ROW_HEIGHT;
+    readonly rowHeight = ALBUM_ROW_HEIGHT;
 
     /** The rows the scroller has on screen, plus its buffer, and where they start. */
     readonly visible = signal<FavouriteAlbum[]>([]);

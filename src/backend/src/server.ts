@@ -21,6 +21,8 @@ import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
 import { createBackups } from './backup.ts';
 import { createFavourites } from './favourites.ts';
+import { createPlays } from './plays.ts';
+import { createPlayWatch } from './play-watch.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -59,6 +61,12 @@ async function main(): Promise<void> {
         onMigrate: (to) => app.log.info(`database migrated to schema v${to}`),
     });
     const settings = createSettings(db);
+
+    // What the box has played. The watcher's bridge subscription lives here for
+    // the same reason the scanner's does — routes.ts keeps its single listener.
+    const plays = createPlays(db);
+    const playWatch = createPlayWatch(plays);
+    bridge.onSnapshot((snapshot) => playWatch.observe(snapshot));
 
     // Library scanning. Constructed before the routes because they take it, and
     // started below with the bridge — its wiring lives here rather than in
@@ -101,6 +109,7 @@ async function main(): Promise<void> {
             restoreDir: config.restoreDir,
         }),
         favourites: createFavourites(db),
+        plays,
     });
     registerStatic(app, config.webRoot);
 

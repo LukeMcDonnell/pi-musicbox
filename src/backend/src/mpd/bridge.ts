@@ -710,6 +710,21 @@ export class MpdBridge {
             .filter((s): s is LibrarySong => s !== null);
     }
 
+    /**
+     * Songs newest first by the `Added` tag, one window of them.
+     *
+     * The filter is the whole library and is constant — nothing here is built
+     * from anything a client sent. Measured on this library: 1000 songs in
+     * 372ms, which is 80 albums once grouped. See library.recentlyAdded.
+     */
+    async songsByAdded(offset: number, count: number): Promise<LibrarySong[]> {
+        const window = `${Math.max(0, Math.trunc(offset))}:${Math.max(0, Math.trunc(offset + count))}`;
+        const reply = await this.send(`find "(base \\"\\")" sort -Added window ${window}`);
+        return groupByMulti(reply, 'file')
+            .map(songFromTags)
+            .filter((s): s is LibrarySong => s !== null);
+    }
+
     /** `findFirst`, keeping the album tags. See findSongs. */
     async findFirstSong(...pairs: Array<[string, string]>): Promise<LibrarySong | null> {
         const reply = await this.send(`find ${filterArgs(pairs)} window 0:1`);

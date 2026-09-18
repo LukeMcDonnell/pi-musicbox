@@ -27,7 +27,10 @@ import type {
     AlbumsResponse,
     ArtistSummary,
     ArtistsResponse,
+    RecentlyAddedAlbum,
+    RecentlyAddedResponse,
 } from '@musicbox/shared';
+import { RECENTLY_ADDED_LIMIT } from '@musicbox/shared';
 import { ApiClient } from './api-client';
 import { MusicboxApi } from './musicbox-api';
 
@@ -94,6 +97,8 @@ export class LibraryStore {
     invalidate(): void {
         this._artists.set(null);
         this.artistsRequest = null;
+        this._recent.set(null);
+        this.recentRequest = null;
         this._generation.update((n) => n + 1);
     }
 
@@ -117,6 +122,39 @@ export class LibraryStore {
                 });
         }
         return this.artistsRequest;
+    }
+
+    private readonly _recent = signal<RecentlyAddedAlbum[] | null>(null);
+    private recentRequest: Promise<RecentlyAddedAlbum[]> | null = null;
+
+    /**
+     * The most recently added albums, or null before the first fetch.
+     *
+     * CACHED LIKE THE ARTIST LIST, and for the same reasons: Home's shelf and the
+     * screen behind it want the same list within a frame of each other, and it
+     * only changes when a scan does — which is what `invalidate()` already hears.
+     * One fetch of RECENTLY_ADDED_LIMIT serves both; the shelf takes the first few.
+     */
+    readonly recentlyAdded = this._recent.asReadonly();
+
+    async loadRecentlyAdded(): Promise<RecentlyAddedAlbum[]> {
+        const cached = this._recent();
+        if (cached !== null) return cached;
+        if (this.recentRequest === null) {
+            const mine = untracked(this._generation);
+            this.recentRequest = this.api
+                .getJson<RecentlyAddedResponse>(`/api/library/recent?limit=${RECENTLY_ADDED_LIMIT}`)
+                .then(({ albums }) => {
+                    if (mine === this._generation()) this._recent.set(albums);
+                    return albums;
+                })
+                .finally(() => {
+                    // Cleared on failure too, so MPD being down once does not
+                    // wedge the shelf for the session.
+                    if (mine === this._generation()) this.recentRequest = null;
+                });
+        }
+        return this.recentRequest;
     }
 
     async fetchAlbums(albumArtist: string): Promise<AlbumsResponse> {

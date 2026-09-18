@@ -22,7 +22,7 @@ import { registerRoutes } from './routes.ts';
 import type { LibraryState } from '../../shared/api.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
-import { SSE_SETTINGS_EVENT, SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
+import { RECENT_PLAYS_MAX, SSE_SETTINGS_EVENT, SSE_SNAPSHOT_EVENT, type Snapshot } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
 import { isLoopback } from './routes.ts';
 import type { Panel } from './panel.ts';
@@ -32,6 +32,7 @@ import { openDb } from './db.ts';
 import { createPower, type Power } from './power.ts';
 import { BackupError, type Backups } from './backup.ts';
 import { createFavourites, type Favourites } from './favourites.ts';
+import { createPlays, type Plays, type TrackPlay } from './plays.ts';
 import type { LibrarySong } from './mpd/bridge.ts';
 
 /** A phone that is connected and playing, as the arbiter would report it. */
@@ -72,6 +73,7 @@ async function startServer(
         scanner?: LibraryScanner;
         backups?: Backups;
         favourites?: Favourites;
+        plays?: Plays;
     } = {},
 ) {
     const app = Fastify({
@@ -93,6 +95,7 @@ async function startServer(
         scanner: opts.scanner,
         backups: opts.backups,
         favourites: opts.favourites,
+        plays: opts.plays,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -1505,4 +1508,142 @@ test('favourite routes answer 503 on a box with none wired up', async (t) => {
     assert.equal((await api(port, '/api/favourites')).status, 503);
     assert.equal((await api(port, '/api/favourites/album?artist=A&album=B', { method: 'PUT' })).status, 503);
     assert.equal((await api(port, '/api/favourites/album?artist=A&album=B', { method: 'DELETE' })).status, 503);
+});
+
+// ---------------------------------------------------------------------------
+// Recently added.
+// ---------------------------------------------------------------------------
+
+/** A newest-first stream of `count` albums, one song each. */
+function addedStream(bridge: MpdBridge, count: number): void {
+    bridge.songsByAdded = async (offset, window) =>
+        Array.from({ length: Math.max(0, Math.min(window, count - offset)) }, (_, i) =>
+            song('Artist', `Album ${offset + i}`, '1', '1997'),
+        );
+}
+
+test('GET /api/library/recent answers the newest albums first, 100 by default', async (t) => {
+    const { port, bridge } = await serverFor(t);
+    addedStream(bridge, 150);
+    const res = await api(port, '/api/library/recent');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.albums.length, 100);
+    assert.equal(res.body.albums[0].album, 'Album 0');
+    // Only what a window of songs honestly knows — no track count, no runtime.
+    assert.deepEqual(Object.keys(res.body.albums[0]), ['album', 'albumArtist', 'date', 'image', 'addedAt']);
+});
+
+test('a limit narrows it, and the ceiling and the junk are refused', async (t) => {
+    const { port, bridge } = await serverFor(t);
+    addedStream(bridge, 150);
+    assert.equal((await api(port, '/api/library/recent?limit=5')).body.albums.length, 5);
+    // An absent or empty limit is the default, not an error.
+    assert.equal((await api(port, '/api/library/recent?limit=')).body.albums.length, 100);
+    for (const bad of ['0', '-1', '2.5', '5x', 'abc', '501']) {
+        const res = await api(port, `/api/library/recent?limit=${bad}`);
+        assert.equal(res.status, 400, `limit=${bad}`);
+    }
+});
+
+test('a library with fewer albums than the limit answers with what there is', async (t) => {
+    const { port, bridge } = await serverFor(t);
+    addedStream(bridge, 3);
+    assert.equal((await api(port, '/api/library/recent')).body.albums.length, 3);
+});
+
+test('recently added answers 503 when MPD cannot be asked', async (t) => {
+    const { port } = await serverFor(t); // the dead bridge
+    const res = await api(port, '/api/library/recent');
+    assert.equal(res.status, 503);
+});
+
+// ---------------------------------------------------------------------------
+// Recent plays.
+// ---------------------------------------------------------------------------
+
+function memoryPlays(): Plays {
+    let clock = 1000;
+    return createPlays(openDb({ path: ':memory:' }), () => clock++);
+}
+
+function played(albumArtist: string, album: string, track: string): TrackPlay {
+    return {
+        file: `${albumArtist}/${album}/${track}.flac`,
+        title: `Track ${track}`,
+        artist: albumArtist,
+        album,
+        albumArtist,
+        image: '/api/art?album=x',
+    };
+}
+
+test('recent plays are empty until something has been played', async (t) => {
+    const { port } = await serverFor(t, { plays: memoryPlays() });
+    const res = await api(port, '/api/plays/recent');
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.albums, []);
+});
+
+test('an album that was played comes back, newest first', async (t) => {
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    plays.record(played('Tool', 'Ænima', '01'));
+    plays.record(played('Pixies', 'Doolittle', '01'));
+    const res = await api(port, '/api/plays/recent');
+    assert.deepEqual(
+        res.body.albums.map((a: { album: string }) => a.album),
+        ['Doolittle', 'Ænima'],
+    );
+});
+
+test('recent plays honours limit, and refuses one that is not a whole number', async (t) => {
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    for (let i = 0; i < 5; i++) plays.record(played('Artist', `Album ${i}`, '01'));
+    assert.equal((await api(port, '/api/plays/recent?limit=2')).body.albums.length, 2);
+    assert.equal((await api(port, '/api/plays/recent?limit=5x')).status, 400);
+    assert.equal((await api(port, '/api/plays/recent?limit=2.5')).status, 400);
+    assert.equal((await api(port, '/api/plays/recent?limit=0')).status, 400);
+    assert.equal((await api(port, `/api/plays/recent?limit=${RECENT_PLAYS_MAX + 1}`)).status, 400);
+    // Empty is "not given", as it is for recently added.
+    assert.equal((await api(port, '/api/plays/recent?limit=')).status, 200);
+});
+
+test('recent plays answer 503 with no store behind them', async (t) => {
+    const { port } = await serverFor(t);
+    assert.equal((await api(port, '/api/plays/recent')).status, 503);
+});
+
+test('the stream carries recent plays on connect and again when one is recorded', async (t) => {
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    plays.record(played('Tool', 'Ænima', '01'));
+    const stream = await streamFor(t, port);
+    assert.ok(stream.text().includes('event: plays'), 'no plays frame on connect');
+    assert.ok(stream.text().includes('Ænima'));
+
+    plays.record(played('Pixies', 'Doolittle', '01'));
+    await settle();
+    assert.equal(stream.text().split('event: plays').length - 1, 2);
+    assert.ok(stream.text().includes('Doolittle'));
+});
+
+test('a closed stream stops being written to', async (t) => {
+    const plays = memoryPlays();
+    const { port } = await serverFor(t, { plays });
+    const stream = await streamFor(t, port);
+    const before = stream.text().length;
+    stream.destroy();
+    await settle();
+    plays.record(played('Tool', 'Ænima', '01'));
+    await settle();
+    assert.equal(stream.text().length, before);
+});
+
+test('the recent plays route is the last route in the file', () => {
+    // Same reason as the assertions above: three tests slice this file's source
+    // between route literals, so new routes go at the end.
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    assert.ok(src.indexOf("app.post('/api/restore'") < src.indexOf("app.get('/api/library/recent'"));
+    assert.ok(src.indexOf("app.get('/api/library/recent'") < src.indexOf("app.get('/api/plays/recent'"));
 });

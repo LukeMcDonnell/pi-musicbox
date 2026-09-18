@@ -789,3 +789,85 @@ export interface FavouriteAlbum extends AlbumSummary {
 export interface FavouritesResponse {
     albums: FavouriteAlbum[];
 }
+
+/*
+ * RECENTLY ADDED: GET /api/library/recent?limit=
+ *
+ * The albums MPD saw most recently, newest first. `limit` defaults to
+ * RECENTLY_ADDED_LIMIT and must be an integer in 1..RECENTLY_ADDED_MAX; 400
+ * otherwise, 503 when MPD cannot be asked.
+ *
+ * WHY THE ALBUMS CARRY LESS THAN AN AlbumSummary
+ *   MPD sorts SONGS by the `Added` tag — there is no album listing with a date —
+ *   so the albums are grouped out of a window of that stream. The window cuts an
+ *   album's tracks off part way, which makes a track count or a runtime taken
+ *   from it wrong; getting them right is a `find` per album at 11.4ms each, over
+ *   a second for 100. So this type carries only what the window honestly knows.
+ */
+export const RECENTLY_ADDED_LIMIT = 100;
+
+/** The ceiling on `limit`, so a typo cannot ask for the whole library. */
+export const RECENTLY_ADDED_MAX = 500;
+
+/** Names an album. AlbumSummary satisfies it, which is how one card takes both. */
+export interface AlbumIdentity {
+    album: string;
+    albumArtist: string;
+}
+
+export interface RecentlyAddedAlbum extends AlbumIdentity {
+    /** `OriginalDate` where the tracks have it, else `Date`. See AlbumSummary.date. */
+    date: string | null;
+    /** `/api/art?album=<album directory>`; may 404, as ever. */
+    image: string | null;
+    /** MPD's `Added` on the newest track seen, ISO 8601. Null for a file with none. */
+    addedAt: string | null;
+}
+
+export interface RecentlyAddedResponse {
+    albums: RecentlyAddedAlbum[];
+}
+
+/*
+ * RECENT PLAYS: GET /api/plays/recent?limit=, and the `plays` SSE event.
+ *
+ * The albums the box has played, most recent first. `limit` behaves exactly as
+ * Recently Added's does. The list also arrives on the stream, on connect and
+ * whenever a play is recorded, so a client never polls for it.
+ *
+ * WHAT COUNTS AS A PLAY
+ *   A track that MPD played for PLAY_THRESHOLD_SECONDS, measured as time spent
+ *   playing rather than as a position in the track: a seek backwards cannot
+ *   count it twice and a pause does not accrue. Skipping through a queue records
+ *   nothing, which is the point.
+ *
+ *   MPD only. A phone on A2DP has no file, no library album to open and no
+ *   cover art, so there would be nothing for a card to be.
+ *
+ * WHY THE TABLE BEHIND THIS IS PER TRACK
+ *   It records every song played, with a count and a last-played time. This type
+ *   is a GROUP BY over that, because albums are what the screens show — but most
+ *   played track, or artist, is then a query rather than a migration.
+ */
+export const RECENT_PLAYS_LIMIT = 100;
+
+/** The ceiling on `limit`, as Recently Added has. */
+export const RECENT_PLAYS_MAX = 500;
+
+/** How long a track must play before it is recorded. */
+export const PLAY_THRESHOLD_SECONDS = 30;
+
+export const SSE_PLAYS_EVENT = 'plays';
+
+export interface RecentPlayAlbum extends AlbumIdentity {
+    /** `/api/art?album=<album directory>`; may 404, as ever. */
+    image: string | null;
+    /** Epoch ms of the most recent track play from this album. */
+    playedAt: number;
+    /** Track plays recorded from this album, all time. */
+    plays: number;
+}
+
+export interface RecentPlaysResponse {
+    albums: RecentPlayAlbum[];
+}

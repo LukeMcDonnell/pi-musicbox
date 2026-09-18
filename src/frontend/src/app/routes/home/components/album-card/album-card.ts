@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { LucideDisc3 } from '@lucide/angular';
-import type { AlbumSummary } from '@musicbox/shared';
+import type { AlbumIdentity } from '@musicbox/shared';
 
 /*
-  One album in a shelf: a square cover, its title and its artist.
+  One album in a shelf: a square cover, its title and its artist. It takes the
+  smallest shape that says both — a favourite is an AlbumSummary and a recently
+  added album carries less, and the card wants nothing either of them lacks.
 
   The cover arrives already resolved, and a 404 goes back out as `failed` — the
   screen owns the set of covers that have failed, as the Favourites list does,
@@ -40,7 +42,7 @@ import type { AlbumSummary } from '@musicbox/shared';
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AlbumCard {
-    readonly album = input.required<AlbumSummary>();
+    readonly album = input.required<AlbumIdentity>();
 
     /** Resolved by the screen through LibraryStore, or null when there is none. */
     readonly cover = input<string | null>(null);

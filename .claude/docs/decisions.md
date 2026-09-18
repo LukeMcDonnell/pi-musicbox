@@ -1255,3 +1255,71 @@ panel wants. Verified both ways: headless at 800x480 shows them at opacity 1,
 and a headed browser on a real mouse gives 0 at idle and 1 on hover. Neither
 `Emulation.setEmulatedMedia` nor `--blink-settings=primaryPointerType` moves
 `matchMedia` in this Chrome, so the fine-pointer half cannot be checked headless.
+
+## Recently added is grouped out of a song window, not an album query (2026-09-18)
+
+MPD 0.24 sorts by the `Added` tag, but only songs: `list album sort -Added` is
+`ACK [2@0] {list} Unknown filter type`. So `library.recentlyAdded` asks for
+`find "(base "")" sort -Added window <offset>:<end>` and takes the first
+appearance of each album — the stream is already newest-first, so that song is
+the album's newest and sets its `addedAt`.
+
+Measured against the real library, which is what set the 1000-song chunk:
+
+| songs | albums | time |
+|---|---|---|
+| 200 | 16 | 281ms |
+| 1000 | 80 | 372ms |
+| 2000 | 215 | 433ms |
+| 4000 | 403 | 574ms |
+
+One chunk covers the default limit of 100, and a limit that a chunk cannot fill
+asks for the next one rather than guessing a bigger window. End to end on the
+device: 773ms cold, under a millisecond warm — it is cached beside the artist
+index and dropped by the same `invalidate()` when a scan finishes.
+
+**The payload is not an AlbumSummary, and that is the point.** The window cuts an
+album's tracks off part way, so a track count or a runtime read from it would be
+a wrong number presented as a right one — the same rule `albumsFromSongs` applies
+to a duration with an untagged track in it. Getting them right means a `find` per
+album at 11.4ms, over a second for 100, for two fields the screen does not show.
+`RecentlyAddedAlbum` therefore carries only what the window knows: names, date,
+cover, `addedAt`. `AlbumIdentity` is what both it and `AlbumSummary` satisfy,
+which is how one `AlbumCard` and one `AlbumRow` take either.
+
+## Recent plays: what records a play, and how it knows (2026-09-18)
+
+**The recorder is a plain snapshot listener, not a change to the bridge.**
+`publish()` overwrites `this.snapshot` before notifying, so the bridge cannot hand
+a listener the previous frame — the obvious conclusion is that a song-change
+signal has to be added to bridge.ts, beside the `updating_db` compare. It does
+not: a listener that keeps its own copy of what it last saw has the previous
+frame. `play-watch.ts` is therefore an ordinary `onSnapshot` consumer, the second
+one in the backend, and the bridge is untouched.
+
+**Time is accrued on the wall clock, never read from MPD's `elapsed`.** `idle`
+does not fire because elapsed time advanced — measured and recorded further up
+this file — so a track playing quietly for four minutes produces no frames, and
+its `elapsed` is stale between real events. The frame at the song change carries a
+`serverTime` four minutes later, and the difference between consecutive frames
+while the state is `play` is what the track actually played. That also makes the
+threshold mean what it says: a seek backwards cannot count a track twice, a pause
+does not accrue, and the extra frames `/api/status` and every SSE connect cause
+(both call `refresh()`) add real elapsed time twice, which is the same as adding
+it once.
+
+Repeat-one is the one case with no signal of its own: the same songid plays again,
+so only `elapsed` falling back past a couple of seconds says a new play started.
+
+**The table is per track although only albums are shown.** One row per song ever
+played — file, tags, a count, the last time — and `recentAlbums` is a `GROUP BY`
+over it. Asked for, and the reason is that most-played track, album or artist then
+costs a query rather than a migration on a box in the next room. Keyed by `file`,
+which is the only song identity MPD and this box agree on: a retag corrects the
+row the next time it plays, a file that MOVED starts a new one.
+
+**`image` beside `MAX(last_played)` is deliberate.** SQLite answers a bare column
+in a min/max aggregate from the row that supplied the extreme, so the art is the
+most recently played track's — which for a multi-disc album is the right disc
+directory. A documented guarantee, and the first thing a reader would rewrite into
+a subquery.

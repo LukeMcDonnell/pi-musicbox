@@ -1009,7 +1009,16 @@ button at each end, and a link through to the full list. The buttons are always
 visible to a thumb and fade in on hover where there is a mouse to hover with; the
 row has no scrollbar.
 
-The first shelf is **ten of your favourites, chosen at random**, with *See all*
+The first shelf is **Recent Plays** — the ten albums the box played most
+recently, *See all* going to the screen below. It leads because picking up where
+you left off is the commonest reason to walk up to the box, and it is the shelf
+that changes most. A box that has played nothing shows no shelf for it.
+
+The second is **Recently Added** — the ten newest albums, in order, *See
+all* going to the screen below. Nothing about it is random; the list is the same
+one that screen shows, fetched once and cached.
+
+The third is **ten of your favourites, chosen at random**, with *See all*
 going to the Favourites screen. The ten are fixed for as long as the page is
 loaded — going into an album and coming back shows the same row — and they are
 picked by hashing a per-load seed with each album's name rather than by
@@ -1020,6 +1029,64 @@ card opens the album.
 `Shelf` and `AlbumCard` under `routes/home/components/` are deliberately separate:
 the shelf knows nothing about what it carries, because albums and artists are both
 going to be shown in it.
+
+### Recently added
+
+`/home/recently-added`: the 100 newest albums, newest first, virtualised like the
+Library's artist list. No filter and no sort — the server's order is the answer —
+and Queue and Play on each row, as on Favourites.
+
+```
+GET /api/library/recent            the default 100
+GET /api/library/recent?limit=10   1..500; 400 for anything else
+```
+
+**The albums are grouped out of a window of songs.** MPD 0.24 sorts by the `Added`
+tag but has no album listing that carries a date — `list album sort -Added` answers
+`ACK {list} Unknown filter type` — so the server asks for
+`find "(base "")" sort -Added window 0:1000` and takes the first appearance of each
+album. Measured here: 1,000 songs is 80 albums in 372ms, 2,000 is 215 in 433ms, so
+100 albums is one round trip. The answer is cached until a scan finishes; measured
+end to end, 773ms cold and under a millisecond warm.
+
+**The rows carry no track count**, unlike an artist's albums. The window cuts an
+album off part way, so any count taken from it would be wrong, and getting it right
+is a `find` per album — 11.4ms each, over a second for 100. The row says
+"Artist · year", and the album screen has the real numbers.
+
+### Recent plays
+
+`/home/recent-plays`: the albums the box has played, most recent first, and the
+shelf that leads the Home screen. Rows read "Artist · 2 hours ago" — the list is
+already in time order, so the release year the other album lists show would say
+nothing here.
+
+```
+GET /api/plays/recent            the default 100
+GET /api/plays/recent?limit=10   1..500; 400 for anything else
+```
+
+The list also arrives on the stream as a `plays` event, on connect and whenever a
+play is recorded, so the screen never fetches and never polls.
+
+**A play is thirty seconds of playing.** Not thirty seconds of the track — time
+actually spent playing, accrued across frames while the state is `play`. So
+skipping through a queue records nothing, a pause does not accrue, and a seek
+backwards cannot make one track count twice.
+
+**Recorded without a timer.** MPD's `idle` never fires because elapsed time
+advanced, so a track playing quietly for four minutes produces no events at all —
+and then the frame at the song change carries a `serverTime` four minutes later,
+which *is* how long it played. `play-watch.ts` keeps its own copy of the last
+snapshot it saw and does the arithmetic on the wall clock between frames.
+
+**MPD only.** A phone on A2DP has no file, no library album to open and no cover
+art, so there would be nothing for a card to be.
+
+**The table is per track, the screens are per album.** `track_play` holds one row
+per song ever played — file, tags, a play count and the last time — and the album
+list is a `GROUP BY` over it. Most-played track, album or artist is then a query
+rather than another migration. Nothing is pruned: the ceiling is the library.
 
 ### Favourites
 

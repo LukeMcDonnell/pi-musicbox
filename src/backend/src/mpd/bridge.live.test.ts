@@ -99,6 +99,8 @@ async function startFakeMpd(
                 } else if (line === 'update' || line === 'rescan') {
                     // MPD answers at once and gets on with it; it does not wait.
                     socket.write('updating_db: 7\nOK\n');
+                } else if (line.startsWith('find ')) {
+                    socket.write('file: A/Album/01.flac\nAlbumArtist: A\nAlbum: Album\nAdded: 2026-09-17T10:00:00Z\nOK\n');
                 } else if (line === 'currentsong') {
                     socket.write(SONG_REPLY);
                 } else {
@@ -453,6 +455,27 @@ test('stats comes back parsed by the caller, counts and uptime included', async 
     const pairs = new Map(reply.pairs);
     assert.equal(pairs.get('songs'), '37289');
     assert.equal(pairs.get('uptime'), '100000');
+
+    bridge.stop();
+    await fake.close();
+});
+
+test('songsByAdded asks MPD for a window of the newest songs first', async () => {
+    const fake = await startFakeMpd({ idleForever: true });
+    const { bridge } = makeBridge(fake);
+    bridge.start();
+    await wait(120);
+
+    const songs = await bridge.songsByAdded(1000, 1000);
+    // The filter is the whole library, the sort is descending, and the window is
+    // an offset and an END, not a count — the arithmetic is the easy thing to
+    // get wrong and MPD would silently return the wrong page.
+    assert.ok(
+        fake.commands.includes('find "(base \\"\\")" sort -Added window 1000:2000'),
+        fake.commands.join(' | '),
+    );
+    assert.equal(songs[0]?.track.addedAt, '2026-09-17T10:00:00Z');
+    assert.equal(songs[0]?.track.albumArtist, 'A');
 
     bridge.stop();
     await fake.close();

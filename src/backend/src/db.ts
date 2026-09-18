@@ -78,6 +78,23 @@ export const MIGRATIONS: readonly string[] = [
         summary      TEXT NOT NULL,
         PRIMARY KEY (album_artist, album)
     ) STRICT;`,
+    // v4 — one row per song ever played, not per play: a count and the last time.
+    // The screen shows recently played ALBUMS, which is a GROUP BY over this, but
+    // the table is the scrobble log that also answers most-played track or artist
+    // without a second migration. `image` is denormalised for the same reason
+    // `favourite_album.summary` is — the shelf must cost no MPD lookups. Keyed by
+    // `file`, which is the only song identity MPD and this box agree on.
+    `CREATE TABLE track_play (
+        file         TEXT PRIMARY KEY,
+        title        TEXT,
+        artist       TEXT,
+        album        TEXT,
+        album_artist TEXT,
+        image        TEXT,
+        play_count   INTEGER NOT NULL,
+        last_played  INTEGER NOT NULL
+    ) STRICT;
+     CREATE INDEX track_play_album ON track_play (album_artist, album);`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

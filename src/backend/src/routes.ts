@@ -13,9 +13,14 @@ import {
     SSE_SETTINGS_EVENT,
     SSE_LIBRARY_EVENT,
     SSE_FAVOURITES_EVENT,
+    SSE_PLAYS_EVENT,
     API_VERSION,
     BACKUP_CONTENT_TYPE,
     BACKUP_MAX_BYTES,
+    RECENTLY_ADDED_LIMIT,
+    RECENTLY_ADDED_MAX,
+    RECENT_PLAYS_LIMIT,
+    RECENT_PLAYS_MAX,
     type AlbumResponse,
     type AlbumRef,
     type AlbumsResponse,
@@ -26,6 +31,9 @@ import {
     type LibraryState,
     type PanelState,
     type PlaybackCommand,
+    type RecentlyAddedResponse,
+    type RecentPlayAlbum,
+    type RecentPlaysResponse,
     type RestoreResponse,
     type SettingsResponse,
     type Snapshot,
@@ -46,6 +54,7 @@ import { isSettingKey, parseSetting, type Settings, type SettingsValues } from '
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { BackupError, type Backups } from './backup.ts';
 import type { Favourites } from './favourites.ts';
+import type { Plays } from './plays.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -84,6 +93,8 @@ export interface RouteOptions {
     backups?: Backups;
     /** Favourite albums. See favourites.ts. */
     favourites?: Favourites;
+    /** What the box has played. See plays.ts; play-watch.ts is what fills it. */
+    plays?: Plays;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -152,6 +163,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
     const favouritesSinks = new Set<(albums: FavouriteAlbum[]) => void>();
     favourites?.onChange((albums) => {
         for (const sink of [...favouritesSinks]) sink(albums);
+    });
+
+    const plays = opts.plays;
+    const playsSinks = new Set<(albums: RecentPlayAlbum[]) => void>();
+    plays?.onChange((albums) => {
+        for (const sink of [...playsSinks]) sink(albums);
     });
 
     /** Sinks for the settings event, one per open stream. */
@@ -567,6 +584,15 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             favouritesSinks.add(sendFavourites);
         }
 
+        const sendPlays = (albums: RecentPlayAlbum[]) => {
+            const body: RecentPlaysResponse = { albums };
+            reply.raw.write(sseFrame(SSE_PLAYS_EVENT, body));
+        };
+        if (plays) {
+            sendPlays(plays.recentAlbums(RECENT_PLAYS_LIMIT));
+            playsSinks.add(sendPlays);
+        }
+
         // The FIRST frame must be freshly queried, not bridge.current.
         //
         // MPD's `idle` never fires merely because elapsed time advanced, so the
@@ -592,6 +618,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             settingsSinks.delete(sendSettings);
             librarySinks.delete(sendLibrary);
             favouritesSinks.delete(sendFavourites);
+            playsSinks.delete(sendPlays);
             streams.delete(close);
             if (fromPanel) {
                 panelStreams.delete(close);
@@ -873,6 +900,53 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         const ref = albumQuery(request.query);
         if (typeof ref === 'string') return reply.code(400).send({ error: ref });
         const body: FavouritesResponse = { albums: favourites.remove(ref.artist, ref.album) };
+        return body;
+    });
+
+    // -----------------------------------------------------------------------
+    // Recently added. Appended for the same reason as the routes above.
+    // -----------------------------------------------------------------------
+
+    app.get('/api/library/recent', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { limit } = request.query as { limit?: unknown };
+        let count = RECENTLY_ADDED_LIMIT;
+        if (limit !== undefined && limit !== '') {
+            // The whole string, so '5x' and '2.5' are refused rather than read as 5 and 2.
+            if (typeof limit !== 'string' || !/^\d+$/.test(limit)) {
+                return reply.code(400).send({ error: "'limit' must be a whole number" });
+            }
+            count = Number(limit);
+            if (count < 1 || count > RECENTLY_ADDED_MAX) {
+                return reply.code(400).send({ error: `'limit' must be between 1 and ${RECENTLY_ADDED_MAX}` });
+            }
+        }
+        try {
+            const body: RecentlyAddedResponse = { albums: await library.recentlyAdded(count) };
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    // -----------------------------------------------------------------------
+    // Recent plays. Appended for the same reason as the routes above.
+    // -----------------------------------------------------------------------
+
+    app.get('/api/plays/recent', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!plays) return reply.code(503).send({ error: 'recent plays are unavailable' });
+        const { limit } = request.query as { limit?: unknown };
+        let count = RECENT_PLAYS_LIMIT;
+        if (limit !== undefined && limit !== '') {
+            // The whole string, so '5x' and '2.5' are refused rather than read as 5 and 2.
+            if (typeof limit !== 'string' || !/^\d+$/.test(limit)) {
+                return reply.code(400).send({ error: "'limit' must be a whole number" });
+            }
+            count = Number(limit);
+            if (count < 1 || count > RECENT_PLAYS_MAX) {
+                return reply.code(400).send({ error: `'limit' must be between 1 and ${RECENT_PLAYS_MAX}` });
+            }
+        }
+        const body: RecentPlaysResponse = { albums: plays.recentAlbums(count) };
         return body;
     });
 

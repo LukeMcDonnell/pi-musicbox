@@ -138,6 +138,13 @@ backlight is off.** The digitizer is a separate device so it should, and a dead
 panel stream restores the backlight anyway, but nobody has put a finger on a dark
 screen yet. Worth thirty seconds next time you are at the box.
 
+## Landed: Recently Added (2026-09-18)
+
+The Home shelf and `/home/recently-added`: the 100 newest albums, newest first,
+from `GET /api/library/recent`. Grouped out of a window of songs sorted by MPD's
+`Added` tag — `decisions.md` has the measurements and why the rows carry no track
+count. Recent Plays followed; see below.
+
 ## Landed: favourite albums (2026-09-17)
 
 Hearts on the album screen and the artist screen's album rows (not on phones); a
@@ -212,3 +219,19 @@ Not yet checked on the panel itself.
 - Reclaim the ~4s the kiosk currently waits on NetworkManager.
 - Read-only root via `raspi-config nonint enable_overlayfs` (planned from the
   start: "volatile logs now, overlayfs later").
+
+## Landed: Recent Plays (2026-09-18)
+
+`GET /api/plays/recent`, a `plays` SSE event, the Home shelf that now leads the
+screen, and `/home/recent-plays`. Schema v4's `track_play` is the first half of
+what the database was stood up for that had not been built: one row per song ever
+played, with a count and the last time, so most-played track/album/artist is a
+query away. What decides that a track played is `play-watch.ts` — thirty seconds
+of playing, accrued from the wall clock between snapshots, MPD only. See
+`decisions.md` for why that needs no timer and no change to the bridge.
+
+Verified against the live box: a track played out naturally, one row was written
+with the right tags and art, and the `plays` frame arrived on the stream. The
+negative cases — a skip, a pause, a phone taking over, repeat-one — are covered by
+`play-watch.test.ts` rather than on the device, which would have meant skipping
+through someone's music.

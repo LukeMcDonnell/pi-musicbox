@@ -36,7 +36,7 @@ test('migrations run once, not on every open — the second open is a no-op', as
     const first = openDb({ path, onMigrate: (to) => applied.push(to) });
     first.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'panelSleepAfterMinutes', '5');
     first.close();
-    assert.deepEqual(applied, [1, 2, 3]);
+    assert.deepEqual(applied, [1, 2, 3, 4]);
 
     const againApplied: number[] = [];
     const second = openDb({ path, onMigrate: (to) => againApplied.push(to) });
@@ -161,7 +161,7 @@ test('a v1 file migrates forward to v2 without disturbing its settings', async (
 
     const applied: number[] = [];
     const v2 = openDb({ path, onMigrate: (to) => applied.push(to) });
-    assert.deepEqual(applied, [2, 3], 'only the new steps ran');
+    assert.deepEqual(applied, [2, 3, 4], 'only the new steps ran');
     assert.equal(
         v2.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', 'panelSleepAfterMinutes')
             ?.value,

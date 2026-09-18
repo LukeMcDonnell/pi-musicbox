@@ -15,12 +15,13 @@ import {
     artistDirOf,
     artistImageOf,
     createLibrary,
+    recentAlbumsFrom,
     sortAlbumTracks,
 } from './library.ts';
 import { songFromTags, trackFromTags } from './mpd/bridge.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
 import type { Reply } from './mpd/protocol.ts';
-import type { Track } from '../../shared/api.ts';
+import type { RecentlyAddedAlbum, Track } from '../../shared/api.ts';
 
 /** A library Track, built the way the bridge builds one, so `image` is real. */
 function song(file: string, tags: Record<string, string> = {}): Track {
@@ -532,4 +533,120 @@ test('a failed build is not cached', async () => {
     // build has to be retryable.
     const artists = await library.artists();
     assert.equal(artists.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Recently added.
+// ---------------------------------------------------------------------------
+
+/** A song as MPD's newest-first stream hands it over. */
+function recent(artist: string, album: string, track: string, added?: string): LibrarySong {
+    return lsong(`${artist}/${album}/${track}.flac`, {
+        AlbumArtist: artist,
+        Album: album,
+        Date: '1997',
+        ...(added === undefined ? {} : { Added: added }),
+    });
+}
+
+/** A bridge whose newest-first stream is `songs`, served a window at a time. */
+function addedBridge(songs: LibrarySong[], chunk = 1000) {
+    const windows: string[] = [];
+    const bridge = fakeBridge({
+        async songsByAdded(offset: number, count: number): Promise<LibrarySong[]> {
+            windows.push(`${offset}:${offset + count}`);
+            assert.equal(count, chunk, 'the chunk size is the one library.ts measured');
+            return songs.slice(offset, offset + count);
+        },
+    });
+    return { bridge, windows };
+}
+
+test('recent albums come from the first song of each, which is its newest', () => {
+    const albums = new Map<string, RecentlyAddedAlbum>();
+    recentAlbumsFrom(
+        [
+            recent('Radiohead', 'Kid A', '02', '2026-09-17T10:00:00Z'),
+            recent('Radiohead', 'Kid A', '01', '2026-09-16T10:00:00Z'),
+            recent('AC/DC', 'Back in Black', '01', '2026-09-15T10:00:00Z'),
+        ],
+        albums,
+        10,
+    );
+    assert.deepEqual(
+        [...albums.values()].map((a) => [a.albumArtist, a.album, a.addedAt]),
+        [
+            ['Radiohead', 'Kid A', '2026-09-17T10:00:00Z'],
+            ['AC/DC', 'Back in Black', '2026-09-15T10:00:00Z'],
+        ],
+    );
+    // The window truncates an album, so there is no track count to be had here.
+    assert.deepEqual(Object.keys([...albums.values()][0]!), ['album', 'albumArtist', 'date', 'image', 'addedAt']);
+});
+
+test('a song with no album or no album artist is not an album anything can open', () => {
+    const albums = new Map<string, RecentlyAddedAlbum>();
+    recentAlbumsFrom(
+        [
+            lsong('stray.flac', { Added: '2026-09-17T10:00:00Z' }),
+            lsong('x/y/01.flac', { Album: 'Untitled', Added: '2026-09-17T10:00:00Z' }),
+            recent('Radiohead', 'Kid A', '01'),
+        ],
+        albums,
+        10,
+    );
+    assert.deepEqual([...albums.values()].map((a) => a.album), ['Kid A']);
+});
+
+test('recentlyAdded pages until it has the albums asked for', async () => {
+    // 1200 songs, six per album: the first window of 1000 holds 166 albums.
+    const songs: LibrarySong[] = [];
+    for (let i = 0; i < 200; i++) {
+        for (let t = 0; t < 6; t++) songs.push(recent('A', `Album ${i}`, String(t), `2026-01-01T00:00:0${t}Z`));
+    }
+    const { bridge, windows } = addedBridge(songs);
+    const albums = await createLibrary(bridge).recentlyAdded(100);
+    assert.equal(albums.length, 100);
+    assert.equal(albums[0].album, 'Album 0');
+    assert.deepEqual(windows, ['0:1000'], 'one window was enough');
+});
+
+test('a limit the first window cannot fill asks for another', async () => {
+    // One album of 1000 tracks, then the rest: the first window is all one album.
+    const songs: LibrarySong[] = [];
+    for (let t = 0; t < 1000; t++) songs.push(recent('A', 'Box Set', String(t)));
+    for (let i = 0; i < 5; i++) songs.push(recent('B', `Album ${i}`, '01'));
+    const { bridge, windows } = addedBridge(songs);
+    const albums = await createLibrary(bridge).recentlyAdded(4);
+    assert.deepEqual(windows, ['0:1000', '1000:2000']);
+    assert.deepEqual(albums.map((a) => a.album), ['Box Set', 'Album 0', 'Album 1', 'Album 2']);
+});
+
+test('a short reply ends it rather than asking forever', async () => {
+    const { bridge, windows } = addedBridge([recent('A', 'One', '01')]);
+    const albums = await createLibrary(bridge).recentlyAdded(100);
+    assert.deepEqual(windows, ['0:1000']);
+    assert.equal(albums.length, 1);
+});
+
+test('the answer is cached, and a scan drops it', async () => {
+    const { bridge, windows } = addedBridge([recent('A', 'One', '01')]);
+    const library = createLibrary(bridge);
+    await library.recentlyAdded(10);
+    await library.recentlyAdded(10);
+    // A smaller limit is served from the same collection rather than asking again.
+    assert.deepEqual(await library.recentlyAdded(1), [(await library.recentlyAdded(10))[0]]);
+    assert.deepEqual(windows, ['0:1000']);
+
+    library.invalidate();
+    await library.recentlyAdded(10);
+    assert.deepEqual(windows, ['0:1000', '0:1000']);
+});
+
+test('concurrent callers share one collection — Home and its screen together', async () => {
+    const { bridge, windows } = addedBridge([recent('A', 'One', '01')]);
+    const library = createLibrary(bridge);
+    const [ten, hundred] = await Promise.all([library.recentlyAdded(10), library.recentlyAdded(10)]);
+    assert.deepEqual(ten, hundred);
+    assert.deepEqual(windows, ['0:1000']);
 });

@@ -84,8 +84,8 @@ Node 24+ is required: the backend imports `node:sqlite` and the tests are `.ts`
 run directly. Debian's node 20 does neither.
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 9 suites (745 asserts) + 329 node tests
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 292 specs
+bash tests/run-all.sh          # shellcheck + 9 suites (745 asserts) + 375 node tests
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 330 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s
