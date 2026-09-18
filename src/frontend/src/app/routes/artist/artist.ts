@@ -6,6 +6,7 @@ import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
+import { formatRating } from '../../services/rating';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 
 /*
@@ -61,6 +62,32 @@ export class Artist {
 
     private readonly artistImage = signal<string | null>(null);
 
+    /**
+     * The artist's biography and rating, from the same response as the picture.
+     *
+     * EXPECT THE BIOGRAPHY TO BE NULL: 446 of this library's 506 artists have
+     * none the box can reach, so the hero has to read well without one. Both
+     * come from the NAS's `.nfo` files by way of the backend's harvest, never
+     * from MPD.
+     */
+    readonly biography = signal<string | null>(null);
+
+    private readonly rating = signal<number | null>(null);
+
+    /** "8.5", or null. See services/rating.ts for why not a dash. */
+    readonly ratingLabel = computed(() => formatRating(this.rating()));
+
+    /**
+     * Whether the biography is expanded. Collapsed to three lines by default:
+     * they run to ~1,000 characters and the hero is the top of the screen, not
+     * the point of it.
+     */
+    readonly bioOpen = signal(false);
+
+    toggleBio(): void {
+        this.bioOpen.update((open) => !open);
+    }
+
     private readonly artFailed = signal<string | null>(null);
 
     /**
@@ -80,6 +107,9 @@ export class Artist {
             const name = this.name();
             this.albums.set(null);
             this.artistImage.set(null);
+            this.biography.set(null);
+            this.rating.set(null);
+            this.bioOpen.set(false);
             this.error.set(null);
             if (name !== '') void this.load(name);
         });
@@ -88,9 +118,11 @@ export class Artist {
     private async load(name: string): Promise<void> {
         const request = ++this.request;
         try {
-            const { albums, image } = await this.library.fetchAlbums(name);
+            const { albums, image, biography, rating } = await this.library.fetchAlbums(name);
             if (request === this.request) {
                 this.artistImage.set(image);
+                this.biography.set(biography);
+                this.rating.set(rating);
                 this.albums.set(albums);
             }
         } catch (err) {

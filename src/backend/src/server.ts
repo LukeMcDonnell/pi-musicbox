@@ -11,12 +11,13 @@ import Fastify from 'fastify';
 import { loadConfig, DEFAULT_CONF_PATH } from './config.ts';
 import { MpdBridge } from './mpd/bridge.ts';
 import { registerCors } from './cors.ts';
-import { registerRoutes } from './routes.ts';
+import { registerRoutes, type RouteHandle } from './routes.ts';
 import { registerStatic } from './static.ts';
 import { createBluetoothWatcher } from './bluetooth.ts';
 import { openDb } from './db.ts';
 import { createSettings } from './settings.ts';
 import { createLibraryScanner } from './library-scan.ts';
+import { createLibraryNotes } from './library-notes.ts';
 import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
 import { createBackups } from './backup.ts';
@@ -68,6 +69,20 @@ async function main(): Promise<void> {
     const playWatch = createPlayWatch(plays);
     bridge.onSnapshot((snapshot) => playWatch.observe(snapshot));
 
+    // Ratings and biographies from the NAS's `.nfo` sidecars. Read after a scan
+    // rather than on request, because the share is unmounted most of the time —
+    // see library-notes.ts.
+    const notes = createLibraryNotes({
+        db,
+        bridge,
+        musicRoot: config.musicRoot,
+        log: (level, msg) => app.log[level](msg),
+    });
+
+    // Assigned below, before anything can call it: a harvest only runs after a
+    // scan, and a scan only after scanner.start().
+    let routes: RouteHandle;
+
     // Library scanning. Constructed before the routes because they take it, and
     // started below with the bridge — its wiring lives here rather than in
     // routes.ts so there is still exactly one bridge.onIdle call in that file.
@@ -77,6 +92,15 @@ async function main(): Promise<void> {
         settings,
         musicRoot: config.musicRoot,
         log: (level, msg) => app.log[level](msg),
+        // Straight after a scan, while the share is mounted and its directory
+        // entries are warm — the harvest costs about a minute cold and a few
+        // seconds warm. MPD's own `database` event has already dropped the artist
+        // index by now, so it is dropped AGAIN here: the ratings this just wrote
+        // are part of that index.
+        onScanComplete: async () => {
+            await notes.harvest();
+            routes.invalidateLibrary();
+        },
     });
 
     // The panel's backlight. Unsupported everywhere but the box itself, which is
@@ -92,7 +116,7 @@ async function main(): Promise<void> {
     // Before the routes: the onRequest hook must be in place for /api responses,
     // and the preflight route must exist before static.ts claims unknown paths.
     registerCors(app);
-    const routes = registerRoutes(app, {
+    routes = registerRoutes(app, {
         bridge,
         build: BUILD,
         startedAt,
@@ -110,6 +134,7 @@ async function main(): Promise<void> {
         }),
         favourites: createFavourites(db),
         plays,
+        notes,
     });
     registerStatic(app, config.webRoot);
 
@@ -134,6 +159,41 @@ async function main(): Promise<void> {
     bridge.start();
     // After the bridge, so reconciling an in-flight scan can see MPD's job id.
     scanner.start();
+
+    // A database restored from a backup, or a first run on a box whose library
+    // was scanned before this feature existed, has no notes and no scan due for
+    // up to a day. Fill it once, in the background.
+    //
+    // WAITS FOR MPD, because the harvest asks it for the directory list and
+    // bridge.start() above has only just been called — the connection comes up a
+    // few milliseconds later, and the first attempt reliably lost the race and
+    // logged "MPD is not connected". Same shape and the same patience as the
+    // scanner's boot scan; the timers are unref'd so they can never hold
+    // shutdown open.
+    if (notes.count() === 0) {
+        const INITIAL_HARVEST_RETRIES = 10;
+        const INITIAL_HARVEST_RETRY_MS = 15_000;
+        const armInitialHarvest = (attempt: number): void => {
+            const timer = setTimeout(() => {
+                void (async () => {
+                    if (bridge.status !== 'ok') {
+                        if (attempt >= INITIAL_HARVEST_RETRIES) {
+                            app.log.warn('initial nfo harvest skipped: MPD never became available');
+                            return;
+                        }
+                        armInitialHarvest(attempt + 1);
+                        return;
+                    }
+                    // harvest() checks the share itself and does nothing quietly
+                    // when it is not mounted.
+                    await notes.harvest();
+                    routes.invalidateLibrary();
+                })().catch((err: Error) => app.log.warn(`initial nfo harvest failed: ${err.message}`));
+            }, attempt === 0 ? 1_000 : INITIAL_HARVEST_RETRY_MS);
+            timer.unref();
+        };
+        armInitialHarvest(0);
+    }
 
     const shutdown = async (signal: string) => {
         app.log.info(`${signal} received, shutting down`);

@@ -106,7 +106,12 @@ function scannerFor(
     t: TestContext,
     h: Harness,
     fake: ReturnType<typeof fakeBridge>,
-    opts: { probe?: () => Promise<boolean>; tickMs?: number; bootDelayMs?: number } = {},
+    opts: {
+        probe?: () => Promise<boolean>;
+        tickMs?: number;
+        bootDelayMs?: number;
+        onScanComplete?: () => Promise<void>;
+    } = {},
 ) {
     const scanner = createLibraryScanner({
         bridge: fake.bridge,
@@ -117,6 +122,7 @@ function scannerFor(
         tickMs: opts.tickMs ?? 60_000,
         bootDelayMs: opts.bootDelayMs ?? 120_000,
         probe: opts.probe ?? (async () => true),
+        ...(opts.onScanComplete === undefined ? {} : { onScanComplete: opts.onScanComplete }),
     });
     scanner.onChange((s) => h.states.push(s));
     // Via t.after, not a line at the end of each test: a failing assertion would
@@ -584,4 +590,64 @@ test('the trigger that started a scan is what the state reports', async (t) => {
         await scanner.scan(trigger);
         assert.equal(scanner.state().scanTrigger, trigger);
     }
+});
+
+/*
+ * AFTER A SCAN
+ *
+ * The `.nfo` harvest hangs off this hook. It must run when the share is still
+ * mounted and the scan actually finished — and must NOT run after one that was
+ * cut short, because a half-read library is how a partial harvest gets written.
+ */
+
+test('a completed scan runs the after-scan work once', async (t) => {
+    const h = harness();
+    const fake = fakeBridge();
+    let ran = 0;
+    const scanner = scannerFor(t, h, fake, { onScanComplete: async () => void (ran += 1) });
+    await scanner.scan('manual');
+
+    h.clock.now += 48 * 60 * 1000;
+    fake.edge(7, null);
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(ran, 1);
+});
+
+test('an interrupted scan does not run it', async (t) => {
+    const h = harness();
+    const fake = fakeBridge();
+    let ran = 0;
+    const scanner = scannerFor(t, h, fake, { onScanComplete: async () => void (ran += 1) });
+    await scanner.scan('manual');
+
+    h.clock.now += 30 * 60 * 1000;
+    // MPD restarted under the scan, so its database is partial. Re-reading the
+    // share off the back of that would harvest a library that is half missing.
+    fake.setStats(statsReply({ uptime: '60' }));
+    fake.edge(7, null);
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(rows(h.db)[0].outcome, 'interrupted');
+    assert.equal(ran, 0);
+});
+
+test('after-scan work that throws is logged, not allowed to escape', async (t) => {
+    const h = harness();
+    const fake = fakeBridge();
+    const scanner = scannerFor(t, h, fake, {
+        onScanComplete: async () => {
+            throw new Error('the NAS went away');
+        },
+    });
+    await scanner.scan('manual');
+
+    h.clock.now += 48 * 60 * 1000;
+    fake.edge(7, null);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    // The scan is still recorded as the success it was: the harvest failing says
+    // nothing about whether MPD finished.
+    assert.equal(rows(h.db)[0].outcome, 'completed');
 });

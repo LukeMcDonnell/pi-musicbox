@@ -103,6 +103,26 @@ the backend its first filesystem dependency on the NFS share — see the automou
 caveat in `device.md`. `MUSICBOX_MUSIC_ROOT` must equal `setup-mpd.sh`'s
 `music_directory`; a cross-file assertion enforces that.
 
+## The `.nfo` harvest is the share's second filesystem dependency
+
+`src/backend/src/library-notes.ts` reads the NAS's `artist.nfo` and `album.nfo`
+sidecars for the two things MPD's tags do not carry — a rating and an artist
+biography — and stores them in `library_note` (schema v5), keyed by the same
+directory `/api/art` is.
+
+It is the mirror image of album art, on purpose. Art is read **when a client
+asks** and is allowed to 404, because a missing cover shows a placeholder. A
+rating is read **once, after a scan**, because the share is unmounted most of the
+time and a number that disappeared with it would read as a bug. So the harvest is
+the only new share access, it runs behind the same reachability `stat` that gates
+a scan, and no request path touches the share for it.
+
+Two rules in that file are load-bearing: it enumerates directories from **MPD**
+rather than walking the share (faster, and it cannot hold a second opinion about
+what the library contains), and it **upserts, pruning only after a run that hit
+no I/O error** — a soft mount fails part way through, and this table is the only
+copy. The census behind all of it is in `decisions.md`.
+
 ## The managed-block pattern
 
 Every multi-line edit is written between delimiters, so the edit can be found,

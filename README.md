@@ -655,9 +655,21 @@ took. Every scan is gated on the share being readable first, because `update`
 prunes songs it cannot see: a scan run while the NAS is asleep would empty the
 tag cache and cost 48 minutes to rebuild.
 
+**A scan that finishes is followed by the `.nfo` harvest**, which adds about a
+minute: the NAS files a Kodi-style `artist.nfo` and `album.nfo` beside the music,
+and the box reads the two things MPD's tags do not carry out of them — a rating
+out of ten, and an artist biography. They are stored in the box's own database
+(`library_note`, schema v5) rather than read when a screen asks for them, so they
+survive the share being unmounted, which it normally is. Nothing else about them
+is new: everything else in those files — title, label, release date, MusicBrainz
+ids — is already a tag MPD hands over, and the tags are the better source. Expect
+the biography to be missing: only 60 of 506 artists here have one the box can
+reach.
+
 A scan that mpd was restarted under is recorded as **interrupted** rather than as
 a success — MPD's own `uptime`, off the same `stats` call, is shorter than the
-scan we were timing. The scan history lives in the box's database
+scan we were timing. An interrupted scan does not trigger the harvest: a
+half-read library is not one to read sidecars against. The scan history lives in the box's database
 (`library_scan`, schema v2), and the row is written when a scan *starts*: a
 deploy restarts the server, and recording at the end would lose the start time
 of every scan a deploy landed on top of.

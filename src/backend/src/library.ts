@@ -42,7 +42,21 @@ import type {
 } from '../../shared/api.ts';
 import { artUriForDir } from './art.ts';
 import { groupBy } from './mpd/protocol.ts';
+import type { LibraryNote } from './library-notes.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
+
+/**
+ * The half of LibraryNotes this file uses.
+ *
+ * Structural, so the tests here need no database, and narrow so it is obvious
+ * that browsing only ever READS what the harvest wrote. Both calls are one
+ * primary-key lookup in a local SQLite file — no MPD command and no share I/O,
+ * which is what keeps the rule at the top of this file true.
+ */
+export interface NoteLookup {
+    forArtist(directory: string): LibraryNote | null;
+    forAlbum(directory: string): LibraryNote | null;
+}
 
 /**
  * Synology litters the share with these and MPD indexes the share, not our idea
@@ -66,6 +80,26 @@ export function artistDirOf(file: string): string {
 }
 
 /**
+ * The album's own directory: the FIRST TWO path segments.
+ *
+ * NOT `albumDirOf`, which is the directory the SONG is in. For the 149 albums
+ * that keep their tracks in a `CD 01` subdirectory those two differ, and every
+ * `album.nfo` on this library sits at the album level — measured: all 3,262 of
+ * them are exactly two segments deep, none beside the discs. So `albumDirOf` is
+ * one level too deep for 149 albums and would find nothing for them.
+ *
+ * Art is the other way round and stays on `albumDirOf`: the cover IS in the disc
+ * directory for all 149 (also measured), which is why the two helpers exist
+ * rather than one. Empty when the file is not at least two deep.
+ */
+export function albumNoteDirOf(file: string): string {
+    const first = file.indexOf('/');
+    if (first === -1) return '';
+    const second = file.indexOf('/', first + 1);
+    return second === -1 ? '' : file.slice(0, second);
+}
+
+/**
  * Group a `find albumartist "<name>"` reply into albums.
  *
  * Takes LibrarySongs rather than Tracks because the album's genres, label and
@@ -81,16 +115,25 @@ export function artistDirOf(file: string): string {
  * than merely tolerable: all 149 of them carry a cover inside the disc
  * directory, measured.
  */
-export function albumsFromSongs(albumArtist: string, songs: LibrarySong[]): AlbumSummary[] {
+export function albumsFromSongs(
+    albumArtist: string,
+    songs: LibrarySong[],
+    notes?: NoteLookup,
+): AlbumSummary[] {
     const byAlbum = new Map<string, AlbumSummary>();
     // Disc numbers per album, and whether a track has gone by with no duration.
     const discs = new Map<string, Set<string>>();
     const undurated = new Set<string>();
+    // The first track's path per album, for the `.nfo` lookup at the end. Kept
+    // rather than derived from `image`, which has already been through
+    // encodeURIComponent and is the disc directory for a multi-disc album.
+    const firstFile = new Map<string, string>();
     for (const song of songs) {
         const track = song.track;
         const album = track.album;
         if (album === undefined) continue; // untagged; there is nothing to file it under
         if (track.duration === undefined) undurated.add(album);
+        if (track.file !== undefined && !firstFile.has(album)) firstFile.set(album, track.file);
         let seenDiscs = discs.get(album);
         if (seenDiscs === undefined) discs.set(album, (seenDiscs = new Set()));
         if (track.disc !== undefined) seenDiscs.add(track.disc);
@@ -137,6 +180,12 @@ export function albumsFromSongs(albumArtist: string, songs: LibrarySong[]): Albu
         // All or nothing. A sum that quietly skips the untagged tracks is a
         // wrong number presented as a right one.
         if (undurated.has(summary.album)) summary.duration = null;
+        const file = firstFile.get(summary.album);
+        if (notes !== undefined && file !== undefined) {
+            const dir = albumNoteDirOf(file);
+            const rating = dir === '' ? null : notes.forAlbum(dir)?.rating ?? null;
+            if (rating !== null) summary.rating = rating;
+        }
     }
     return [...byAlbum.values()].sort(compareAlbums);
 }
@@ -306,7 +355,12 @@ export function recentAlbumsFrom(
 export interface Library {
     /** The browse list. Built once, then served from memory until invalidated. */
     artists: () => Promise<ArtistSummary[]>;
-    albumsOf: (albumArtist: string) => Promise<{ image: string | null; albums: AlbumSummary[] }>;
+    albumsOf: (albumArtist: string) => Promise<{
+        image: string | null;
+        biography: string | null;
+        rating: number | null;
+        albums: AlbumSummary[];
+    }>;
     /** The album's songs, in playing order. Routes take `.track` for the wire. */
     songsOf: (albumArtist: string, album: string) => Promise<LibrarySong[]>;
     /** The most recently added albums, newest first. Cached until a scan. */
@@ -317,7 +371,7 @@ export interface Library {
     builds: () => number;
 }
 
-export function createLibrary(bridge: MpdBridge): Library {
+export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
     let cached: ArtistSummary[] | null = null;
     let building: Promise<ArtistSummary[]> | null = null;
     /** The last recent-albums answer, and the limit it was asked for. */
@@ -402,6 +456,13 @@ export function createLibrary(bridge: MpdBridge): Library {
             const directory = dirs.get(name);
             const total = totals.get(name);
             const mbArtistId = mbids.get(name);
+            // One SQLite primary-key lookup per artist. 500-odd of them cost
+            // about a millisecond in total, against a build that is already
+            // ~200ms of MPD round trips, and no share is touched.
+            const rating =
+                directory === undefined || notes === undefined
+                    ? undefined
+                    : notes.forArtist(directory)?.rating ?? undefined;
             return {
                 name,
                 directory: directory ?? '',
@@ -411,6 +472,7 @@ export function createLibrary(bridge: MpdBridge): Library {
                 // playtime is unknown has not been listened to for no seconds.
                 duration: total === undefined || total.playtime === 0 ? null : total.playtime,
                 ...(mbArtistId === undefined ? {} : { mbArtistId }),
+                ...(rating === undefined ? {} : { rating }),
                 // Null rather than a guessed URI when no directory was found.
                 // The client shows its placeholder, which is the same thing it
                 // does for the 16 artists whose directory has no image file.
@@ -452,12 +514,20 @@ export function createLibrary(bridge: MpdBridge): Library {
         },
         albumsOf: async (albumArtist) => {
             const songs = await bridge.findSongs(['albumartist', albumArtist]);
+            // The artist's own directory, from a track we already have. The same
+            // string `image` is built from, so the note and the picture can never
+            // disagree about which artist this is.
+            const file = songs.find((s) => s.track.file !== undefined)?.track.file;
+            const dir = file === undefined ? '' : artistDirOf(file);
+            const note = dir === '' || notes === undefined ? null : notes.forArtist(dir);
             return {
                 // From a track we already have, so this costs no MPD command and
                 // does not touch the index. `artistDirOf` is the first path
                 // segment — see its note for why not two dirnames.
                 image: artistImageOf(songs),
-                albums: albumsFromSongs(albumArtist, songs),
+                biography: note?.biography ?? null,
+                rating: note?.rating ?? null,
+                albums: albumsFromSongs(albumArtist, songs, notes),
             };
         },
         songsOf: async (albumArtist, album) =>

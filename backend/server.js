@@ -37924,15 +37924,23 @@ function artistDirOf(file) {
   const slash = file.indexOf("/");
   return slash === -1 ? "" : file.slice(0, slash);
 }
-function albumsFromSongs(albumArtist, songs) {
+function albumNoteDirOf(file) {
+  const first = file.indexOf("/");
+  if (first === -1) return "";
+  const second = file.indexOf("/", first + 1);
+  return second === -1 ? "" : file.slice(0, second);
+}
+function albumsFromSongs(albumArtist, songs, notes) {
   const byAlbum = /* @__PURE__ */ new Map();
   const discs = /* @__PURE__ */ new Map();
   const undurated = /* @__PURE__ */ new Set();
+  const firstFile = /* @__PURE__ */ new Map();
   for (const song of songs) {
     const track = song.track;
     const album = track.album;
     if (album === void 0) continue;
     if (track.duration === void 0) undurated.add(album);
+    if (track.file !== void 0 && !firstFile.has(album)) firstFile.set(album, track.file);
     let seenDiscs = discs.get(album);
     if (seenDiscs === void 0) discs.set(album, seenDiscs = /* @__PURE__ */ new Set());
     if (track.disc !== void 0) seenDiscs.add(track.disc);
@@ -37970,6 +37978,12 @@ function albumsFromSongs(albumArtist, songs) {
   for (const summary of byAlbum.values()) {
     summary.discCount = Math.max(1, discs.get(summary.album)?.size ?? 1);
     if (undurated.has(summary.album)) summary.duration = null;
+    const file = firstFile.get(summary.album);
+    if (notes !== void 0 && file !== void 0) {
+      const dir = albumNoteDirOf(file);
+      const rating = dir === "" ? null : notes.forAlbum(dir)?.rating ?? null;
+      if (rating !== null) summary.rating = rating;
+    }
   }
   return [...byAlbum.values()].sort(compareAlbums);
 }
@@ -38042,7 +38056,7 @@ function recentAlbumsFrom(songs, into, limit) {
     });
   }
 }
-function createLibrary(bridge) {
+function createLibrary(bridge, notes) {
   let cached = null;
   let building = null;
   let recent = null;
@@ -38094,6 +38108,7 @@ function createLibrary(bridge) {
       const directory = dirs.get(name);
       const total = totals.get(name);
       const mbArtistId = mbids.get(name);
+      const rating = directory === void 0 || notes === void 0 ? void 0 : notes.forArtist(directory)?.rating ?? void 0;
       return {
         name,
         directory: directory ?? "",
@@ -38103,6 +38118,7 @@ function createLibrary(bridge) {
         // playtime is unknown has not been listened to for no seconds.
         duration: total === void 0 || total.playtime === 0 ? null : total.playtime,
         ...mbArtistId === void 0 ? {} : { mbArtistId },
+        ...rating === void 0 ? {} : { rating },
         // Null rather than a guessed URI when no directory was found.
         // The client shows its placeholder, which is the same thing it
         // does for the 16 artists whose directory has no image file.
@@ -38134,12 +38150,17 @@ function createLibrary(bridge) {
     },
     albumsOf: async (albumArtist) => {
       const songs = await bridge.findSongs(["albumartist", albumArtist]);
+      const file = songs.find((s) => s.track.file !== void 0)?.track.file;
+      const dir = file === void 0 ? "" : artistDirOf(file);
+      const note = dir === "" || notes === void 0 ? null : notes.forArtist(dir);
       return {
         // From a track we already have, so this costs no MPD command and
         // does not touch the index. `artistDirOf` is the first path
         // segment — see its note for why not two dirnames.
         image: artistImageOf(songs),
-        albums: albumsFromSongs(albumArtist, songs)
+        biography: note?.biography ?? null,
+        rating: note?.rating ?? null,
+        albums: albumsFromSongs(albumArtist, songs, notes)
       };
     },
     songsOf: async (albumArtist, album) => sortAlbumSongs(await bridge.findSongs(["albumartist", albumArtist], ["album", album])),
@@ -38646,6 +38667,11 @@ function createLibraryScanner(opts) {
     closeScan(at, outcome, stats?.songs ?? null);
     void checkRoot().then(emit, () => emit());
     log("info", `library scan ${outcome} in ${began === null ? "?" : Math.round((at - began) / 1e3)}s`);
+    if (outcome === "completed" && opts.onScanComplete !== void 0) {
+      void opts.onScanComplete().catch((err) => {
+        log("warn", `after-scan work failed: ${err.message}`);
+      });
+    }
   };
   const adopt = (why) => {
     openScan(now(), why, stats?.songs ?? null);
@@ -38691,12 +38717,12 @@ function createLibraryScanner(opts) {
     emit();
   };
   const reconcile = () => {
-    const open = db.get("SELECT * FROM library_scan WHERE finished_at IS NULL ORDER BY id DESC LIMIT 1");
+    const open2 = db.get("SELECT * FROM library_scan WHERE finished_at IS NULL ORDER BY id DESC LIMIT 1");
     const job = bridge.updatingDb;
-    if (open !== void 0) {
-      rowId = open.id;
-      startedAt = open.started_at;
-      trigger = open.trigger;
+    if (open2 !== void 0) {
+      rowId = open2.id;
+      startedAt = open2.started_at;
+      trigger = open2.trigger;
       if (job !== null) {
         scanning = true;
         log("info", "adopted a library scan that was already running");
@@ -38851,7 +38877,22 @@ var MIGRATIONS = [
         play_count   INTEGER NOT NULL,
         last_played  INTEGER NOT NULL
     ) STRICT;
-     CREATE INDEX track_play_album ON track_play (album_artist, album);`
+     CREATE INDEX track_play_album ON track_play (album_artist, album);`,
+  // v5 — what the NAS's `.nfo` sidecars say, harvested after a scan. KEYED BY
+  // DIRECTORY, which is the same key `/api/art` uses, so any screen that can
+  // build an image URI can find its note without a new field on the wire.
+  // Here rather than read on demand because the share is routinely unmounted:
+  // a rating that vanishes when the NAS sleeps would be worse than none.
+  // Only the two fields MPD's tag database lacks are stored — everything else
+  // in an `album.nfo` is a tag we already have, and a second source of a fact
+  // is a second source of disagreement.
+  `CREATE TABLE library_note (
+        directory TEXT PRIMARY KEY,
+        kind      TEXT NOT NULL,
+        rating    REAL,
+        biography TEXT,
+        read_at   INTEGER NOT NULL
+    ) STRICT;`
 ];
 var SCHEMA_VERSION = MIGRATIONS.length;
 function openDb(options) {
@@ -39341,7 +39382,7 @@ function registerRoutes(app, opts) {
     }
   });
   app.get("/api/art", createArtHandler(createArtResolver(musicRoot)));
-  const library = createLibrary(bridge);
+  const library = createLibrary(bridge, opts.notes);
   bridge.onIdle((subsystems) => {
     if (subsystems.includes("database") || subsystems.includes("update")) {
       library.invalidate();
@@ -39362,8 +39403,8 @@ function registerRoutes(app, opts) {
       return reply.code(400).send({ error: "missing 'artist' query parameter" });
     }
     try {
-      const { image, albums } = await library.albumsOf(artist);
-      const body = { albumArtist: artist, image, albums };
+      const { image, biography, rating, albums } = await library.albumsOf(artist);
+      const body = { albumArtist: artist, image, biography, rating, albums };
       return body;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
@@ -39382,7 +39423,7 @@ function registerRoutes(app, opts) {
       if (songs.length === 0) {
         return reply.code(404).send({ error: "no such album" });
       }
-      const [summary] = albumsFromSongs(artist, songs);
+      const [summary] = albumsFromSongs(artist, songs, opts.notes);
       favourites?.refresh(summary);
       const body = { album: summary, tracks: songs.map((s) => s.track) };
       return body;
@@ -39667,7 +39708,7 @@ function registerRoutes(app, opts) {
       return reply.code(503).send({ error: err.message });
     }
     if (songs.length === 0) return reply.code(404).send({ error: "no such album" });
-    const [summary] = albumsFromSongs(ref.artist, songs);
+    const [summary] = albumsFromSongs(ref.artist, songs, opts.notes);
     const body = { albums: favourites.add(summary) };
     return body;
   });
@@ -39738,8 +39779,201 @@ function registerRoutes(app, opts) {
         }
       }
       streams.clear();
+    },
+    invalidateLibrary: () => library.invalidate()
+  };
+}
+
+// src/library-notes.ts
+import { open, stat as stat5 } from "node:fs/promises";
+
+// src/nfo.ts
+var NFO_MAX_BYTES = 65536;
+function decodeEntities(text) {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePoint(parseInt(hex, 16))).replace(/&#(\d+);/g, (_, dec) => codePoint(Number(dec))).replace(/&amp;/g, "&");
+}
+function codePoint(value) {
+  if (!Number.isInteger(value) || value < 0 || value > 1114111) return "";
+  try {
+    return String.fromCodePoint(value);
+  } catch {
+    return "";
+  }
+}
+function tagText(text, tag) {
+  const match = new RegExp(`<${tag}>([^<]*)</${tag}>`, "i").exec(text);
+  if (match === null) return void 0;
+  const value = decodeEntities(match[1]).trim();
+  return value === "" ? void 0 : value;
+}
+function ratingOf(text) {
+  const raw = tagText(text, "rating");
+  if (raw === void 0) return void 0;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 10) return void 0;
+  return value;
+}
+function parseNfo(text) {
+  if (text.length > NFO_MAX_BYTES) return {};
+  const nfo = {};
+  const rating = ratingOf(text);
+  if (rating !== void 0) nfo.rating = rating;
+  const biography = tagText(text, "biography") ?? tagText(text, "outline");
+  if (biography !== void 0) nfo.biography = biography;
+  const artistDesc = tagText(text, "artistdesc");
+  if (artistDesc !== void 0) nfo.artistDesc = artistDesc;
+  return nfo;
+}
+
+// src/library-notes.ts
+var JUNK_DIRS2 = ["@eaDir", "#recycle"];
+var ARTIST_NFO = "artist.nfo";
+var ALBUM_NFO = "album.nfo";
+async function readNfoFile(path) {
+  let fh;
+  try {
+    fh = await open(path, "r");
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  try {
+    const buf = Buffer.allocUnsafe(NFO_MAX_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, NFO_MAX_BYTES, 0);
+    return buf.toString("utf8", 0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+}
+var realNotesDeps = {
+  readNfo: readNfoFile,
+  rootReadable: async (root) => {
+    try {
+      return (await stat5(root)).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+};
+function directoriesOf(reply) {
+  const dirs = [];
+  for (const entry of groupBy(reply, "directory")) {
+    const dir = entry.get("directory");
+    if (dir === void 0) continue;
+    if (dir.split("/").some((segment) => JUNK_DIRS2.includes(segment))) continue;
+    dirs.push(dir);
+  }
+  return dirs;
+}
+function createLibraryNotes(options) {
+  const { db, bridge, musicRoot } = options;
+  const log = options.log ?? (() => {
+  });
+  const now = options.now ?? Date.now;
+  const deps = options.deps ?? realNotesDeps;
+  const read = (directory, kind) => {
+    const row = db.get(
+      "SELECT rating, biography FROM library_note WHERE directory = ? AND kind = ?",
+      directory,
+      kind
+    );
+    return row === void 0 ? null : { rating: row.rating, biography: row.biography };
+  };
+  const readOne = async (directory, name, failures) => {
+    const path = safeJoin(musicRoot, `/${directory}/${name}`);
+    if (path === null) return null;
+    try {
+      const text = await deps.readNfo(path);
+      return text === null ? null : parseNfo(text);
+    } catch (err) {
+      failures.count += 1;
+      if (failures.count === 1) {
+        log("warn", `nfo read failed for ${directory}: ${err.message}`);
+      }
+      return null;
     }
   };
+  return {
+    forArtist: (directory) => read(directory, "artist"),
+    forAlbum: (directory) => read(directory, "album"),
+    count: () => db.get("SELECT COUNT(*) AS n FROM library_note")?.n ?? 0,
+    async harvest() {
+      const began = now();
+      const result = {
+        artists: 0,
+        albums: 0,
+        ratings: 0,
+        biographies: 0,
+        failures: 0,
+        pruned: 0,
+        ms: 0
+      };
+      if (!await deps.rootReadable(musicRoot)) {
+        log("warn", "nfo harvest skipped: the music share is not reachable");
+        result.ms = now() - began;
+        return result;
+      }
+      const failures = { count: 0 };
+      const seen = /* @__PURE__ */ new Set();
+      const artistDirs = directoriesOf(await bridge.lsinfo(""));
+      for (const artistDir of artistDirs) {
+        const artist = await readOne(artistDir, ARTIST_NFO, failures);
+        const rows = [];
+        let desc;
+        for (const albumDir of directoriesOf(await bridge.lsinfo(artistDir))) {
+          const album = await readOne(albumDir, ALBUM_NFO, failures);
+          if (album === null) continue;
+          rows.push([albumDir, album]);
+          desc ??= album.artistDesc;
+        }
+        const biography = artist?.biography ?? desc ?? null;
+        const at = now();
+        db.transaction(() => {
+          if (artist !== null || biography !== null) {
+            upsert(db, artistDir, "artist", artist?.rating ?? null, biography, at);
+            result.artists += 1;
+            if (artist?.rating !== void 0) result.ratings += 1;
+            if (biography !== null) result.biographies += 1;
+            seen.add(artistDir);
+          }
+          for (const [albumDir, album] of rows) {
+            upsert(db, albumDir, "album", album.rating ?? null, null, at);
+            result.albums += 1;
+            if (album.rating !== void 0) result.ratings += 1;
+            seen.add(albumDir);
+          }
+        });
+      }
+      result.failures = failures.count;
+      if (failures.count === 0) {
+        const stale = db.all("SELECT directory FROM library_note").filter((row) => !seen.has(row.directory));
+        if (stale.length > 0) {
+          db.transaction(() => {
+            for (const row of stale) {
+              db.run("DELETE FROM library_note WHERE directory = ?", row.directory);
+            }
+          });
+          result.pruned = stale.length;
+        }
+      }
+      result.ms = now() - began;
+      log(
+        failures.count === 0 ? "info" : "warn",
+        `nfo harvest: ${result.artists} artists, ${result.albums} albums, ${result.ratings} ratings, ${result.biographies} biographies, ${result.pruned} pruned, ${failures.count} failed, in ${Math.round(result.ms / 1e3)}s`
+      );
+      return result;
+    }
+  };
+}
+function upsert(db, directory, kind, rating, biography, at) {
+  db.run(
+    "INSERT INTO library_note (directory, kind, rating, biography, read_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(directory) DO UPDATE SET kind = excluded.kind, rating = excluded.rating, biography = excluded.biography, read_at = excluded.read_at",
+    directory,
+    kind,
+    rating,
+    biography,
+    at
+  );
 }
 
 // src/panel.ts
@@ -39999,7 +40233,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-18T07:27:21Z" : "dev";
+var BUILD = true ? "2026-09-18T11:00:49Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -40030,12 +40264,28 @@ async function main() {
   const plays = createPlays(db);
   const playWatch = createPlayWatch(plays);
   bridge.onSnapshot((snapshot) => playWatch.observe(snapshot));
+  const notes = createLibraryNotes({
+    db,
+    bridge,
+    musicRoot: config.musicRoot,
+    log: (level, msg) => app.log[level](msg)
+  });
+  let routes;
   const scanner = createLibraryScanner({
     bridge,
     db,
     settings,
     musicRoot: config.musicRoot,
-    log: (level, msg) => app.log[level](msg)
+    log: (level, msg) => app.log[level](msg),
+    // Straight after a scan, while the share is mounted and its directory
+    // entries are warm — the harvest costs about a minute cold and a few
+    // seconds warm. MPD's own `database` event has already dropped the artist
+    // index by now, so it is dropped AGAIN here: the ratings this just wrote
+    // are part of that index.
+    onScanComplete: async () => {
+      await notes.harvest();
+      routes.invalidateLibrary();
+    }
   });
   const panel = createPanel({
     device: process.env.MUSICBOX_BACKLIGHT,
@@ -40043,7 +40293,7 @@ async function main() {
   });
   if (panel.supported) panel.set(true);
   registerCors(app);
-  const routes = registerRoutes(app, {
+  routes = registerRoutes(app, {
     bridge,
     build: BUILD,
     startedAt,
@@ -40060,7 +40310,8 @@ async function main() {
       restoreDir: config.restoreDir
     }),
     favourites: createFavourites(db),
-    plays
+    plays,
+    notes
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({
@@ -40076,6 +40327,28 @@ async function main() {
   void bluetooth.poll();
   bridge.start();
   scanner.start();
+  if (notes.count() === 0) {
+    const INITIAL_HARVEST_RETRIES = 10;
+    const INITIAL_HARVEST_RETRY_MS = 15e3;
+    const armInitialHarvest = (attempt) => {
+      const timer = setTimeout(() => {
+        void (async () => {
+          if (bridge.status !== "ok") {
+            if (attempt >= INITIAL_HARVEST_RETRIES) {
+              app.log.warn("initial nfo harvest skipped: MPD never became available");
+              return;
+            }
+            armInitialHarvest(attempt + 1);
+            return;
+          }
+          await notes.harvest();
+          routes.invalidateLibrary();
+        })().catch((err) => app.log.warn(`initial nfo harvest failed: ${err.message}`));
+      }, attempt === 0 ? 1e3 : INITIAL_HARVEST_RETRY_MS);
+      timer.unref();
+    };
+    armInitialHarvest(0);
+  }
   const shutdown = async (signal) => {
     app.log.info(`${signal} received, shutting down`);
     bridge.stop();

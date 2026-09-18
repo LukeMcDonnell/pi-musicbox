@@ -26,7 +26,9 @@
            routerLink="/library/artist" [queryParams]="{ name: artist() }">{{ artist() }}</a>@if (year(); as y) {<span class="tabular-nums">&nbsp;· {{ y }}</span>}
       </p>
       @if (summary(); as line) {
-        <p class="text-[0.85rem] text-muted tabular-nums">{{ line }}</p>
+        <p class="text-[0.85rem] text-muted tabular-nums">
+          {{ line }}@if (ratingLabel(); as score) {<span> · {{ score }}<span class="opacity-60">/10</span></span>}
+        </p>
       }
       @if (genreLine(); as line) {
         <!-- One line: 1,268 albums here carry six or more genres and one carries

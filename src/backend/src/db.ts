@@ -95,6 +95,21 @@ export const MIGRATIONS: readonly string[] = [
         last_played  INTEGER NOT NULL
     ) STRICT;
      CREATE INDEX track_play_album ON track_play (album_artist, album);`,
+    // v5 — what the NAS's `.nfo` sidecars say, harvested after a scan. KEYED BY
+    // DIRECTORY, which is the same key `/api/art` uses, so any screen that can
+    // build an image URI can find its note without a new field on the wire.
+    // Here rather than read on demand because the share is routinely unmounted:
+    // a rating that vanishes when the NAS sleeps would be worse than none.
+    // Only the two fields MPD's tag database lacks are stored — everything else
+    // in an `album.nfo` is a tag we already have, and a second source of a fact
+    // is a second source of disagreement.
+    `CREATE TABLE library_note (
+        directory TEXT PRIMARY KEY,
+        kind      TEXT NOT NULL,
+        rating    REAL,
+        biography TEXT,
+        read_at   INTEGER NOT NULL
+    ) STRICT;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

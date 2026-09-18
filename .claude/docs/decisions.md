@@ -1416,3 +1416,104 @@ reason: the stream sends a `plays` frame the moment it connects, and treating
 that first one as news throws away the fetch in flight behind it and leaves the
 shelf on its blank cards forever. The first value is the baseline, not a change —
 `plays-store.spec.ts` pins it.
+
+## The NAS's `.nfo` files: mostly redundant, and read once rather than on demand (2026-09-18)
+
+The share carries a Kodi-style `artist.nfo` in every artist directory and an
+`album.nfo` in every album directory. A census of all 3,770 of them on the real
+library, before any code was written:
+
+| `artist.nfo` — 508 files, 139 KB | | `album.nfo` — 3,262 files, 1.4 MB | |
+|---|---|---|---|
+| `<name>`, `<artist>` | 508 | `<title>`, `<album>` | 3262 |
+| `<musicbrainzartistid>` | 508 | `<releasedate>` | 3262 |
+| **`<rating>`** | **446** | `<musicbrainzalbumid>` | 3262 |
+| `<biography>` / `<outline>` | 53 | `<musicbrainzreleasegroupid>` | 3255 |
+| — of those, NON-EMPTY | **51** | `<label>` | 3192 |
+| | | **`<rating>`** | **2740** |
+| | | `<artistdesc>` | 3262 |
+| | | — of those, NON-EMPTY | **492** |
+
+**Almost all of it is already in the API, from MPD's tags.** Title, releasedate,
+label and both MusicBrainz ids are every one of them on `AlbumSummary` already,
+and the tags are the *better* source: `OriginalDate` beats `<releasedate>` for
+the 940 albums whose pressing year is not their release year. Reading them again
+would be a second source of the same fact, and two sources disagree eventually.
+So only the two things MPD does not have are taken: the **rating** and the
+**biography**. That is the whole of `nfo.ts`, and it is why the parser extracts
+three fields out of a dozen.
+
+**The biography is much thinner than it looks, twice over.** Two separate
+corrections, and the second was only found by running the thing on the device.
+
+*First:* most of these elements are EMPTY. 455 of the 508 `<biography>` elements
+are self-closing `<biography />`, and 2,723 of the 3,262 `<artistdesc>` are
+`<artistdesc />`. A census that greps for the tag name counts those; 51 artists
+have real biography text and 492 album files have real `artistdesc` text. This is
+why `parseNfo` treats an empty element as an absence rather than as `''`.
+
+*Second, and this is the one that was predicted wrong:* the plan said the
+`<artistdesc>` fallback would take coverage to **107 of 508 artists**. The real
+harvest produced **60 of 506**. The gap is not a parser bug — it was chased down
+on the device, and every artist whose `artistdesc` sits in a directory MPD
+indexes did get a biography, with zero unexplained misses. The cause is that
+**249 of the 539 `artistdesc`-bearing album directories are not in MPD's library
+at all**: this library carries duplicate and stale album folders that hold
+artwork and an `.nfo` but no music, so MPD never lists them — `Radiohead/The
+Bends (1995)` beside the indexed `The Bends (1994)`, `Arctic Monkeys/Tranquility
+Base Hotel + Casino (2018)` beside the `&` one. Harvesting from MPD's directory
+list rather than from a filesystem walk is still the right call, but it means the
+sidecars in those orphan folders are invisible, and that is the correct
+behaviour: an album the box cannot play is not one to describe.
+
+So: **60 of 506 artists, about one in eight**, and the artist screen is built for
+its absence, not for its presence. The lesson is the one CLAUDE.md already
+states — counting files on a share is not the same as counting what the box can
+see, and the difference here was a factor of nearly two.
+
+**Harvested into SQLite after a scan, not read when a client asks.** This is the
+opposite of what `/api/art` does, deliberately. Art is allowed to 404 because a
+missing cover shows a placeholder and nobody is misled; a rating that vanished
+whenever the NAS went to sleep — which it does, `x-systemd.idle-timeout=600` —
+would look like a bug instead. So `library_note` (schema v5) is keyed by
+directory, the same key `/api/art` uses, and every screen reads it from the
+local database. `library.ts`'s rule that browsing never touches the share holds
+exactly as before.
+
+**The cost is 45 seconds on a scan that already takes eight minutes.** Measured
+beforehand: a recursive walk of the share for `*.nfo` is 55s cold; reading all
+3,770 known paths is 5.6s warm and about 50s cold; a single `.nfo` is ~13ms cold
+and 2.4ms warm. Measured for real on the device, from the log line the harvest
+writes: **506 artists, 3,062 albums, 3,058 ratings, 60 biographies, 0 failed, in
+45s** — the good end of the estimate. Against `update` at ~8 minutes and the
+initial scan at 48m40s, and off the request path entirely. The stored result is
+well under 200 KB; the whole database is 532 KB. The harvest enumerates from **MPD, not the filesystem** —
+`lsinfo ''` then one `lsinfo` per artist, about 1.6s and no share I/O at all —
+which is both faster than a walk and the only way to be sure this file and
+`library.ts` agree about what the library contains. It also gets `@eaDir` and
+`#recycle` exclusion for free.
+
+**The album key is the first TWO path segments, not `albumDirOf`.** All 3,262
+`album.nfo` files sit at the album level, two deep, and none beside the discs —
+measured. But 149 albums keep their tracks in a `CD 01` subdirectory, so
+`albumDirOf(file)` is the *disc* directory for them and would find nothing.
+Hence `albumNoteDirOf` beside `artistDirOf`. Art stays on `albumDirOf` because
+the cover genuinely is in the disc directory for all 149. Two helpers, because
+the two facts really are filed at different depths.
+
+**The harvest upserts and only prunes after a clean run.** A soft NFS mount
+returns EIO part way through a walk. A harvest that gave up half way and then
+deleted every row it had not reached would throw away good data because the NAS
+blinked, and this table is the only copy — the share is unmounted most of the
+time. So ENOENT means "no such file" and *everything else* means "the share is
+unwell", and the prune is gated on having seen none of the latter. The same
+reasoning puts a root `stat` in front of the whole thing: a music root that is
+simply absent answers ENOENT to all 508 reads, which without the guard reads as
+"no nfo anywhere" and empties the table.
+
+**The rating is on the wire, the biography is not.** `ArtistSummary.rating` is
+four bytes on a 500-row list. A biography averages 705 characters and runs to
+3,487, and 60 of them would add ~42 KB to a response for a screen that shows no biography at all — so
+it rides on `AlbumsResponse` instead, repeated there for the same reason `image`
+already is: the artist screen is reachable by URL, so it cannot read from the
+client's cached artists list.

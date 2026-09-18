@@ -79,6 +79,17 @@ export interface LibraryScannerOptions {
     bootDelayMs?: number;
     /** Test seam: whether the music share can be read. */
     probe?: (root: string) => Promise<boolean>;
+    /**
+     * Called after a scan that ran to completion, while the share is still warm.
+     *
+     * An explicit hook rather than an edge inferred from onChange: a listener
+     * watching `scanning` go true-then-false cannot tell a finished scan from an
+     * interrupted one, and re-reading the share after a scan that died half way
+     * is how a partial harvest would get written. It may take a while — the
+     * `.nfo` harvest is about a minute — so it is awaited off the tick, and
+     * anything it throws is logged rather than allowed to escape.
+     */
+    onScanComplete?: () => Promise<void>;
 }
 
 /** Midnight-relative wall clock: the given hour today, in local time. */
@@ -307,6 +318,11 @@ export function createLibraryScanner(opts: LibraryScannerOptions): LibraryScanne
         closeScan(at, outcome, stats?.songs ?? null);
         void checkRoot().then(emit, () => emit());
         log('info', `library scan ${outcome} in ${began === null ? '?' : Math.round((at - began) / 1000)}s`);
+        if (outcome === 'completed' && opts.onScanComplete !== undefined) {
+            void opts.onScanComplete().catch((err: Error) => {
+                log('warn', `after-scan work failed: ${err.message}`);
+            });
+        }
     };
 
     const adopt = (why: ScanTrigger): void => {

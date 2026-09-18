@@ -11,6 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    albumNoteDirOf,
     albumsFromSongs,
     artistDirOf,
     artistImageOf,
@@ -18,6 +19,7 @@ import {
     recentAlbumsFrom,
     sortAlbumTracks,
 } from './library.ts';
+import { albumDirOf } from './art.ts';
 import { songFromTags, trackFromTags } from './mpd/bridge.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
 import type { Reply } from './mpd/protocol.ts';
@@ -649,4 +651,132 @@ test('concurrent callers share one collection — Home and its screen together',
     const [ten, hundred] = await Promise.all([library.recentlyAdded(10), library.recentlyAdded(10)]);
     assert.deepEqual(ten, hundred);
     assert.deepEqual(windows, ['0:1000']);
+});
+
+/*
+ * THE .NFO JOIN
+ *
+ * Ratings and biographies come from the SQLite table the harvest fills, never
+ * from MPD and never from the share — so the assertion that matters as much as
+ * the values is that looking them up costs no extra MPD command.
+ */
+
+/** A note table, as a directory -> note map. Counts its own lookups. */
+function fakeNotes(rows: Record<string, { rating?: number; biography?: string }>) {
+    const looked: string[] = [];
+    const get = (kind: string) => (directory: string) => {
+        looked.push(`${kind} ${directory}`);
+        const row = rows[directory];
+        return row === undefined
+            ? null
+            : { rating: row.rating ?? null, biography: row.biography ?? null };
+    };
+    return { looked, forArtist: get('artist'), forAlbum: get('album') };
+}
+
+test('albumNoteDirOf is the album directory, not the disc directory', () => {
+    // The ordinary case: the two agree.
+    assert.equal(
+        albumNoteDirOf('Radiohead/In Rainbows (2007)/01 - 15 Step.flac'),
+        'Radiohead/In Rainbows (2007)',
+    );
+    // The 149 that do not. albumDirOf gives `.../13 (2013)/CD 01`, which is one
+    // level below where every album.nfo on this library actually sits.
+    assert.equal(
+        albumNoteDirOf('Black Sabbath/13 (2013)/CD 01/01 - End of the Beginning.flac'),
+        'Black Sabbath/13 (2013)',
+    );
+    assert.notEqual(
+        albumNoteDirOf('Black Sabbath/13 (2013)/CD 01/01.flac'),
+        albumDirOf('Black Sabbath/13 (2013)/CD 01/01.flac'),
+    );
+    // Not deep enough to have an album directory at all.
+    assert.equal(albumNoteDirOf('stray.flac'), '');
+    assert.equal(albumNoteDirOf('Artist/stray.flac'), '');
+});
+
+test('an album rating is found through the album directory even for a multi-disc album', () => {
+    const notes = fakeNotes({ 'Black Sabbath/13 (2013)': { rating: 6.4 } });
+    const albums = albumsFromSongs(
+        'Black Sabbath',
+        [
+            lsong('Black Sabbath/13 (2013)/CD 01/01.flac', { Album: '13', Disc: '1' }),
+            lsong('Black Sabbath/13 (2013)/CD 02/01.flac', { Album: '13', Disc: '2' }),
+        ],
+        notes,
+    );
+    assert.equal(albums[0]!.rating, 6.4);
+    // The cover still comes from the disc directory, which is where it lives.
+    assert.equal(albums[0]!.image, '/api/art?album=Black%20Sabbath%2F13%20(2013)%2FCD%2001');
+});
+
+test('an album with no note simply has no rating, rather than a zero', () => {
+    const albums = albumsFromSongs(
+        'AC/DC',
+        [lsong('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black' })],
+        fakeNotes({}),
+    );
+    assert.equal('rating' in albums[0]!, false);
+});
+
+test('albumsOf answers with the artist biography and rating beside the picture', async () => {
+    const finds: string[] = [];
+    const bridge = fakeBridge({
+        async findSongs(): Promise<LibrarySong[]> {
+            finds.push('findSongs');
+            return [lsong('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black' })];
+        },
+    });
+    const notes = fakeNotes({
+        'AC-DC': { rating: 9.1, biography: 'Formed in Sydney in 1973.' },
+        'AC-DC/Back in Black (1980)': { rating: 9.8 },
+    });
+    const { image, biography, rating, albums } = await createLibrary(bridge, notes).albumsOf('AC/DC');
+
+    assert.equal(biography, 'Formed in Sydney in 1973.');
+    assert.equal(rating, 9.1);
+    assert.equal(albums[0]!.rating, 9.8);
+    // Keyed by the DIRECTORY, so the note and the picture agree about which
+    // artist this is even though the tag says `AC/DC` and the directory `AC-DC`.
+    assert.equal(image, '/api/art?album=AC-DC');
+    assert.ok(notes.looked.includes('artist AC-DC'));
+    // One find, and the two note lookups added no second one.
+    assert.deepEqual(finds, ['findSongs']);
+    // And no list/lsinfo/count either: reading a note must not drag in the
+    // artist index, which is 488 MPD commands.
+    assert.deepEqual(bridge.calls, []);
+});
+
+test('an artist with no note gets nulls, not a missing field', async () => {
+    const bridge = fakeBridge({
+        async findSongs(): Promise<LibrarySong[]> {
+            return [lsong('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black' })];
+        },
+    });
+    const { biography, rating } = await createLibrary(bridge, fakeNotes({})).albumsOf('AC/DC');
+    assert.equal(biography, null);
+    assert.equal(rating, null);
+});
+
+test('the artist index carries ratings, and asking for them costs no extra MPD command', async () => {
+    const withNotes = fakeBridge();
+    const notes = fakeNotes({ 'AC-DC': { rating: 9.1 }, Radiohead: {} });
+    const artists = await createLibrary(withNotes, notes).artists();
+
+    assert.equal(artists.find((a) => a.name === 'AC/DC')?.rating, 9.1);
+    // Radiohead has a row but no rating in it — absent, not zero.
+    assert.equal('rating' in artists.find((a) => a.name === 'Radiohead')!, false);
+
+    // The same build without notes issues exactly the same MPD commands.
+    const without = fakeBridge();
+    await createLibrary(without).artists();
+    assert.deepEqual(withNotes.calls, without.calls);
+});
+
+test('a library built with no notes at all is the library as it was', async () => {
+    // The backend must still work with the table empty — a box whose share has
+    // never been reachable, or a build wired without notes.
+    const bridge = fakeBridge();
+    const artists = await createLibrary(bridge).artists();
+    assert.ok(artists.every((a) => a.rating === undefined));
 });

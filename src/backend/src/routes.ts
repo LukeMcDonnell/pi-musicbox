@@ -45,6 +45,7 @@ import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
 import { albumsFromSongs, createLibrary } from './library.ts';
+import type { LibraryNotes } from './library-notes.ts';
 import {
     BluetoothUnavailableError,
     DEFAULT_CONTROL_PATH,
@@ -98,6 +99,8 @@ export interface RouteOptions {
     favourites?: Favourites;
     /** What the box has played. See plays.ts; play-watch.ts is what fills it. */
     plays?: Plays;
+    /** Ratings and biographies read off the share. See library-notes.ts. */
+    notes?: LibraryNotes;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -110,6 +113,14 @@ export interface RouteHandle {
      * one) wedges shutdown until systemd's stop timeout fires.
      */
     closeStreams: () => void;
+    /**
+     * Drop the cached artist index.
+     *
+     * Exposed because the `.nfo` harvest finishes AFTER the `database` idle event
+     * that normally drops it, and the index now carries the ratings that harvest
+     * just wrote. Without this they would not appear until the next restart.
+     */
+    invalidateLibrary: () => void;
 }
 
 /** MPD commands for each API verb. `previous` is spelled `previous` in MPD too. */
@@ -367,7 +378,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * changes what they assert.
      */
 
-    const library = createLibrary(bridge);
+    const library = createLibrary(bridge, opts.notes);
 
     /*
      * A database scan invalidates the index.
@@ -405,8 +416,8 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             return reply.code(400).send({ error: "missing 'artist' query parameter" });
         }
         try {
-            const { image, albums } = await library.albumsOf(artist);
-            const body: AlbumsResponse = { albumArtist: artist, image, albums };
+            const { image, biography, rating, albums } = await library.albumsOf(artist);
+            const body: AlbumsResponse = { albumArtist: artist, image, biography, rating, albums };
             return body;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -430,7 +441,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             // Built from the tracks just fetched rather than by asking again:
             // the header's date, cover, count, genres and running time are all
             // facts about these very rows, and a second query could disagree.
-            const [summary] = albumsFromSongs(artist, songs);
+            const [summary] = albumsFromSongs(artist, songs, opts.notes);
             favourites?.refresh(summary);
             const body: AlbumResponse = { album: summary, tracks: songs.map((s) => s.track) };
             return body;
@@ -893,7 +904,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             return reply.code(503).send({ error: (err as Error).message });
         }
         if (songs.length === 0) return reply.code(404).send({ error: 'no such album' });
-        const [summary] = albumsFromSongs(ref.artist, songs);
+        const [summary] = albumsFromSongs(ref.artist, songs, opts.notes);
         const body: FavouritesResponse = { albums: favourites.add(summary) };
         return body;
     });
@@ -988,5 +999,6 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             }
             streams.clear();
         },
+        invalidateLibrary: () => library.invalidate(),
     };
 }

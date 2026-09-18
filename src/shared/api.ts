@@ -416,6 +416,20 @@ export interface ArtistSummary {
      * Clients show their placeholder, as they already do for the covers.
      */
     image: string | null;
+    /**
+     * 0–10, from the artist's `artist.nfo` on the share. Absent when the file has
+     * no rating or has not been harvested — 445 of 506 artists here have one.
+     *
+     * NOT FROM MPD. It is read off the NAS after a scan and kept in SQLite, so it
+     * survives the share being unmounted, which it usually is. See
+     * src/backend/src/library-notes.ts.
+     *
+     * THE BIOGRAPHY IS DELIBERATELY NOT HERE, even though it comes from the same
+     * file: only 60 of 506 artists have one, they average 705 characters and run
+     * to 3,487, and this list is 500-odd rows that show no biography at all. It
+     * rides on AlbumsResponse instead, where one screen needs one artist's.
+     */
+    rating?: number;
 }
 
 /** One album in an artist's list, or the header of the album screen. */
@@ -491,6 +505,19 @@ export interface AlbumSummary {
     mbReleaseGroupId?: string;
     /** `/api/art?album=<album directory>`; may 404, as ever. */
     image: string | null;
+    /**
+     * 0–10, from the album's `album.nfo` on the share. 2,613 of 3,062 albums
+     * here have one. As on ArtistSummary, harvested into SQLite rather than read
+     * from MPD or from the share at request time.
+     *
+     * The rating is ALL that is taken from `album.nfo`. Its title, releasedate,
+     * label and MusicBrainz ids are every one of them already above, from the
+     * tags — reading them again here would be a second source that can disagree
+     * with the first, and the tags are the better source anyway (`OriginalDate`
+     * beats `<releasedate>` for the 940 albums whose pressing year is not their
+     * release year).
+     */
+    rating?: number;
 }
 
 export interface ArtistsResponse {
@@ -514,6 +541,23 @@ export interface AlbumsResponse {
      * index lookup.
      */
     image: string | null;
+    /**
+     * The artist's biography, from `artist.nfo` on the share — or from one of
+     * their albums' `<artistdesc>`, which is the same text filed in a different
+     * place, and is where most of the few that exist come from.
+     *
+     * EXPECT IT TO BE NULL. 446 of this library's 506 artists have no biography
+     * the box can reach — seven in eight — so the screen must read well without
+     * one rather than treat it as the normal case.
+     *
+     * HERE AND NOT ON ArtistSummary for the same reason `image` is repeated here:
+     * this screen is reachable directly — the kiosk reloads on every deploy and a
+     * phone can hold a bookmark — so it cannot read from the client's cached
+     * artists list. Unlike `image` it is also far too big to put on that list.
+     */
+    biography: string | null;
+    /** The artist's rating, as on ArtistSummary, repeated for the same reason. */
+    rating: number | null;
     /** Oldest first; undated albums last. */
     albums: AlbumSummary[];
 }

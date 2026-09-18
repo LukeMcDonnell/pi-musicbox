@@ -23,7 +23,25 @@
       @if (albums(); as list) {
         <p class="text-[0.9rem] text-muted tabular-nums">
           {{ list.length }}{{ list.length === 1 ? ' album' : ' albums' }}
+          @if (ratingLabel(); as score) {
+            <span> · {{ score }}<span class="opacity-60">/10</span></span>
+          }
         </p>
+      }
+      <!--
+        Absent for 401 of 508 artists, so this must not leave a gap when it is:
+        the whole paragraph is omitted rather than rendered empty. line-clamp,
+        never truncate — the text is centred under the picture on a phone, and
+        truncate on a centred line clips both ends. Tap to expand.
+      -->
+      @if (biography(); as text) {
+        <button type="button"
+                class="mt-1 block w-full cursor-pointer text-left text-[0.85rem] leading-snug
+                       text-muted [overflow-wrap:anywhere] max-[40rem]:text-center"
+                [attr.aria-expanded]="bioOpen()"
+                (click)="toggleBio()">
+          <span class="block" [class.line-clamp-3]="!bioOpen()">{{ text }}</span>
+        </button>
       }
     </div>
   </div>
