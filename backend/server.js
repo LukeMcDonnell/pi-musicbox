@@ -39749,7 +39749,7 @@ function createFavourites(db, now = Date.now) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-17T11:59:27Z" : "dev";
+var BUILD = true ? "2026-09-18T01:08:49Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

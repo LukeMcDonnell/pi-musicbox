@@ -1,4 +1,5 @@
-<div class="wrapper w-full h-full z-1 overflow-auto">
+<!-- Wide screens: the player on the left, the queue scrolling on its own on the right. -->
+<div class="wrapper w-full h-full z-1 overflow-auto min-[68rem]:flex min-[68rem]:overflow-hidden">
   @if (artUri(); as uri) {
     <!-- art-backdrop is shared with the mini bar: see styles.scss. Not on short
          screens: it is the heaviest thing on screen and the panel is one, so
@@ -12,7 +13,7 @@
     <!-- EXACTLY one viewport, not min-h: the queue below is reached by scrolling,
        and a first screen that grew past the fold would put the transport buttons
        off it. -->
-  <main class="relative z-[1] mx-auto flex h-dvh flex-col gap-4 px-4 pt-3 pb-5">
+  <main class="relative z-[1] mx-auto flex h-dvh flex-col gap-4 px-4 pt-3 pb-5 min-[68rem]:mx-0 min-[68rem]:min-w-0 min-[68rem]:flex-1">
     <header class="flex items-center justify-between">
       <!-- 44px tall for touch, with negative margins giving back exactly what
            that adds over the one line of text it replaced: this screen is one
@@ -42,13 +43,14 @@
       <section class="flex min-w-0 flex-1 flex-col justify-center gap-[0.2rem]">
         <!-- Art beside the text. The panel is 800x480 landscape, so a column would
              waste the width and push the progress bar off the bottom. Narrow
-             phones stack instead, and let the cover lead. -->
+             phones stack instead, and let the cover lead; so do wide screens,
+             where the queue takes the other half. -->
         <div class="flex min-w-0 items-center gap-4
-                  max-[40rem]:flex-col max-[40rem]:gap-[2rem]">
+                  max-[40rem]:flex-col max-[40rem]:gap-[2rem] min-[68rem]:flex-col min-[68rem]:gap-[2rem]">
 
-          <div class="min-[68rem]:min-w-[40%] place-items-center">
+          <div class="place-items-center">
             <div class="grid aspect-square w-[clamp(7rem,40vw,16rem)] flex-none place-items-center relative
-                    overflow-hidden rounded-md bg-surface max-[40rem]:w-[min(60vw,16rem)] ">
+                    overflow-hidden rounded-md bg-surface max-[40rem]:w-[min(60vw,16rem)] min-[68rem]:w-[min(26rem,45dvh)]">
               @if (artUri(); as uri) {
                 <img class="block h-full w-full object-cover"
                      [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
@@ -76,12 +78,12 @@
                  Inline py-1 widens the tap target without moving the lines. -->
             @if (libraryAlbum(); as ref) {
               <p class="mt-1 text-[clamp(1.3rem,4vw,1.8rem)] text-accent font-bold [overflow-wrap:anywhere]">
-                <a class="cursor-pointer touch-manipulation py-1" routerLink="/library/artist"
-                   [queryParams]="{ name: ref.albumArtist }" (click)="sheet.hide()">{{ track.artist || ref.albumArtist }}</a>
+                <a class="cursor-pointer touch-manipulation py-1" [attr.href]="artistHref(ref)"
+                   (click)="follow($event, artistHref(ref))">{{ track.artist || ref.albumArtist }}</a>
               </p>
               <p class="text-[clamp(1.1rem,2.8vw,1.4rem)] text-text [overflow-wrap:anywhere] font-semibold">
-                <a class="cursor-pointer touch-manipulation py-1" routerLink="/library/album"
-                   [queryParams]="{ artist: ref.albumArtist, album: ref.album }" (click)="sheet.hide()">{{ ref.album }}</a>
+                <a class="cursor-pointer touch-manipulation py-1" [attr.href]="albumHref(ref)"
+                   (click)="follow($event, albumHref(ref))">{{ ref.album }}</a>
               </p>
             } @else {
               <p class="mt-1 text-[clamp(1.3rem,4vw,1.8rem)] text-accent font-bold
@@ -134,7 +136,8 @@
            now exactly one viewport, and on the 800x480 panel the art is already
            within about 30px of filling what is left. It sits in the empty space
            beside the centred transport buttons and costs the layout nothing. -->
-      <button class="absolute right-3 bottom-4 inline-flex size-11 cursor-pointer
+      <!-- Not on wide screens, where the queue is already beside it. -->
+      <button class="absolute right-3 bottom-4 inline-flex size-11 cursor-pointer min-[68rem]:hidden
                    touch-manipulation items-center justify-center rounded-full text-muted
                    select-none active:bg-raised"
               (click)="scrollToQueue()" aria-label="Show the queue">
@@ -143,7 +146,8 @@
     }
   </main>
 
-  <app-queue #queue />
+  <!-- :empty ignores Angular's comment nodes, so no queue leaves no empty column. -->
+  <app-queue #queue class="block min-[68rem]:relative min-[68rem]:z-[1] min-[68rem]:h-dvh min-[68rem]:flex-1 min-[68rem]:overflow-y-auto min-[68rem]:overscroll-contain min-[68rem]:pb-[7px] min-[68rem]:empty:hidden" />
 
   <div class="fixed inset-x-0 bottom-0 z-[2] h-[7px] bg-raised"
        role="progressbar" [attr.aria-valuenow]="progress()">

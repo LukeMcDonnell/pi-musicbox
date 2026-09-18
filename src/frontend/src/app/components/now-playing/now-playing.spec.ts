@@ -195,13 +195,23 @@ describe('NowPlaying track lines', () => {
         expect(getComputedStyle(progress).textShadow).not.toBe('none');
     });
 
-    it('closes the sheet when a link is followed', () => {
+    it('closes the sheet, then opens the page once its Back has landed', async () => {
         const el = render('mpd', LIBRARY_TRACK);
         const sheet = TestBed.inject(NowPlayingSheet);
-        sheet.show();
-        spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+        let backLanded = false;
+        spyOn(sheet, 'hide').and.callFake(async () => {
+            await Promise.resolve();
+            backLanded = true;
+            return false;
+        });
+        const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.callFake(async () => {
+            expect(backLanded).withContext('navigated before the sheet entry was popped').toBeTrue();
+            return true;
+        });
         (el.querySelector('a[href^="/library/album"]') as HTMLAnchorElement).click();
-        expect(sheet.open()).toBeFalse();
+        await new Promise((r) => setTimeout(r));
+        expect(sheet.hide).toHaveBeenCalled();
+        expect(String(navigate.calls.mostRecent().args[0])).toBe('/library/album?artist=AC%2FDC&album=Back%20in%20Black');
     });
 
     it('links nothing for a phone, or a track with no AlbumArtist to file it under', () => {

@@ -1203,3 +1203,22 @@ tag-scan `find` apiece (11.4ms measured), so a hundred favourites would cost ove
 second. The copy can go stale after a retag; `GET /api/library/album` rewrites it
 whenever that album is opened, and a favourite whose album has left the library
 still lists and can still be removed — opening it 404s.
+
+## Browser Back closes Now Playing through a history entry it owns (2026-09-17)
+
+Opening the sheet pushes a same-URL entry marked in `history.state`
+(`musicboxNowPlaying`); a popstate sets the sheet from that marker, so Back closes
+it and Forward reopens it. Closing in the app pops the entry rather than leaving
+it, which is what keeps the back stack exactly as it was. The router ignores a
+same-URL popstate (`NavigationSkipped`), so none of this is a navigation and
+`AppHistory` never counts it.
+
+**A link inside the sheet must wait for the router, not just the popstate.** The
+router handles a popstate a task later (`setTimeout` in its history state
+manager). Navigating as soon as the sheet's Back lands let that deferred sync run
+afterwards and replace the new page with the one underneath — measured: the link
+closed the sheet and went nowhere. `NowPlaying.follow` waits for the router's
+`NavigationSkipped` first, which is why those links are not `routerLink`s.
+
+A reload lands on a marked entry with the sheet closed; the marker is stripped
+rather than reopening the sheet on boot.
