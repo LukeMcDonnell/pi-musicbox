@@ -47,6 +47,9 @@
   --spacing-tabs: 55px;
   /* The on-screen keyboard: four 44px rows, 6px gaps and padding. */
   --spacing-keyboard: 206px;
+  /* One card in a shelf. A token because the shelf's arrows sit on the middle of
+     the square cover, which is half this, and the two must not disagree. */
+  --spacing-card: clamp(7rem, 22vw, 9.5rem);
 }
 
 /*

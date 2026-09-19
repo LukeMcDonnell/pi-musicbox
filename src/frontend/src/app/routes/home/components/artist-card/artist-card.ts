@@ -18,7 +18,7 @@ import type { MostPlayedArtist } from '@musicbox/shared';
     imports: [CoverArt, LucideUserRound],
     template: `
         <button type="button"
-                class="flex w-[clamp(7rem,22vw,9.5rem)] flex-none snap-start cursor-pointer
+                class="flex w-card flex-none snap-start cursor-pointer
                        touch-manipulation flex-col gap-2 rounded-md text-left select-none
                        active:bg-raised"
                 (click)="open.emit()">

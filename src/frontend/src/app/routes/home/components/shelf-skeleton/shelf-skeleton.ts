@@ -20,7 +20,7 @@ import { SHELF_SIZE } from '../../../../services/favourite-picks';
     template: `
         <span class="sr-only">Loading…</span>
         @for (card of cards; track card) {
-            <span class="flex w-[clamp(7rem,22vw,9.5rem)] flex-none flex-col gap-2"
+            <span class="flex w-card flex-none flex-col gap-2"
                   aria-hidden="true">
                 <span class="aspect-square w-full bg-surface"
                       [class.rounded-md]="!round()" [class.rounded-full]="round()"></span>
