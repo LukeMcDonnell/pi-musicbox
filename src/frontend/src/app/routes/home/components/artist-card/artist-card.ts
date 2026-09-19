@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { LucideUserRound } from '@lucide/angular';
+import { CoverArt } from '../../../../components/cover-art/cover-art';
 import type { MostPlayedArtist } from '@musicbox/shared';
 
 /*
@@ -14,23 +15,18 @@ import type { MostPlayedArtist } from '@musicbox/shared';
 */
 @Component({
     selector: 'app-artist-card',
-    imports: [LucideUserRound],
+    imports: [CoverArt, LucideUserRound],
     template: `
         <button type="button"
                 class="flex w-[clamp(7rem,22vw,9.5rem)] flex-none snap-start cursor-pointer
                        touch-manipulation flex-col gap-2 rounded-md text-left select-none
                        active:bg-raised"
                 (click)="open.emit()">
-            <span class="grid aspect-square w-full place-items-center overflow-hidden rounded-full
-                         bg-surface">
-                @if (cover(); as uri) {
-                    <img class="h-full w-full object-cover" [src]="uri" alt=""
-                         loading="lazy" decoding="async" (error)="failed.emit(uri)">
-                } @else {
-                    <svg lucideUserRound class="size-8 text-muted" aria-hidden="true"></svg>
-                }
-            </span>
-            <span class="w-full min-w-0">
+            <app-cover-art class="aspect-square w-full rounded-full bg-surface" [uri]="cover()"
+                           lazy (failed)="failed.emit($event)">
+                <svg lucideUserRound class="size-8 text-muted" aria-hidden="true"></svg>
+            </app-cover-art>
+            <span class="w-full min-w-0 text-center">
                 <span class="block truncate text-[0.95rem]">{{ artist().name }}</span>
                 <span class="block truncate text-[0.8rem] text-muted">{{ playsLabel() }}</span>
             </span>

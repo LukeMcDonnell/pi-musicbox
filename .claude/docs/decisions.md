@@ -1694,3 +1694,76 @@ albums sharing a title is a duplicate-key exception — a hard Angular error tha
 takes the whole screen down, not a cosmetic glitch. Every repeater key and
 `favourite-picks`'s seeded hash moved to the release; four identical hashes would
 have ranked four cards adjacently and defeated the shelf's spread.
+
+## A cover that loads but never paints, and the icon that was hiding (2026-09-19)
+
+Covers intermittently show as an empty box — no picture, and no placeholder
+either. Reported on Home and the Library list, "anywhere there are lots of
+images", and it reproduces in a desktop Chromium, not only on the panel.
+
+**The missing icon was ours, and it is the half worth fixing first.** The
+placeholder was an `@else`: `@if (cover(); as uri) { <img> } @else { <svg> }`.
+The moment a URI existed the icon was gone, so an image that had not painted
+left a bare `bg-surface` square. **A blank box was how the UI drew "loading",
+and nothing told it apart from "broken".** The icon now sits UNDER the image —
+both children of one grid cell, `col-start-1 row-start-1` — so an image that is
+pending, aborted or unpainted shows the icon instead of nothing. Two things
+follow from that and are deliberate: a transparent PNG cover shows the icon
+behind it rather than the surface colour, and every cover now goes icon → image
+instead of blank → image. That is the same single invalidation plus one cheap
+SVG draw.
+
+The `(error)` path is unchanged and still removes the `<img>` entirely, which is
+what stops a genuine 404 drawing a broken-image glyph over the icon.
+
+**The other half is Chromium, and the evidence is the right-click.** The request
+completes, and scrolling, clicking or opening a context menu brings the picture
+back. A context menu runs no application code — it only forces a re-raster. So
+this is not change detection, not the failed-Set, not `/api/art`.
+
+**`decoding="async"` was the cause, and it is gone from every image.** The
+decode lands after the containing layer has rastered clean, and nothing
+invalidates the layer when it does — so the picture arrives, is never drawn, and
+stays undrawn until a scroll, a click or a context menu forces a repaint.
+
+**`loading="lazy"` was the wrong suspect, and the correlation that implicated it
+was real but misleading.** Every failing site was a lazy one and no eager image
+ever failed — but lazy and async decoding were on exactly the same seven
+elements, and the eager images are all single large covers rather than the
+dozens-at-once that make the fault show. Lazy was removed, the fault survived,
+and removing `decoding="async"` fixed it. **Lazy is back everywhere it was.**
+
+Worth keeping because it nearly cost a wrong fix: the attributes co-occurred
+perfectly, so the correlation had no power to separate them. Only the A/B did.
+The general form — two attributes on exactly the same set, one blamed by
+position — is worth remembering the next time a paint fault correlates with
+something.
+
+`decoding="async"` bought nothing here in the first place. Chromium rasters off
+the main thread regardless; the attribute only says the image may be presented
+before its decode finishes, which for a 48×48 draw is no saving at all and for
+these covers was the whole bug.
+
+**`CoverArt` exists because the pattern had been written twelve times and had
+already drifted** — the Home cards had lost the `width`/`height` the rows carry.
+Nine sites use it now. The icon arrives by content projection, so the lucide
+import stays at the call site and the component never learns whether it is
+showing an album, an artist, a track or a Bluetooth source; the box — size,
+rounding, background — stays the caller's, because it differs everywhere. The
+three now-playing variants are NOT converted: their placeholder is a three-way
+and the full view's box interacts with the backdrop's stacking.
+
+**What a spec can and cannot do here.** Nothing in Karma can catch the paint
+fault: it rasterises in software, which is the one path that never exercises it,
+and it never reads pixels. `cover-art.spec.ts` pins the icon-under-image order
+instead — that invariant is the thing that keeps a blank box impossible — and
+the row-height specs are the net for the markup change. The fluid `aspect-square`
+case was measured rather than assumed: a 152px card box gives a 152×152 image
+with the icon still centred under it, so the overlay needs no `absolute inset-0`
+fallback.
+
+**A known gap, not fixed here.** A screen's failed-Set never forgets, so on the
+panel — which sits on one screen for hours — a transient failure blanks a cover
+until you navigate away. Clearing the set when the SSE stream reconnects is the
+minimal fix, and it is on the roadmap rather than in this change, because
+`(error)` is not the fault being fixed.

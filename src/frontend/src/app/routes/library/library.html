@@ -78,16 +78,11 @@
                                items-center gap-3 rounded-md px-0 py-2 text-left select-none
                                active:bg-raised"
                         (click)="open(artist)">
-                  <span class="grid size-12 flex-none place-items-center overflow-hidden
-                               rounded-full bg-surface">
-                    @if (artOf(artist); as uri) {
-                      <img class="h-full w-full object-cover" [src]="uri" alt=""
-                           width="48" height="48" loading="lazy" decoding="async"
-                           (error)="onArtError(uri)">
-                    } @else {
-                      <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
-                    }
-                  </span>
+                  <app-cover-art class="size-12 flex-none rounded-full bg-surface"
+                                 [uri]="artOf(artist)" [width]="48" [height]="48" lazy
+                                 (failed)="onArtError($event)">
+                    <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
+                  </app-cover-art>
                   <span class="min-w-0 flex-1 flex place-items-center">
                     <span class="text-xl block truncate">{{ artist.name }}</span>
                     <!-- ps-3 so a long name cannot touch the count, and flex-none

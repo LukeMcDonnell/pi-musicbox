@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { LucideDisc3, LucideListPlus, LucidePlay } from '@lucide/angular';
+import { CoverArt } from '../cover-art/cover-art';
 import type { AlbumIdentity } from '@musicbox/shared';
 
 /**
@@ -27,20 +28,15 @@ export const ALBUM_ROW_HEIGHT = 64;
 */
 @Component({
     selector: 'app-album-row',
-    imports: [LucideDisc3, LucideListPlus, LucidePlay],
+    imports: [CoverArt, LucideDisc3, LucideListPlus, LucidePlay],
     template: `
         <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
                        gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised"
                 (click)="open.emit()">
-            <span class="grid size-12 flex-none place-items-center overflow-hidden rounded bg-surface">
-                @if (cover(); as uri) {
-                    <img class="h-full w-full object-cover" [src]="uri" alt=""
-                         width="48" height="48" loading="lazy" decoding="async"
-                         (error)="failed.emit(uri)">
-                } @else {
-                    <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
-                }
-            </span>
+            <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="cover()"
+                           [width]="48" [height]="48" lazy (failed)="failed.emit($event)">
+                <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
+            </app-cover-art>
             <span class="min-w-0 flex-1">
                 <span class="text-xl block truncate">{{ album().album }}</span>
                 <span class="block truncate text-[0.85rem] text-muted tabular-nums">{{ subtitle() }}</span>

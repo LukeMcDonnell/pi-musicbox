@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { LucideUserRound } from '@lucide/angular';
+import { CoverArt } from '../cover-art/cover-art';
 
 /**
  * The height of one row, in pixels.
@@ -24,22 +25,16 @@ export const ARTIST_ROW_HEIGHT = 64;
 */
 @Component({
     selector: 'app-artist-row',
-    imports: [LucideUserRound],
+    imports: [CoverArt, LucideUserRound],
     template: `
         <button class="flex min-h-[3.5rem] w-full min-w-0 cursor-pointer touch-manipulation
                        items-center gap-3 rounded-md px-0 py-2 text-left select-none
                        active:bg-raised"
                 (click)="open.emit()">
-            <span class="grid size-12 flex-none place-items-center overflow-hidden rounded-full
-                         bg-surface">
-                @if (cover(); as uri) {
-                    <img class="h-full w-full object-cover" [src]="uri" alt=""
-                         width="48" height="48" loading="lazy" decoding="async"
-                         (error)="failed.emit(uri)">
-                } @else {
-                    <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
-                }
-            </span>
+            <app-cover-art class="size-12 flex-none rounded-full bg-surface" [uri]="cover()"
+                           [width]="48" [height]="48" lazy (failed)="failed.emit($event)">
+                <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
+            </app-cover-art>
             <span class="min-w-0 flex-1 flex place-items-center">
                 <span class="text-xl block truncate">{{ name() }}</span>
                 <span class="ms-auto ps-3 block truncate text-[0.85rem] text-muted tabular-nums">

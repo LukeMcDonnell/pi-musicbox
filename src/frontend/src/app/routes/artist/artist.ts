@@ -8,6 +8,7 @@ import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
 import { Rating } from '../../components/rating/rating';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
+import { CoverArt } from '../../components/cover-art/cover-art';
 
 /*
   One artist: their picture as a hero, then their albums oldest first.
@@ -23,6 +24,7 @@ import { FavouriteButton } from '../../components/favourite-button/favourite-but
 @Component({
     selector: 'app-artist',
     imports: [
+        CoverArt,
         FavouriteButton,
         Rating,
         LucideChevronLeft,

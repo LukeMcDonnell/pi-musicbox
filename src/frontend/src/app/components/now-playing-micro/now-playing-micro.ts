@@ -31,7 +31,7 @@ import { NowPlayingSheet } from '../../services/now-playing-sheet';
                      max-[46rem]:size-10">
           @if (artUri(); as uri) {
             <img class="h-full w-full object-cover" [src]="uri" alt=""
-                 width="60" height="60" decoding="async" (error)="onArtError(uri)">
+                 width="60" height="60" (error)="onArtError(uri)">
           } @else if (onBluetooth()) {
             <svg lucideBluetooth class="size-6 text-muted max-[46rem]:size-5" aria-hidden="true"></svg>
           } @else {

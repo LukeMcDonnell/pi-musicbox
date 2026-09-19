@@ -117,6 +117,37 @@ panel is the only place that can answer it, and `--disable-gpu-rasterization` vi
 `CHROMIUM_EXTRA_FLAGS` in `/etc/musicbox/kiosk.conf` is the cheapest way to ask.
 Virtualisation is not that answer: it was never measured against the fault.
 
+**A second, milder symptom of what may be the same fault (2026-09-19).** Covers
+sometimes load — the request completes — and never paint, until a scroll, a
+click or a right-click forces a re-raster. A context menu runs no application
+code, so this is Chromium producing no pixels for a region it believes clean,
+i.e. the same family as the white screen above, short of fatal. It reproduces on
+a DESKTOP Chromium, which the crash does not, so it is the cheaper place to
+experiment. The blank box itself is fixed — the placeholder icon now sits under
+the image, see decisions.md — but the paint fault is not.
+
+**Resolved (2026-09-19): `decoding="async"` was the cause**, and it is gone
+from every image. `loading="lazy"` was the other suspect, was removed first on
+the strength of the correlation, did NOT fix it, and has been restored. The
+remaining suspect below is untested and only matters for the CRASH, not for the
+blank box:
+the two `art-backdrop` images carry `will-change-transform` with a STATIC
+`scale`, so nothing animates them and the `will-change` only buys a permanently
+promoted full-viewport blurred layer. That cuts with the desktop-only report —
+both backdrops are `short:hidden`, so neither renders on the panel, but the mini
+bar's copy is live on a desktop Home and Library whenever something is playing.
+
+That `will-change` deletion is still worth trying against the crash, and it
+costs nothing to keep. It was never tested, because the blank box was fixed
+before it needed to be.
+
+The thumbnail work below is untouched by any of this and remains the fix for
+cost-per-decode.
+
+**Also open, and unrelated to paint:** a screen's failed-Set never forgets, so a
+transient failure blanks a cover until you navigate away — which on the panel can
+be hours. Clear it when the SSE stream reconnects.
+
 ## Landed: a database, and the panel turns itself off (2026-09-15)
 
 The box now has SQLite (`node:sqlite`, so no dependency and nothing to ship) at

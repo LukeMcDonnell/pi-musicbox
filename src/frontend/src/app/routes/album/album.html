@@ -10,12 +10,9 @@
     <div class="relative grid aspect-square w-[clamp(6rem,26vh,11rem)] flex-none
                 place-items-center overflow-hidden rounded-md bg-surface
                 max-[40rem]:w-[clamp(9rem,95vw,24rem)]">
-      @if (cover(); as uri) {
-        <img class="h-full w-full object-cover" [src]="uri" alt=""
-             decoding="async" (error)="onArtError(uri)">
-      } @else {
+      <app-cover-art class="h-full w-full" [uri]="cover()" (failed)="onArtError($event)">
         <svg lucideDisc3 class="size-10 text-muted" aria-hidden="true"></svg>
-      }
+      </app-cover-art>
     </div>
 
     <div class="min-w-0 flex-1 max-[40rem]:text-center">

@@ -1364,6 +1364,10 @@ listing touches the filesystem zero times. Resolution happens only when a browse
 actually asks for the bytes; about 7.5% of this library's albums have no cover and
 the client shows a placeholder.
 
+The placeholder sits **under** the picture rather than instead of it, so a cover
+that is still arriving — or that arrived and has not painted — shows the icon
+instead of an empty box. See the paint entry in `.claude/docs/decisions.md`.
+
 **Keyed by album directory, not by track.** Measured on the real queue: **130
 tracks resolve to 12 distinct art URIs.** So the browser fetches twelve images for
 a full queue rather than a hundred and thirty, and a track change within an album

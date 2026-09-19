@@ -16,6 +16,7 @@ import { LucideSearch, LucideUserRound, LucideX } from '@lucide/angular';
 import type { ArtistSummary } from '@musicbox/shared';
 import { LibraryStore } from '../../services/library-store';
 import { ScrollFrame } from '../../services/scroll-frame';
+import { CoverArt } from '../../components/cover-art/cover-art';
 import { fold, squeeze } from '../../services/text-match';
 
 /*
@@ -91,7 +92,7 @@ export const FILTER_PARAM = 'filter';
 
 @Component({
     selector: 'app-library',
-    imports: [LucideSearch, LucideUserRound, LucideX, VirtualScrollerModule],
+    imports: [CoverArt, LucideSearch, LucideUserRound, LucideX, VirtualScrollerModule],
     templateUrl: './library.html',
     // The scroller's own resize polling is off; this is what replaces it. See
     // THE RESIZE CONTRACT above for what that does and does not cover.

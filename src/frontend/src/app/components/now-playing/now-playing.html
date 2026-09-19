@@ -7,7 +7,7 @@
          — it is the same URL as the cover, so it costs no extra fetch. -->
     <img class="art-backdrop pointer-events-none absolute inset-0 z-0 h-full w-full object-cover
               will-change-transform short:hidden"
-         [src]="uri" alt="" aria-hidden="true" decoding="async">
+         [src]="uri" alt="" aria-hidden="true">
   }
 
     <!-- EXACTLY one viewport, not min-h: the queue below is reached by scrolling,
@@ -53,7 +53,7 @@
                     overflow-hidden rounded-md bg-surface max-[40rem]:w-[min(60vw,16rem)] min-[68rem]:w-[min(26rem,45dvh)]">
               @if (artUri(); as uri) {
                 <img class="block h-full w-full object-cover"
-                     [src]="uri" alt="" decoding="async" (error)="onArtError(uri)">
+                     [src]="uri" alt="" (error)="onArtError(uri)">
               } @else {
                 @if (onBluetooth()) {
                   <svg lucideBluetooth class="size-10 text-muted" aria-hidden="true"></svg>

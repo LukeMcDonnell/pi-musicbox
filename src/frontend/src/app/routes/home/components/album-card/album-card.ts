@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { LucideDisc3 } from '@lucide/angular';
+import { CoverArt } from '../../../../components/cover-art/cover-art';
 import type { AlbumIdentity } from '@musicbox/shared';
 
 /*
@@ -16,22 +17,17 @@ import type { AlbumIdentity } from '@musicbox/shared';
 */
 @Component({
     selector: 'app-album-card',
-    imports: [LucideDisc3],
+    imports: [CoverArt, LucideDisc3],
     template: `
         <button type="button"
                 class="flex w-[clamp(7rem,22vw,9.5rem)] flex-none snap-start cursor-pointer
                        touch-manipulation flex-col gap-2 rounded-md text-left select-none
                        active:bg-raised"
                 (click)="open.emit()">
-            <span class="grid aspect-square w-full place-items-center overflow-hidden rounded-md
-                         bg-surface">
-                @if (cover(); as uri) {
-                    <img class="h-full w-full object-cover" [src]="uri" alt=""
-                         loading="lazy" decoding="async" (error)="failed.emit(uri)">
-                } @else {
-                    <svg lucideDisc3 class="size-8 text-muted" aria-hidden="true"></svg>
-                }
-            </span>
+            <app-cover-art class="aspect-square w-full rounded-md bg-surface" [uri]="cover()"
+                           lazy (failed)="failed.emit($event)">
+                <svg lucideDisc3 class="size-8 text-muted" aria-hidden="true"></svg>
+            </app-cover-art>
             <span class="w-full min-w-0">
                 <span class="block truncate text-[0.95rem]">{{ album().album }}</span>
                 <span class="block truncate text-[0.8rem] text-muted">{{ album().albumArtist }}</span>

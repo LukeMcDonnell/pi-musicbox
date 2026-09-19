@@ -3,6 +3,7 @@ import { LucideMusic } from '@lucide/angular';
 import type { Track } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { clock } from '../now-playing/now-playing';
+import { CoverArt } from '../cover-art/cover-art';
 
 /** Which half of the queue is on screen. */
 type Tab = 'back' | 'next';
@@ -30,7 +31,7 @@ type Tab = 'back' | 'next';
 */
 @Component({
     selector: 'app-queue',
-    imports: [LucideMusic],
+    imports: [CoverArt, LucideMusic],
     templateUrl: './queue.html',
     // The list is up to a few hundred rows and none of them depend on anything
     // but signals, so there is no reason to re-check them on every unrelated

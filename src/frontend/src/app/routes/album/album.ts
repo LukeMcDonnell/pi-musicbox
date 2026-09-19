@@ -9,6 +9,7 @@ import { Preferences } from '../../services/preferences';
 import { Rating } from '../../components/rating/rating';
 import { clock } from '../../components/now-playing/now-playing';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
+import { CoverArt } from '../../components/cover-art/cover-art';
 
 /*
   One album: its cover as a hero, two buttons, and the tracks.
@@ -37,6 +38,7 @@ import { FavouriteButton } from '../../components/favourite-button/favourite-but
 @Component({
     selector: 'app-album',
     imports: [
+        CoverArt,
         FavouriteButton,
         Rating,
         RouterLink,
