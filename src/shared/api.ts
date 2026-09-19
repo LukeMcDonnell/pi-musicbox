@@ -178,6 +178,21 @@ export interface Track {
      */
 
     /**
+     * Which release this track belongs to — the same string AlbumIdentity
+     * carries, so a queue row and an album card name the album the same way.
+     *
+     * THE ONE ALBUM FACT A Track CARRIES, and it earns the wire it costs: the
+     * play log files a play against a release and the now-playing screen links
+     * to one, and both are handed a queue Track and nothing else. `album` alone
+     * cannot say WHICH release. Derived from the tags and the path, so it costs
+     * no I/O and no second MPD command — the same deal as `image`.
+     *
+     * OPAQUE: pass it back, never parse it. Absent for a Bluetooth track, which
+     * has no file and no library release.
+     */
+    release?: string;
+
+    /**
      * URI for this album's cover art, e.g. `/api/art?album=Radiohead%2FIn%20Rainbows`,
      * or null when there is none to be had.
      *
@@ -420,6 +435,12 @@ export interface ArtistSummary {
      * 0–10, from the artist's `artist.nfo` on the share. Absent when the file has
      * no rating or has not been harvested — 445 of 506 artists here have one.
      *
+     * NOTHING DISPLAYS IT TODAY, and that is a decision rather than an omission:
+     * only ALBUMS show a rating. It stays on the wire because it is free — the
+     * harvest reads it out of the same file as the biography, and it is four
+     * bytes on the row — so putting it back on screen is a template change and
+     * not a round trip through the backend. `library.spec.ts` pins its absence.
+     *
      * NOT FROM MPD. It is read off the NAS after a scan and kept in SQLite, so it
      * survives the share being unmounted, which it usually is. See
      * src/backend/src/library-notes.ts.
@@ -437,6 +458,8 @@ export interface AlbumSummary {
     album: string;
     /** The `AlbumArtist` this album is filed under — the `name` above. */
     albumArtist: string;
+    /** Which release this is. See AlbumIdentity, which this satisfies. */
+    release: string;
     /**
      * When the album came out — `OriginalDate` where the tracks have it, falling
      * back to `Date`.
@@ -494,12 +517,14 @@ export interface AlbumSummary {
     label?: string;
     /**
      * MusicBrainz ids for the release and its release group. Near-total
-     * coverage. As on ArtistSummary these are stable identity to store, not
-     * keys to look up by.
+     * coverage.
+     *
+     * UNLIKE ArtistSummary's, `mbAlbumId` IS a key: it is what `release` above is
+     * built from. Measured here before that was relied on — see decisions.md.
      *
      * The release group is the one that survives a different pressing: a
      * remaster and its original share a `mbReleaseGroupId` and differ in
-     * `mbAlbumId`.
+     * `mbAlbumId`. Not the key, so two pressings are two albums.
      */
     mbAlbumId?: string;
     mbReleaseGroupId?: string;
@@ -556,7 +581,10 @@ export interface AlbumsResponse {
      * artists list. Unlike `image` it is also far too big to put on that list.
      */
     biography: string | null;
-    /** The artist's rating, as on ArtistSummary, repeated for the same reason. */
+    /**
+     * The artist's rating, as on ArtistSummary — and, like it, shown by nothing.
+     * Only albums display a rating; see the note there.
+     */
     rating: number | null;
     /** Oldest first; undated albums last. */
     albums: AlbumSummary[];
@@ -584,10 +612,12 @@ export interface AlbumResponse {
 export interface AlbumRef {
     albumArtist: string;
     album: string;
+    /** Which release to act on. See AlbumIdentity; this is what MPD is narrowed by. */
+    release: string;
     /**
      * One disc, as its `Disc` tag reads. Absent means the whole album.
      *
-     * MPD does the narrowing: `findadd albumartist "X" album "Y" disc "2"` in the
+     * MPD does the narrowing: `findadd MUSICBRAINZ_ALBUMID "<id>" disc "2"` in the
      * same legacy filter form as everything else here. Measured on Music Bank,
      * 17 + 17 + 14 against 48 for the album, and it works for both layouts in
      * this library — the 149 albums whose discs are separate directories and the
@@ -612,8 +642,9 @@ export interface AlbumRef {
  * one adds to what you are listening to, the other replaces it. A boolean would
  * make the destructive one the easier thing to reach by accident.
  *
- * The album is named by tag and resolved by MPD's own `findadd`, so the server
- * never enumerates tracks and the whole album is queued in one command. 409 while
+ * The album is named by its `release` and resolved by MPD's own `findadd`, so the
+ * server never enumerates tracks and one release is queued in one command — the
+ * tag pair would queue all four self-titled Weezers. 409 while
  * a phone owns the DAC, for the same reason GET /api/queue is a 409 — MPD's queue
  * is not what anyone is looking at during a Bluetooth session.
  */
@@ -816,11 +847,12 @@ export interface RestoreResponse {
  * FAVOURITE ALBUMS
  *
  *   GET    /api/favourites
- *   PUT    /api/favourites/album?artist=&album=   404 if the library has no such album
- *   DELETE /api/favourites/album?artist=&album=   never asks MPD, so a vanished album can go
+ *   PUT    /api/favourites/album?artist=&release=   404 if the library has no such album
+ *   DELETE /api/favourites/album?artist=&release=   never asks MPD, so a vanished album can go
  *
  * All three answer with the complete list, which also arrives on SSE_FAVOURITES_EVENT.
- * Keyed by AlbumArtist and Album together: 47 albums here share a title with another.
+ * KEYED BY `release` ALONE, which is already unique: 47 albums here share a title
+ * with another, and 25 titles are shared by two releases of the SAME artist.
  */
 export const SSE_FAVOURITES_EVENT = 'favourites';
 
@@ -857,6 +889,18 @@ export const RECENTLY_ADDED_MAX = 500;
 export interface AlbumIdentity {
     album: string;
     albumArtist: string;
+    /**
+     * WHICH RELEASE THIS IS — the identity every album screen, queue and
+     * favourite is keyed by. `mb:<MUSICBRAINZ_ALBUMID>`, or `dir:<album
+     * directory>` for an album with no such tag.
+     *
+     * The tag pair above does NOT identify an album: Weezer have four self-titled
+     * records and this library holds all four. See decisions.md.
+     *
+     * Prefixed so the value says which kind it is; `releaseFilter` in library.ts
+     * is the only place that decodes it.
+     */
+    release: string;
 }
 
 export interface RecentlyAddedAlbum extends AlbumIdentity {

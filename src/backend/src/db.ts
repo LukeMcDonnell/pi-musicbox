@@ -110,6 +110,41 @@ export const MIGRATIONS: readonly string[] = [
         biography TEXT,
         read_at   INTEGER NOT NULL
     ) STRICT;`,
+    // v6 — favourites keyed by RELEASE. The old (album_artist, album) key could
+    // not tell Weezer's four self-titled records apart, so favouriting one
+    // favourited all four. SQLite cannot alter a primary key, hence the copy.
+    // The release is recovered from the AlbumSummary already stored in `summary`,
+    // so this needs no MPD: 412 of the user's 413 rows carry the id. The row that
+    // does not is dropped rather than given a guessed key.
+    `CREATE TABLE favourite_album_v2 (
+        album_artist TEXT NOT NULL,
+        album        TEXT NOT NULL,
+        release      TEXT NOT NULL,
+        added_at     INTEGER NOT NULL,
+        summary      TEXT NOT NULL,
+        PRIMARY KEY (release)
+    ) STRICT;
+     INSERT INTO favourite_album_v2 (album_artist, album, release, added_at, summary)
+         SELECT album_artist, album, 'mb:' || json_extract(summary, '$.mbAlbumId'),
+                added_at, summary
+           FROM favourite_album
+          WHERE json_extract(summary, '$.mbAlbumId') IS NOT NULL;
+     DROP TABLE favourite_album;
+     ALTER TABLE favourite_album_v2 RENAME TO favourite_album;`,
+    // v7 — which release each play belongs to. NULL for every row written before
+    // this, and those drop off the recently-played shelf: the release cannot be
+    // recovered from what was stored, and this file is deliberately the only one
+    // that touches SQLite, so it cannot ask MPD for it.
+    `ALTER TABLE track_play ADD COLUMN release TEXT;
+     CREATE INDEX track_play_release ON track_play (release);`,
+    // v8 — heal the denormalised copy. v6 recovered the release into its own
+    // column but left `summary` as it was written, so every favourite made
+    // before releases existed carries an AlbumSummary with no `release`. The
+    // read path takes the column, not the copy, so this is consistency rather
+    // than a rescue — but a stale copy reaches clients until its album is opened.
+    `UPDATE favourite_album
+        SET summary = json_set(summary, '$.release', release)
+      WHERE json_extract(summary, '$.release') IS NULL;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

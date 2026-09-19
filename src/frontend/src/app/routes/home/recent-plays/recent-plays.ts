@@ -90,7 +90,7 @@ export class RecentPlays {
     }
 
     trackKey(album: RecentPlayAlbum): string {
-        return JSON.stringify([album.albumArtist, album.album]);
+        return album.release;
     }
 
     /** "Radiohead · 20 minutes ago". */
@@ -100,7 +100,7 @@ export class RecentPlays {
 
     open(album: RecentPlayAlbum): void {
         void this.router.navigate(['/library/album'], {
-            queryParams: { artist: album.albumArtist, album: album.album },
+            queryParams: { artist: album.albumArtist, album: album.album, release: album.release },
         });
     }
 
@@ -131,5 +131,5 @@ export class RecentPlays {
 }
 
 function refOf(album: RecentPlayAlbum) {
-    return { albumArtist: album.albumArtist, album: album.album };
+    return { albumArtist: album.albumArtist, album: album.album, release: album.release };
 }

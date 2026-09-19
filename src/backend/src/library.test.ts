@@ -216,18 +216,77 @@ test('an album runtime is null unless EVERY track has a duration', () => {
 
 test('the label and MusicBrainz ids come from the first track that carries them', () => {
     const albums = albumsFromSongs('Radiohead', [
-        lsong('Radiohead/OK Computer/01.flac', { Album: 'OK Computer' }),
+        lsong('Radiohead/OK Computer/01.flac', { Album: 'OK Computer', MUSICBRAINZ_ALBUMID: 'album-id' }),
         lsong('Radiohead/OK Computer/02.flac', {
             Album: 'OK Computer',
-            Label: 'Parlophone',
             MUSICBRAINZ_ALBUMID: 'album-id',
+            Label: 'Parlophone',
             MUSICBRAINZ_RELEASEGROUPID: 'group-id',
         }),
     ]);
+    assert.equal(albums.length, 1);
     assert.equal(albums[0].label, 'Parlophone');
     assert.equal(albums[0].mbAlbumId, 'album-id');
     // The release group survives a different pressing; the album id does not.
     assert.equal(albums[0].mbReleaseGroupId, 'group-id');
+});
+
+test('four self-titled records are four albums, not one', () => {
+    // Weezer. Grouping on the Album tag folded all of these into one card
+    // carrying 1994's date, 1994's cover and every track.
+    const albums = albumsFromSongs('Weezer', [
+        lsong('Weezer/Weezer (1994)/01.flac', { Album: 'Weezer', MUSICBRAINZ_ALBUMID: 'blue', OriginalDate: '1994-05-10' }),
+        lsong('Weezer/Weezer (2001)/01.flac', { Album: 'Weezer', MUSICBRAINZ_ALBUMID: 'green', OriginalDate: '2001-05-07' }),
+        lsong('Weezer/Weezer (2008)/01.flac', { Album: 'Weezer', MUSICBRAINZ_ALBUMID: 'red', OriginalDate: '2008-01-01' }),
+        lsong('Weezer/Weezer (2008)/02.flac', { Album: 'Weezer', MUSICBRAINZ_ALBUMID: 'red', OriginalDate: '2008-01-01' }),
+    ]);
+    assert.deepEqual(albums.map((a) => a.release), ['mb:blue', 'mb:green', 'mb:red']);
+    // Oldest first, and each keeps its own date, cover and count.
+    assert.deepEqual(albums.map((a) => a.date), ['1994-05-10', '2001-05-07', '2008-01-01']);
+    assert.deepEqual(albums.map((a) => a.trackCount), [1, 1, 2]);
+    assert.equal(albums[0].image, albumsFromSongs('W', [lsong('Weezer/Weezer (1994)/01.flac', { Album: 'Weezer' })])[0].image);
+});
+
+test('two pressings of one record are two albums — the release group does not merge them', () => {
+    // Dark Side of the Moon and its 50th Anniversary. Accepted, and measured:
+    // 25 titles here are shared by two releases of the same artist.
+    const albums = albumsFromSongs('Pink Floyd', [
+        lsong('Pink Floyd/The Dark Side of the Moon (1973)/01.flac', {
+            Album: 'The Dark Side of the Moon',
+            MUSICBRAINZ_ALBUMID: 'original',
+            MUSICBRAINZ_RELEASEGROUPID: 'same-record',
+            OriginalDate: '1973-03-24',
+        }),
+        lsong('Pink Floyd/The Dark Side Of The Moon (50th Anniversary) (2023)/01.flac', {
+            Album: 'The Dark Side of the Moon',
+            MUSICBRAINZ_ALBUMID: 'anniversary',
+            MUSICBRAINZ_RELEASEGROUPID: 'same-record',
+            OriginalDate: '1973-03-24',
+        }),
+    ]);
+    assert.equal(albums.length, 2);
+    // Same title and same year, so the order must still be settled.
+    assert.deepEqual(albums.map((a) => a.release), ['mb:anniversary', 'mb:original']);
+});
+
+test('a multi-disc album stays ONE album — the release id spans its disc directories', () => {
+    // This is what grouping by the album tag was originally for, and it still holds.
+    const albums = albumsFromSongs('Black Sabbath', [
+        lsong('Black Sabbath/13 (2013)/CD 01/01.flac', { Album: '13', MUSICBRAINZ_ALBUMID: 'thirteen', Disc: '1' }),
+        lsong('Black Sabbath/13 (2013)/CD 02/01.flac', { Album: '13', MUSICBRAINZ_ALBUMID: 'thirteen', Disc: '2' }),
+    ]);
+    assert.equal(albums.length, 1);
+    assert.equal(albums[0].discCount, 2);
+    assert.equal(albums[0].trackCount, 2);
+});
+
+test('an album with no MusicBrainz id falls back to its own directory', () => {
+    const [album] = albumsFromSongs("Don't Stop Me Now", [
+        lsong("Don't Stop Me Now/EP/01.mp3", { Album: 'EP' }),
+        lsong("Don't Stop Me Now/EP/02.mp3", { Album: 'EP' }),
+    ]);
+    assert.equal(album.release, "dir:Don't Stop Me Now/EP");
+    assert.equal(album.trackCount, 2);
 });
 
 test('an album with none of those leaves the optional fields absent', () => {
@@ -583,7 +642,7 @@ test('recent albums come from the first song of each, which is its newest', () =
         ],
     );
     // The window truncates an album, so there is no track count to be had here.
-    assert.deepEqual(Object.keys([...albums.values()][0]!), ['album', 'albumArtist', 'date', 'image', 'addedAt']);
+    assert.deepEqual(Object.keys([...albums.values()][0]!), ['album', 'albumArtist', 'release', 'date', 'image', 'addedAt']);
 });
 
 test('a song with no album or no album artist is not an album anything can open', () => {
@@ -780,3 +839,4 @@ test('a library built with no notes at all is the library as it was', async () =
     const artists = await createLibrary(bridge).artists();
     assert.ok(artists.every((a) => a.rating === undefined));
 });
+

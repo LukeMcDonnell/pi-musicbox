@@ -14,7 +14,7 @@ export interface Favourites {
     /** Idempotent: a second add keeps the original `addedAt`. */
     add(summary: AlbumSummary): FavouriteAlbum[];
     /** Idempotent, and needs no MPD — the album may have left the library. */
-    remove(albumArtist: string, album: string): FavouriteAlbum[];
+    remove(release: string): FavouriteAlbum[];
     /** Replace the stored summary of an existing favourite; a no-op otherwise. */
     refresh(summary: AlbumSummary): void;
     onChange(listener: FavouritesListener): () => void;
@@ -23,6 +23,7 @@ export interface Favourites {
 interface Row {
     album_artist: string;
     album: string;
+    release: string;
     added_at: number;
     summary: string;
 }
@@ -42,6 +43,11 @@ export function parseFavourite(row: Row): FavouriteAlbum | undefined {
     if (typeof s.trackCount !== 'number' || !Array.isArray(s.genres)) return undefined;
     return {
         ...(s as AlbumSummary),
+        // FROM THE ROW, NOT THE COPY. `summary` is a denormalised AlbumSummary
+        // that predates this column on every favourite made before releases
+        // existed; requiring it to carry one made 411 of 412 favourites vanish
+        // from the screen while sitting intact in the table.
+        release: row.release,
         date: typeof s.date === 'string' ? s.date : null,
         duration: typeof s.duration === 'number' ? s.duration : null,
         discCount: typeof s.discCount === 'number' ? s.discCount : 1,
@@ -55,7 +61,7 @@ export function createFavourites(db: Db, now: () => number = Date.now): Favourit
 
     const all = (): FavouriteAlbum[] => {
         const rows = db.all<Row>(
-            'SELECT album_artist, album, added_at, summary FROM favourite_album ' +
+            'SELECT album_artist, album, release, added_at, summary FROM favourite_album ' +
                 'ORDER BY added_at DESC, album_artist, album',
         );
         const albums: FavouriteAlbum[] = [];
@@ -76,43 +82,40 @@ export function createFavourites(db: Db, now: () => number = Date.now): Favourit
         all,
         add(summary) {
             const exists = db.get(
-                'SELECT 1 AS one FROM favourite_album WHERE album_artist = ? AND album = ?',
-                summary.albumArtist,
-                summary.album,
+                'SELECT 1 AS one FROM favourite_album WHERE release = ?',
+                summary.release,
             );
             if (exists !== undefined) return all();
             db.run(
-                'INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)',
+                'INSERT INTO favourite_album (album_artist, album, release, added_at, summary) ' +
+                    'VALUES (?, ?, ?, ?, ?)',
                 summary.albumArtist,
                 summary.album,
+                summary.release,
                 now(),
                 JSON.stringify(summary),
             );
             return changed();
         },
-        remove(albumArtist, album) {
-            const exists = db.get(
-                'SELECT 1 AS one FROM favourite_album WHERE album_artist = ? AND album = ?',
-                albumArtist,
-                album,
-            );
+        remove(release) {
+            const exists = db.get('SELECT 1 AS one FROM favourite_album WHERE release = ?', release);
             if (exists === undefined) return all();
-            db.run('DELETE FROM favourite_album WHERE album_artist = ? AND album = ?', albumArtist, album);
+            db.run('DELETE FROM favourite_album WHERE release = ?', release);
             return changed();
         },
         refresh(summary) {
             const row = db.get<{ summary: string }>(
-                'SELECT summary FROM favourite_album WHERE album_artist = ? AND album = ?',
-                summary.albumArtist,
-                summary.album,
+                'SELECT summary FROM favourite_album WHERE release = ?',
+                summary.release,
             );
             const json = JSON.stringify(summary);
             if (row === undefined || row.summary === json) return;
             db.run(
-                'UPDATE favourite_album SET summary = ? WHERE album_artist = ? AND album = ?',
-                json,
+                'UPDATE favourite_album SET album_artist = ?, album = ?, summary = ? WHERE release = ?',
                 summary.albumArtist,
                 summary.album,
+                json,
+                summary.release,
             );
             changed();
         },

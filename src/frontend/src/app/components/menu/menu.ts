@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { LucideHeart, LucideHouse, LucideLibraryBig, LucideSettings } from '@lucide/angular';
+import { LucideHouse, LucideLibraryBig, LucideSettings, LucideStar } from '@lucide/angular';
 import { NowPlayingMicro } from '../now-playing-micro/now-playing-micro';
 
 /*
@@ -32,7 +32,7 @@ import { NowPlayingMicro } from '../now-playing-micro/now-playing-micro';
         RouterLinkActive,
         LucideHouse,
         LucideLibraryBig,
-        LucideHeart,
+        LucideStar,
         LucideSettings,
         NowPlayingMicro,
     ],

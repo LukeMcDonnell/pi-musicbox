@@ -85,12 +85,12 @@ export class Home {
     }
 
     trackKey(album: AlbumIdentity): string {
-        return JSON.stringify([album.albumArtist, album.album]);
+        return album.release;
     }
 
     open(album: AlbumIdentity): void {
         void this.router.navigate(['/library/album'], {
-            queryParams: { artist: album.albumArtist, album: album.album },
+            queryParams: { artist: album.albumArtist, album: album.album, release: album.release },
         });
     }
 

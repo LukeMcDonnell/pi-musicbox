@@ -35,6 +35,7 @@ export function favouriteAlbum(overrides: Partial<FavouriteAlbum> = {}): Favouri
     return {
         album: 'Kid A',
         albumArtist: 'Radiohead',
+        release: 'mb:kid-a',
         date: '2000-10-02',
         trackCount: 10,
         genres: ['Alternative Rock'],

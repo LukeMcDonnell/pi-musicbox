@@ -28,6 +28,8 @@ export interface TrackPlay {
     artist?: string;
     album?: string;
     albumArtist?: string;
+    /** Which release, as AlbumIdentity spells it. Absent for a track with no id tag. */
+    release?: string;
     image: string | null;
 }
 
@@ -44,6 +46,7 @@ export interface Plays {
 interface AlbumRow {
     album_artist: string;
     album: string;
+    release: string;
     image: string | null;
     played_at: number;
     plays: number;
@@ -67,20 +70,25 @@ export function createPlays(db: Db, now: () => number = Date.now): Plays {
           documented SQLite guarantee, not an accident; do not "fix" it into a
           subquery.
 
-          Albums missing either tag are left out, as the library screens do: one
-          that cannot be opened is not one to offer.
+          Albums missing any of the three are left out, as the library screens do:
+          one that cannot be opened is not one to offer. That includes every row
+          written before the release column existed — see the v7 migration.
+
+          GROUPED BY RELEASE, not by the tag pair, so Weezer's four self-titled
+          records are four shelf cards and not one.
         */
         return db
             .all<AlbumRow>(
-                'SELECT album_artist, album, image, MAX(last_played) AS played_at, ' +
+                'SELECT album_artist, album, release, image, MAX(last_played) AS played_at, ' +
                     'SUM(play_count) AS plays FROM track_play ' +
-                    'WHERE album IS NOT NULL AND album_artist IS NOT NULL ' +
-                    'GROUP BY album_artist, album ORDER BY played_at DESC, album_artist, album LIMIT ?',
+                    'WHERE album IS NOT NULL AND album_artist IS NOT NULL AND release IS NOT NULL ' +
+                    'GROUP BY release ORDER BY played_at DESC, album_artist, album LIMIT ?',
                 Math.max(0, Math.trunc(limit)),
             )
             .map((row) => ({
                 album: row.album,
                 albumArtist: row.album_artist,
+                release: row.release,
                 image: row.image,
                 playedAt: row.played_at,
                 plays: row.plays,
@@ -128,17 +136,19 @@ export function createPlays(db: Db, now: () => number = Date.now): Plays {
             // next time that song plays.
             db.run(
                 'INSERT INTO track_play ' +
-                    '(file, title, artist, album, album_artist, image, play_count, last_played) ' +
-                    'VALUES (?, ?, ?, ?, ?, ?, 1, ?) ' +
+                    '(file, title, artist, album, album_artist, release, image, play_count, last_played) ' +
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ' +
                     'ON CONFLICT(file) DO UPDATE SET ' +
                     'play_count = play_count + 1, last_played = excluded.last_played, ' +
                     'title = excluded.title, artist = excluded.artist, album = excluded.album, ' +
-                    'album_artist = excluded.album_artist, image = excluded.image',
+                    'album_artist = excluded.album_artist, release = excluded.release, ' +
+                    'image = excluded.image',
                 play.file,
                 play.title ?? null,
                 play.artist ?? null,
                 play.album ?? null,
                 play.albumArtist ?? null,
+                play.release ?? null,
                 play.image,
                 now(),
             );

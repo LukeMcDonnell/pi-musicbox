@@ -163,6 +163,26 @@ describe('Library', () => {
         expect(cmp.albumsLabel(artist({ albumCount: 17 }))).toBe('17 albums');
     });
 
+    it('does not show an artist rating, even though the wire carries one', async () => {
+        // Only ALBUMS show a rating. The artist's own mark is harvested and sent
+        // on ArtistSummary regardless, so rendering it here is a one-line
+        // accident rather than a decision — which is why this is pinned.
+        const element = realFrame();
+        const fixture = create(
+            fakeStore([artist({ name: 'Radiohead', rating: 8.5 })]),
+            fakeFrame(element),
+        );
+        fixture.detectChanges();
+        await frames();
+        fixture.detectChanges();
+
+        const row = fixture.nativeElement.querySelector('li') as HTMLElement;
+        expect(row.querySelector('app-rating')).toBeNull();
+        expect(row.textContent).not.toContain('85%');
+        expect(row.textContent).toContain('9 albums');
+        element.remove();
+    });
+
     it('hands the scroller an array, and the same one each time', () => {
         const store = fakeStore(null);
         const cmp = create(store).componentInstance;

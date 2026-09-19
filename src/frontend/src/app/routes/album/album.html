@@ -27,7 +27,7 @@
       </p>
       @if (summary(); as line) {
         <p class="text-[0.85rem] text-muted tabular-nums">
-          {{ line }}@if (ratingLabel(); as score) {<span> · {{ score }}<span class="opacity-60">/10</span></span>}
+          {{ line }}@if (rating(); as score) {<span> · </span><app-rating [rating]="score" />}
         </p>
       }
       @if (genreLine(); as line) {
@@ -56,7 +56,7 @@
           Queue
         </button>
         <app-favourite-button variant="pill" [albumArtist]="artist()" [album]="album()"
-                              (failed)="error.set($event)" />
+                              [release]="release()" (failed)="error.set($event)" />
       </div>
     </div>
   </div>

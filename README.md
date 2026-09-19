@@ -666,6 +666,12 @@ ids — is already a tag MPD hands over, and the tags are the better source. Exp
 the biography to be missing: only 60 of 506 artists here have one the box can
 reach.
 
+On screen, the rating shows as a red heart and a percentage — `♥ 85%` — **on
+albums only**, beside an album in an artist's list and on the album screen
+itself. Artists are rated in the files too, and the box deliberately shows
+nothing: a mark against a whole artist says much less than one against a record.
+The biography appears under the artist's name, tap to expand.
+
 A scan that mpd was restarted under is recorded as **interrupted** rather than as
 a success — MPD's own `uptime`, off the same `stats` call, is shorter than the
 scan we were timing. An interrupted scan does not trigger the harvest: a
@@ -921,9 +927,9 @@ POST /api/queue/play/<song id>
 
 GET  /api/library/artists
 GET  /api/library/albums?artist=<name>
-GET  /api/library/album?artist=<name>&album=<title>
-POST /api/library/queue    {albumArtist, album}   append an album
-POST /api/library/play     {albumArtist, album}   replace the queue and play
+GET  /api/library/album?artist=<name>&album=<title>&release=<release>
+POST /api/library/queue    {albumArtist, album, release}   append an album
+POST /api/library/play     {albumArtist, album, release}   replace the queue and play
 
 GET   /api/panel                                   is there a backlight, is it on
 POST  /api/panel/backlight {on}                    409 unless the panel itself asks
@@ -1040,7 +1046,7 @@ one that screen shows, fetched once and cached.
 The fourth is **ten of your favourites, chosen at random**, with *See all*
 going to the Favourites screen. The ten are fixed for as long as the page is
 loaded — going into an album and coming back shows the same row — and they are
-picked by hashing a per-load seed with each album's name rather than by
+picked by hashing a per-load seed with each album's release rather than by
 shuffling, so favouriting something elsewhere does not rearrange the screen. The
 panel reloads on a deploy or a reboot, which is when the ten change. Tapping a
 card opens the album.
@@ -1153,7 +1159,7 @@ counts.
 
 ### Favourites
 
-Albums are favourited with the heart on the album screen, and beside each album on
+Albums are favourited with the star on the album screen, and beside each album on
 an artist's page (the album screen only, on a phone). The Favourites tab lists
 them with Play and Queue; un-favourite from the album itself. It filters by artist or album
 title the way the Library filters artists, and sorts by date added, release date,
@@ -1161,12 +1167,12 @@ title or artist, either way. The sort is per device, in localStorage.
 
 ```
 GET    /api/favourites
-PUT    /api/favourites/album?artist=&album=   404 if the library has no such album
-DELETE /api/favourites/album?artist=&album=   works for an album that has since gone
+PUT    /api/favourites/album?artist=&release=   404 if the library has no such album
+DELETE /api/favourites/album?artist=&release=   works for an album that has since gone
 ```
 
 All three answer with the complete list, which also arrives on the `favourites`
-SSE event, so a heart set from a phone lights up on the panel.
+SSE event, so a star set from a phone lights up on the panel.
 
 **They live in the database, not in MPD stickers.** MPD 0.24 can put a sticker on
 an `Album` tag, but that is keyed by the title alone, and on this library
@@ -1207,6 +1213,20 @@ comes from MPD's in-memory tag database — never from the NFS share, which is
 mounted `noauto` with a 10 minute idle timeout and is routinely not mounted at
 all. Cover art is the one exception, and it is allowed to 404 for exactly that
 reason.
+
+**An album here is a RELEASE, not an album title.** Weezer have four self-titled
+records and this library holds all four; grouping on the `Album` tag showed them
+as one card carrying 1994's cover and all 43 tracks. The identity is the
+`MUSICBRAINZ_ALBUMID` — `release: "mb:<id>"` on the wire, and what every album
+URL, queue command and favourite is keyed by. Measured across 3,054 albums here,
+25 titles are shared by two releases of the same artist, exactly one album
+carries no id at all (it falls back to its directory), and no id is split across
+two directories, so a multi-disc album stays one album.
+
+A side effect worth knowing about: two copies of the same record now show as two
+cards. Dark Side of the Moon appears twice, once as the original and once as the
+50th Anniversary. Only the year distinguishes them on screen. See
+`.claude/docs/decisions.md`.
 
 **Measured against the real library** — 38,978 songs, 2,876 albums, 488 artists
 (37,289 / 2,757 / 487 when the browse screens were first built; the timings below

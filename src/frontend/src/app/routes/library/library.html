@@ -90,7 +90,11 @@
                   </span>
                   <span class="min-w-0 flex-1 flex place-items-center">
                     <span class="text-xl block truncate">{{ artist.name }}</span>
-                    <span class="ms-auto block truncate text-[0.85rem] text-muted">
+                    <!-- ps-3 so a long name cannot touch the count, and flex-none
+                         so the NAME is what gives way on a narrow row. NO RATING
+                         HERE: an artist's mark is on the wire and deliberately not
+                         shown — see decisions.md. -->
+                    <span class="ms-auto ps-3 flex-none truncate text-[0.85rem] text-muted tabular-nums">
                       {{ albumsLabel(artist) }}
                     </span>
                   </span>

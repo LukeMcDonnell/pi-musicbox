@@ -11,6 +11,7 @@ function album(over: Partial<AlbumSummary> = {}): AlbumSummary {
     return {
         album: 'Kid A',
         albumArtist: 'Radiohead',
+        release: 'mb:kid-a',
         date: '2000-10-02',
         trackCount: 10,
         genres: ['Alternative Rock', 'Art Rock'],
@@ -61,17 +62,17 @@ describe('Artist', () => {
         expect(store.fetchAlbums).toHaveBeenCalledWith('AC/DC');
     });
 
-    it('gives every album row its own heart, outside the row button', async () => {
+    it('gives every album row its own star, outside the row button', async () => {
         const fixture = create(fakeStore([album(), album({ album: 'Amnesiac' })]));
         fixture.detectChanges();
         await fixture.whenStable();
         fixture.detectChanges();
-        const hearts = [...fixture.nativeElement.querySelectorAll('li app-favourite-button button')] as HTMLElement[];
-        expect(hearts.map((h) => h.getAttribute('aria-label'))).toEqual([
+        const stars = [...fixture.nativeElement.querySelectorAll('li app-favourite-button button')] as HTMLElement[];
+        expect(stars.map((s) => s.getAttribute('aria-label'))).toEqual([
             'Add Kid A to favourites',
             'Add Amnesiac to favourites',
         ]);
-        expect(hearts.every((h) => h.parentElement!.closest('button') === null)).toBeTrue();
+        expect(stars.every((s) => s.parentElement!.closest('button') === null)).toBeTrue();
     });
 
     it('renders the year as the leading four digits, and an em dash when undated', () => {
@@ -90,9 +91,28 @@ describe('Artist', () => {
         expect(cmp.detailsOf(album({ trackCount: 1, date: null }))).toBe('1 track');
     });
 
+    it('shows a rated album its rating, and an unrated one no separator', async () => {
+        const fixture = create(
+            fakeStore([album({ rating: 8.5 }), album({ album: 'Amnesiac', rating: undefined })]),
+        );
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        const rows = [...fixture.nativeElement.querySelectorAll('li')] as HTMLElement[];
+        const rated = rows[0]!.querySelector('app-rating');
+        expect(rated).withContext('rated album has no rating').not.toBeNull();
+        expect(rated!.textContent!.trim()).toBe('85%');
+        expect(rated!.getAttribute('aria-label')).toBe('Rated 85%');
+        // 449 of 3,062 albums have none. No rating element and, just as
+        // importantly, no orphaned separator left sitting after the year.
+        expect(rows[1]!.querySelector('app-rating')).toBeNull();
+        expect(rows[1]!.textContent).not.toContain('·  ');
+    });
+
     it('plays and queues an album from its row, raising the sheet as preferred', async () => {
         localStorage.removeItem(PREFERENCES_KEY);
-        const store = fakeStore([album({ albumArtist: 'AC/DC', album: 'Back in Black' })]);
+        const store = fakeStore([album({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' })]);
         const fixture = create(store, 'AC/DC');
         fixture.detectChanges();
         await fixture.whenStable();
@@ -111,23 +131,23 @@ describe('Artist', () => {
 
         button('Play Back in Black').click();
         await fixture.whenStable();
-        expect(store.playAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black' });
+        expect(store.playAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' });
         expect(show).toHaveBeenCalled();
 
         button('Add Back in Black to the queue').click();
         await fixture.whenStable();
-        expect(store.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black' });
+        expect(store.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' });
         expect(showQueue).not.toHaveBeenCalled();
     });
 
-    it('hides the row heart below 40rem, where phones get their layout', async () => {
+    it('hides the row star below 40rem, where phones get their layout', async () => {
         const fixture = create(fakeStore([album()]));
         fixture.detectChanges();
         await fixture.whenStable();
         fixture.detectChanges();
         const wrapper = fixture.nativeElement.querySelector('li app-favourite-button')!.parentElement as HTMLElement;
         expect(wrapper.classList).toContain('max-[40rem]:hidden');
-        // Karma's browser is wider than a phone, so the heart is still there to press.
+        // Karma's browser is wider than a phone, so the star is still there to press.
         expect(getComputedStyle(wrapper).display).toBe('contents');
     });
 

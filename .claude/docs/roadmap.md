@@ -147,7 +147,7 @@ count. Recent Plays followed; see below.
 
 ## Landed: favourite albums (2026-09-17)
 
-Hearts on the album screen and the artist screen's album rows (not on phones); a
+Stars on the album screen and the artist screen's album rows (not on phones); a
 Favourites tab with a filter, Play/Queue and a per-device sort. Stored in schema v3's
 `favourite_album` table rather than MPD stickers — `decisions.md` has the measurement.
 Not yet checked on the panel itself.

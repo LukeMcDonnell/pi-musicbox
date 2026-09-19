@@ -17,7 +17,7 @@ import { Home } from './home';
 
 function albums(count: number): FavouriteAlbum[] {
     return Array.from({ length: count }, (_, i) =>
-        favouriteAlbum({ album: `Album ${i}`, albumArtist: `Artist ${i}` }),
+        favouriteAlbum({ album: `Album ${i}`, albumArtist: `Artist ${i}`, release: `mb:album-${i}` }),
     );
 }
 
@@ -25,6 +25,7 @@ function recentAlbums(count: number): RecentlyAddedAlbum[] {
     return Array.from({ length: count }, (_, i) => ({
         album: `New ${i}`,
         albumArtist: `Band ${i}`,
+        release: `mb:new-${i}`,
         date: '2020',
         image: `/api/art?album=New%20${i}`,
         addedAt: `2026-09-${String(18 - i).padStart(2, '0')}T10:00:00Z`,
@@ -45,6 +46,7 @@ function playedAlbums(count: number): RecentPlayAlbum[] {
     return Array.from({ length: count }, (_, i) => ({
         album: `Played ${i}`,
         albumArtist: `Band ${i}`,
+        release: `mb:played-${i}`,
         image: `/api/art?album=Played%20${i}`,
         playedAt: Date.now() - i * 3_600_000,
         plays: 1,
@@ -222,7 +224,7 @@ describe('Home', () => {
         const first = fixture.componentInstance.albums()[0];
         (cards(fixture)[0].querySelector('button') as HTMLButtonElement).click();
         expect(navigate).toHaveBeenCalledWith(['/library/album'], {
-            queryParams: { artist: first.albumArtist, album: first.album },
+            queryParams: { artist: first.albumArtist, album: first.album, release: first.release },
         });
     });
 

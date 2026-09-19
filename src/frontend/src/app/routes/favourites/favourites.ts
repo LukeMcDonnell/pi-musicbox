@@ -133,7 +133,7 @@ export class Favourites {
     }
 
     trackKey(album: FavouriteAlbum): string {
-        return JSON.stringify([album.albumArtist, album.album]);
+        return album.release;
     }
 
     subtitleOf(album: FavouriteAlbum): string {
@@ -143,7 +143,7 @@ export class Favourites {
 
     open(album: FavouriteAlbum): void {
         void this.router.navigate(['/library/album'], {
-            queryParams: { artist: album.albumArtist, album: album.album },
+            queryParams: { artist: album.albumArtist, album: album.album, release: album.release },
         });
     }
 
@@ -174,7 +174,7 @@ export class Favourites {
 }
 
 function refOf(album: FavouriteAlbum) {
-    return { albumArtist: album.albumArtist, album: album.album };
+    return { albumArtist: album.albumArtist, album: album.album, release: album.release };
 }
 
 function yearOf(date: string | null): number | null {

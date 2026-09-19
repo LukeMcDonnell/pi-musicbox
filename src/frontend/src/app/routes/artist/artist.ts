@@ -6,7 +6,7 @@ import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
-import { formatRating } from '../../services/rating';
+import { Rating } from '../../components/rating/rating';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 
 /*
@@ -22,7 +22,15 @@ import { FavouriteButton } from '../../components/favourite-button/favourite-but
 */
 @Component({
     selector: 'app-artist',
-    imports: [FavouriteButton, LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay, LucideUserRound],
+    imports: [
+        FavouriteButton,
+        Rating,
+        LucideChevronLeft,
+        LucideDisc3,
+        LucideListPlus,
+        LucidePlay,
+        LucideUserRound,
+    ],
     templateUrl: './artist.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -63,19 +71,16 @@ export class Artist {
     private readonly artistImage = signal<string | null>(null);
 
     /**
-     * The artist's biography and rating, from the same response as the picture.
+     * The artist's biography, from the same response as the picture.
      *
-     * EXPECT THE BIOGRAPHY TO BE NULL: 446 of this library's 506 artists have
-     * none the box can reach, so the hero has to read well without one. Both
-     * come from the NAS's `.nfo` files by way of the backend's harvest, never
-     * from MPD.
+     * EXPECT IT TO BE NULL: 446 of this library's 506 artists have none the box
+     * can reach, so the hero has to read well without one. It comes from the
+     * NAS's `.nfo` files by way of the backend's harvest, never from MPD.
+     *
+     * The response carries the artist's RATING too, and nothing reads it: only
+     * albums show a rating. See decisions.md.
      */
     readonly biography = signal<string | null>(null);
-
-    private readonly rating = signal<number | null>(null);
-
-    /** "8.5", or null. See services/rating.ts for why not a dash. */
-    readonly ratingLabel = computed(() => formatRating(this.rating()));
 
     /**
      * Whether the biography is expanded. Collapsed to three lines by default:
@@ -108,7 +113,6 @@ export class Artist {
             this.albums.set(null);
             this.artistImage.set(null);
             this.biography.set(null);
-            this.rating.set(null);
             this.bioOpen.set(false);
             this.error.set(null);
             if (name !== '') void this.load(name);
@@ -118,11 +122,10 @@ export class Artist {
     private async load(name: string): Promise<void> {
         const request = ++this.request;
         try {
-            const { albums, image, biography, rating } = await this.library.fetchAlbums(name);
+            const { albums, image, biography } = await this.library.fetchAlbums(name);
             if (request === this.request) {
                 this.artistImage.set(image);
                 this.biography.set(biography);
-                this.rating.set(rating);
                 this.albums.set(albums);
             }
         } catch (err) {
@@ -197,7 +200,7 @@ export class Artist {
 
     open(album: AlbumSummary): void {
         void this.router.navigate(['/library/album'], {
-            queryParams: { artist: album.albumArtist, album: album.album },
+            queryParams: { artist: album.albumArtist, album: album.album, release: album.release },
         });
     }
 
@@ -210,5 +213,5 @@ export class Artist {
 }
 
 function refOf(album: AlbumSummary) {
-    return { albumArtist: album.albumArtist, album: album.album };
+    return { albumArtist: album.albumArtist, album: album.album, release: album.release };
 }

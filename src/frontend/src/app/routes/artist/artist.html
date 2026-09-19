@@ -23,13 +23,10 @@
       @if (albums(); as list) {
         <p class="text-[0.9rem] text-muted tabular-nums">
           {{ list.length }}{{ list.length === 1 ? ' album' : ' albums' }}
-          @if (ratingLabel(); as score) {
-            <span> · {{ score }}<span class="opacity-60">/10</span></span>
-          }
         </p>
       }
       <!--
-        Absent for 401 of 508 artists, so this must not leave a gap when it is:
+        Absent for 446 of 506 artists, so this must not leave a gap when it is:
         the whole paragraph is omitted rather than rendered empty. line-clamp,
         never truncate — the text is centred under the picture on a phone, and
         truncate on a centred line clips both ends. Tap to expand.
@@ -55,9 +52,9 @@
     }
 
     <ul class="flex flex-col pt-2">
-      @for (album of albums(); track album.album) {
+      @for (album of albums(); track album.release) {
         <li class="flex items-center gap-1">
-          <!-- The heart, Queue and Play are siblings, not children: a button cannot hold a button. -->
+          <!-- The star, Queue and Play are siblings, not children: a button cannot hold a button. -->
           <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
                          gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
                   (click)="open(album)">
@@ -73,15 +70,19 @@
             </span>
             <span class="min-w-0 flex-1">
               <span class="text-xl block truncate">{{ album.album }}</span>
-              <span class="block truncate text-[0.85rem] text-muted tabular-nums">
-                {{ detailsOf(album) }}
+              <span class="flex items-center gap-1 text-[0.85rem] text-muted tabular-nums">
+                <span class="truncate">{{ detailsOf(album) }}</span>
+                @if (album.rating; as score) {
+                  <span class="flex-none" aria-hidden="true">·</span>
+                  <app-rating class="flex-none" [rating]="score" />
+                }
               </span>
             </span>
           </button>
-          <!-- Not on phones: three icons left the title a dozen characters. The album screen keeps its heart. -->
+          <!-- Not on phones: three icons left the title a dozen characters. The album screen keeps its star. -->
           <span class="contents max-[40rem]:hidden">
             <app-favourite-button [albumArtist]="album.albumArtist" [album]="album.album"
-                                  (failed)="error.set($event)" />
+                                  [release]="album.release" (failed)="error.set($event)" />
           </span>
           <button type="button"
                   class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center

@@ -16,7 +16,7 @@ export const SHELF_SIZE = 10;
   album's place comes from a hash of the seed and its name, so the computed can
   re-run as often as it likes for the same answer. It also means a new favourite
   does not rearrange the shelf: every other album's hash is unchanged, so the most
-  a heart tapped elsewhere can do is displace one of the ten.
+  a star tapped elsewhere can do is displace one of the ten.
 */
 @Injectable({ providedIn: 'root' })
 export class FavouritePicks {
@@ -49,8 +49,9 @@ export function pickAlbums<T extends AlbumSummary>(
     return [...albums]
         .map((album) => ({
             album,
-            // JSON so no pair of names can collide, as the favourites key does.
-            rank: hash(`${seed}:${JSON.stringify([album.albumArtist, album.album])}`),
+            // The release, not the title: four self-titled Weezers hashed alike
+            // would take one rank between them and never spread.
+            rank: hash(`${seed}:${album.release}`),
         }))
         .sort((a, b) => a.rank - b.rank)
         .slice(0, count)

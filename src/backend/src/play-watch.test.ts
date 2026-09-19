@@ -17,7 +17,15 @@ function recorder(): Plays & { recorded: TrackPlay[] } {
 }
 
 function song(file: string, id: number): Track {
-    return { id, file, title: file, album: 'Ænima', albumArtist: 'Tool', image: '/api/art?album=Tool' };
+    return {
+        id,
+        file,
+        title: file,
+        album: 'Ænima',
+        albumArtist: 'Tool',
+        release: 'mb:aenima',
+        image: '/api/art?album=Tool',
+    };
 }
 
 interface FrameOptions {
@@ -82,6 +90,7 @@ test('the play carries the tags, so the shelf needs no MPD lookup', () => {
         artist: undefined,
         album: 'Ænima',
         albumArtist: 'Tool',
+        release: 'mb:aenima',
         image: '/api/art?album=Tool',
     });
 });

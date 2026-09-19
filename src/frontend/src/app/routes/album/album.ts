@@ -6,7 +6,7 @@ import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
-import { formatRating } from '../../services/rating';
+import { Rating } from '../../components/rating/rating';
 import { clock } from '../../components/now-playing/now-playing';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 
@@ -36,7 +36,15 @@ import { FavouriteButton } from '../../components/favourite-button/favourite-but
 */
 @Component({
     selector: 'app-album',
-    imports: [FavouriteButton, RouterLink, LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay],
+    imports: [
+        FavouriteButton,
+        Rating,
+        RouterLink,
+        LucideChevronLeft,
+        LucideDisc3,
+        LucideListPlus,
+        LucidePlay,
+    ],
     templateUrl: './album.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -47,9 +55,10 @@ export class Album {
     private readonly router = inject(Router);
     private readonly history = inject(AppHistory);
 
-    /** Bound from `?artist=` and `?album=` by withComponentInputBinding(). */
+    /** Bound from `?artist=`, `?album=` and `?release=` by withComponentInputBinding(). */
     readonly artist = input<string>('');
     readonly album = input<string>('');
+    readonly release = input<string>('');
 
     readonly data = signal<AlbumResponse | null>(null);
     readonly error = signal<string | null>(null);
@@ -92,10 +101,10 @@ export class Album {
 
     /** "Alternative Rock, Art Rock, …" — null when the album is untagged. */
     /**
-     * The album's rating out of ten, from its `album.nfo`. Null for 449 of the
+     * The album's mark out of ten, from its `album.nfo`. Null for 449 of the
      * 3,062 albums here, which show nothing rather than a zero.
      */
-    readonly ratingLabel = computed(() => formatRating(this.data()?.album.rating));
+    readonly rating = computed(() => this.data()?.album.rating ?? null);
 
     readonly genreLine = computed(() => {
         const genres = this.data()?.album.genres ?? [];
@@ -134,16 +143,19 @@ export class Album {
         effect(() => {
             const artist = this.artist();
             const album = this.album();
+            const release = this.release();
             this.data.set(null);
             this.error.set(null);
-            if (artist !== '' && album !== '') void this.load(artist, album);
+            if (artist !== '' && album !== '' && release !== '') {
+                void this.load(artist, album, release);
+            }
         });
     }
 
-    private async load(artist: string, album: string): Promise<void> {
+    private async load(artist: string, album: string, release: string): Promise<void> {
         const request = ++this.request;
         try {
-            const data = await this.library.fetchAlbum(artist, album);
+            const data = await this.library.fetchAlbum(artist, album, release);
             if (request === this.request) this.data.set(data);
         } catch (err) {
             if (request === this.request) this.error.set((err as Error).message);
@@ -198,6 +210,7 @@ export class Album {
         return {
             albumArtist: this.artist(),
             album: this.album(),
+            release: this.release(),
             ...(disc === null ? {} : { disc }),
         };
     }

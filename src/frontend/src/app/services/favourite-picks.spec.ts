@@ -2,9 +2,10 @@ import type { FavouriteAlbum } from '@musicbox/shared';
 import { favouriteAlbum } from '../testing/fixtures';
 import { pickAlbums } from './favourite-picks';
 
+
 function library(count: number): FavouriteAlbum[] {
     return Array.from({ length: count }, (_, i) =>
-        favouriteAlbum({ album: `Album ${i}`, albumArtist: `Artist ${i % 7}` }),
+        favouriteAlbum({ album: `Album ${i}`, albumArtist: `Artist ${i % 7}`, release: `mb:album-${i}` }),
     );
 }
 
@@ -29,10 +30,24 @@ describe('pickAlbums', () => {
         expect(titles(pickAlbums(albums, 10, 0.5))).not.toEqual(titles(pickAlbums(albums, 10, 0.9)));
     });
 
+    it('ranks records sharing a title apart, because the key is the release', () => {
+        // Weezer's two here share an artist AND a title, so a key built from
+        // those hashes them identically: the ranks tie, the sort is stable, and
+        // the first one always wins whatever the seed. Keyed on the release they
+        // rank independently, so some seed puts the second one first.
+        const pair = ['mb:blue', 'mb:green'].map((release) =>
+            favouriteAlbum({ album: 'Weezer', albumArtist: 'Weezer', release }),
+        );
+        const firsts = new Set(
+            Array.from({ length: 20 }, (_, i) => pickAlbums(pair, 1, i / 20)[0].release),
+        );
+        expect(firsts).toEqual(new Set(['mb:blue', 'mb:green']));
+    });
+
     it('does not reshuffle the rest when a favourite is added', () => {
         const albums = library(40);
         const before = pickAlbums(albums, 10, 0.5);
-        const after = pickAlbums([...albums, favouriteAlbum({ album: 'New One' })], 10, 0.5);
+        const after = pickAlbums([...albums, favouriteAlbum({ album: 'New One', release: 'mb:new-one' })], 10, 0.5);
         // The newcomer can displace one; the others keep their places.
         const kept = titles(after).filter((title) => titles(before).includes(title));
         expect(kept.length).toBeGreaterThanOrEqual(9);

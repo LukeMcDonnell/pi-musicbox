@@ -1236,7 +1236,7 @@ reading the built stylesheet, which is the only way to see it.
 **The shelf is picked by hashing, not by shuffling.** `favourite-picks.ts` draws
 one seed per page load and ranks each album by `hash(seed + its name)`. Two
 properties come from that and neither is free with a shuffle: the `computed` can
-re-run as often as Angular likes for the same ten, and a heart tapped somewhere
+re-run as often as Angular likes for the same ten, and a star tapped somewhere
 else does not rearrange Home — every other album's hash is unchanged, so an
 arriving favourite can displace at most one. The seed lives in a root service
 because navigating to an album and back rebuilds the screen, and a pick made in
@@ -1511,9 +1511,186 @@ reasoning puts a root `stat` in front of the whole thing: a music root that is
 simply absent answers ENOENT to all 508 reads, which without the guard reads as
 "no nfo anywhere" and empties the table.
 
+**A rating is a red heart and a percentage; a favourite is now a star.** The
+rating shows as `♥ 85%` — the mark out of ten converted to a whole percent,
+because "8.5" out of an unstated total is not a scale anyone reads at a glance.
+One `components/rating` for all four places that show one (both heroes, both
+lists) so the glyph, colour, gap and rounding cannot drift.
+
+Three things about it are not taste:
+
+- **A Lucide SVG, not the ❤ character.** The panel has no emoji font at all —
+  `fc-list` on the device finds DejaVu, Lato and FontAwesome, nothing else — so
+  an emoji heart is tofu on the one screen that matters.
+- **Red (`--color-rating`), not accent.** Everything accent-coloured in this app
+  is tappable. A rating is not, and it is the only saturated primary in an
+  otherwise warm, desaturated palette precisely because it is meant to be picked
+  out of a row.
+- **The favourite button changed from a heart to a star.** A filled heart meant
+  "favourited" before this; on an artist screen's album row the favourite control
+  sits inches from the rating on the same line, so two filled hearts would have
+  meant two different things side by side. The star moves the collision out of
+  the way rather than trying to colour around it.
+
+**Only albums show a rating. Artists carry one and display it nowhere.** It was
+on the artist hero and the Library list first, and came back off: a mark against
+a whole artist says much less than a mark against a record, and on the Library
+list it put an icon and two spans into every one of 506 virtualised rows — the
+DOM-per-row cost that screen is already watched for. The field stays on
+`ArtistSummary` and `AlbumsResponse` because it is four bytes read out of the
+same file as the biography, so restoring it is a template change rather than a
+round trip through the backend. `library.spec.ts` pins its ABSENCE, because the
+value is right there on the row's data and rendering it is a one-line accident.
+
+That episode also left a lesson about the row constants. While the Library row
+did show a rating, stacking it under the artist name measured **65px against a
+`ROW_HEIGHT` of 64** — `app-rating` is `inline-flex`, and aligning one on a text
+baseline makes the line box a pixel taller than its own line-height. One pixel
+across 506 rows is 506px of scroller drift with every other assertion still
+green. The spec that measured a rendered row is what caught it; the fix was a
+pinned `h-5` flex row rather than a line of text.
+
 **The rating is on the wire, the biography is not.** `ArtistSummary.rating` is
 four bytes on a 500-row list. A biography averages 705 characters and runs to
 3,487, and 60 of them would add ~42 KB to a response for a screen that shows no biography at all — so
 it rides on `AlbumsResponse` instead, repeated there for the same reason `image`
 already is: the artist screen is reachable by URL, so it cannot read from the
 client's cached artists list.
+
+## An album card is a RELEASE, not an album title (2026-09-18)
+
+Weezer have four self-titled records — 1994 Blue, 2001 Green, 2008 Red, 2026
+Gold — and this library holds all four. They showed as ONE card.
+`albumsFromSongs` grouped an artist's songs on the `Album` tag and folded "first
+non-empty wins", so that card carried 1994's date, 1994's label, 1994's cover and
+all 43 tracks. The same `(albumArtist, album)` key ran end to end: the wire, the
+`?artist=&album=` URL, `findadd`, `favourite_album`, `track_play`. Favouriting
+Blue favourited all four; playing Blue queued all 43.
+
+**MPD was never the problem.** It holds the four distinctly — four
+`MUSICBRAINZ_ALBUMID`s, four `OriginalDate`s, four directories, four labels.
+The box was throwing that away.
+
+The key is now `MUSICBRAINZ_ALBUMID`, as `release: "mb:<id>"`. Measured on the
+real library before relying on it — 41,405 songs, 507 album artists:
+
+| | |
+|---|---:|
+| album groups under the old key | 3,054 |
+| groups hiding more than one `MUSICBRAINZ_ALBUMID` | 25 |
+| groups carrying none at all | 1 |
+| groups only *partially* missing it | 0 |
+| one id spread across more than one album directory | 0 |
+
+That last row is the one that matters: the id is stable across a `CD 01`/`CD 02`
+layout, which is the case grouping-by-tag was originally chosen to survive. A
+multi-disc album is still one album, and there is a test pinning it.
+
+**This deliberately splits alternate pressings**, and that was accepted after
+looking at what it does rather than in the abstract: Dark Side of the Moon
+becomes two cards (the original and the 50th Anniversary), `Ssssh.` and `SSSSH.`
+become two, Moby's *Play* becomes two. `mbReleaseGroupId` is the id that would
+merge them again and is explicitly NOT the key — it describes the record, not the
+pressing. Twelve of the 25 are genuinely different albums; the rest are second
+copies, and showing a second copy as a second card is honest.
+
+**Only the year labels them.** No `edition` field and no parsing of directory
+names. Two cards may look identical on Home; the artist screen's "10 tracks ·
+1994" already tells the four Weezers apart. Do not add a disambiguator without
+measuring that one is needed.
+
+**This reverses api.ts's ruling that the MusicBrainz ids are "stable identity to
+store, not keys to look up by".** That was right about
+`MUSICBRAINZ_ALBUMARTISTID` — Queen carry two against 487 artists carrying one —
+and lumping the release id in with it was the error. `ArtistSummary.mbArtistId`
+is still not a key.
+
+**The fallback is the album DIRECTORY, not the album tag.** Exactly one album
+here carries no id (`Don't Stop Me Now — EP`), and it gets `dir:<two path
+segments>` via `albumNoteDirOf`. The tag would have been the obvious fallback and
+is wrong: it is not stable across a retag, so correcting `Ssssh.` to `SSSSH.`
+would rewrite the key and orphan the favourite. A path is stable.
+
+**MPD is narrowed in the LEGACY filter form, which needed no new syntax.**
+`find`/`findadd MUSICBRAINZ_ALBUMID "<id>"` — MPD 0.24 lists it as a search type,
+and `find base "<dir>"` covers the fallback. Both were run against the device
+first: the mbid form returns 10 tracks for Blue and 13 for Red, and `disc` still
+stacks on top. So `findadd` is still ONE command that never enumerates tracks,
+and `releaseFilter` in `release.ts` is the only place the prefix is decoded.
+
+**`Track` carries `release`, the one album fact it carries.** `play-watch.ts`
+files a play against a release and Now Playing links to one, and both are handed
+a queue `Track` and nothing else. Confirmed on the device that
+`MUSICBRAINZ_ALBUMID` comes back on `playlistinfo` and `currentsong`, not just on
+`find` — without that every queue row would silently fall back to `dir:` and
+Moby's two releases would merge. It is minted in `release.ts` and nowhere else,
+so a queue row, an album card and a play row spell the same release identically;
+the frontend treats it as opaque.
+
+**The artist list counts releases, not titles.** `list album group albumartist`
+counts distinct titles, which would say Weezer have 5 albums while their screen
+showed 8. The count is now `max(titles, release ids)` — exact for every case here,
+because titles undercount the 23 artists with a repeated title and ids undercount
+the one album carrying none. The second `list` costs 58ms on a build that is
+cached and already ~200ms.
+
+**Migration v6/v7, and what it cost.** SQLite cannot alter a primary key, so
+`favourite_album` is rebuilt keyed on `release` alone, which is already unique.
+The release is recovered from the `AlbumSummary` JSON already in the `summary`
+column, so the migration needs no MPD: of the 413 favourites on the box, 412
+carried the id and migrated exactly, and the one that did not is dropped rather
+than given a guessed key. `track_play` takes the column in v7 and its existing rows
+get NULL, which drops them off the recently-played shelf under the rule
+`plays.ts` already states: an album that cannot be opened is not one to offer.
+
+**That was first called an accepted loss, and it was not one.** The claim was
+that the release "cannot be recovered from what was stored" — wrong, and wrong in
+a way worth remembering: `track_play` is keyed by `file`, the full path, so MPD
+can be asked. 37 of 52 rows on the box went dark before anyone noticed, including
+its whole Recent Plays shelf.
+
+They were resolved by asking MPD for the release of each path — one
+`find base` per album DIRECTORY rather than per file, because `base` is the
+indexed 0.23ms lookup against 11.4ms for a tag filter and a play log's rows
+cluster hard: those 37 were 6 directories.
+
+**That code has since been deleted.** There is one box, it is healed (52 rows, 0
+without a release), and a repair that can never run again is dead weight in a
+file the next person has to read. If it is ever needed again it is a dozen lines
+and this entry says what they were. Going forward `trackFromTags` puts a release
+on every Track, so `plays.record` has one to store.
+
+**The three migrations stay, and must.** v6 and v7 are the schema; v8 backfills
+`$.release` into the stored summaries and is just as spent as the runtime
+repair — but deleting it would drop `SCHEMA_VERSION` to 7 while the box's file
+says 8, and `checkDbFile` refuses a database newer than the build. Spent
+migrations are not dead weight, they are the version number.
+
+**The denormalised summary is a COPY, never the identity — this one shipped
+broken.** `favourite_album.summary` holds an `AlbumSummary` as JSON so the
+Favourites screen costs no MPD lookups. `parseFavourite` guards it by comparing
+it against the key columns, and adding `release` to that guard was the obvious
+symmetry. It was wrong: v6 recovered the release into its own COLUMN but left
+every stored summary exactly as it was written, and those predate the field. So
+411 of 412 favourites disappeared from the screen while sitting intact in the
+table. The one that survived was an album that had been opened since the deploy,
+because `GET /api/library/album` calls `favourites.refresh()` and rewrote its copy.
+
+The column is the identity; `parseFavourite` now takes `release` from the row and
+overrides whatever the copy says, as it already did for `addedAt`. v8 backfills
+`$.release` into the stored JSON for consistency, not as the rescue —
+the read path no longer depends on it. `favourites.test.ts` pins a row whose
+summary has no `release` at all.
+
+The verification lesson is sharper than the fix: the migration was checked with
+`SELECT COUNT(*)`, which said 412 and was true, and never through
+`GET /api/favourites`, which said 1. **Check a migration through the code that
+reads the data, not just the table.** (Also: `scp` of the database alone can come
+back stale — it is WAL, and the `-wal` sidecar carries recent commits. Use the
+snapshot path or read it on the device.)
+
+**The frontend trap.** `artist.html` tracked its `@for` on `album.album`. Four
+albums sharing a title is a duplicate-key exception — a hard Angular error that
+takes the whole screen down, not a cosmetic glitch. Every repeater key and
+`favourite-picks`'s seeded hash moved to the release; four identical hashes would
+have ranked four cards adjacently and defeated the shelf's spread.

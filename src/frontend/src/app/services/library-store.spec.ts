@@ -119,7 +119,7 @@ describe('LibraryStore', () => {
     // -----------------------------------------------------------------------
 
     const RECENT: RecentlyAddedAlbum[] = [
-        { album: 'Kid A', albumArtist: 'Radiohead', date: '2000', image: null, addedAt: '2026-09-18T10:00:00Z' },
+        { album: 'Kid A', albumArtist: 'Radiohead', release: 'mb:kid-a', date: '2000', image: null, addedAt: '2026-09-18T10:00:00Z' },
     ];
 
     /** The recently-added fetch resolves when the test says so, like the artists one. */

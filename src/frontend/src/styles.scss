@@ -22,6 +22,11 @@
   --color-muted: #9b938d;
   --color-accent: #e8825a;
   --color-warn: #c9603f;
+  /* The rating heart, and the only saturated primary in an otherwise warm,
+     desaturated palette — deliberately, because a rating is the one number on a
+     row that is meant to catch the eye. Red rather than accent so it cannot be
+     mistaken for something tappable: everything accent-coloured here is. */
+  --color-rating: #ef4444;
   /* Dark ink for text sitting ON the accent — the primary button and the
      Bluetooth pill, which were #1a1413 and #16110f before and are now one value;
      they differ by about 1% of a channel. */

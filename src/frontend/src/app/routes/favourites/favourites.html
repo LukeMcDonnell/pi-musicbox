@@ -60,7 +60,7 @@
 
   @if (!loading() && total() === 0) {
     <p class="py-6 text-[0.95rem] text-muted">
-      No favourites yet. Tap the heart on an album to add it here.
+      No favourites yet. Tap the star on an album to add it here.
     </p>
   } @else if (!loading() && albums().length === 0) {
     <p class="py-6 text-[0.95rem] text-muted">No albums match “{{ query().trim() }}”.</p>

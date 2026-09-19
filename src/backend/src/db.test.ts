@@ -147,14 +147,49 @@ test('schema v2 adds the library_scan table', () => {
     db.close();
 });
 
-test('schema v3 keys favourites by artist AND album, since titles repeat', () => {
+test('favourites are keyed by RELEASE, so one artist can favourite two same-titled records', () => {
     const db = openDb({ path: ':memory:' });
-    const insert = 'INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)';
-    db.run(insert, 'Eagles', 'Greatest Hits', 1, '{}');
-    db.run(insert, 'Queen', 'Greatest Hits', 2, '{}');
-    assert.throws(() => db.run(insert, 'Queen', 'Greatest Hits', 3, '{}'), /UNIQUE/);
+    const insert =
+        'INSERT INTO favourite_album (album_artist, album, release, added_at, summary) VALUES (?, ?, ?, ?, ?)';
+    db.run(insert, 'Weezer', 'Weezer', 'mb:blue', 1, '{}');
+    db.run(insert, 'Weezer', 'Weezer', 'mb:green', 2, '{}');
+    assert.throws(() => db.run(insert, 'Weezer', 'Weezer', 'mb:green', 3, '{}'), /UNIQUE/);
     assert.equal(db.all('SELECT * FROM favourite_album').length, 2);
     db.close();
+});
+
+test('v6 carries existing favourites over, taking the release from the stored summary', async (t) => {
+    // The user's box had 413 of these and 412 carried an id. The one that did
+    // not is dropped rather than given a guessed key.
+    const dir = await tempDir();
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const path = join(dir, 'musicbox.db');
+
+    const before = openDb({ path, migrations: MIGRATIONS.slice(0, 5) });
+    const insert = 'INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)';
+    before.run(insert, 'Radiohead', 'Kid A', 10, JSON.stringify({ mbAlbumId: 'kid-a' }));
+    before.run(insert, "Don't Stop Me Now", 'EP', 20, JSON.stringify({ label: 'none' }));
+    before.run(
+        'INSERT INTO track_play (file, album, album_artist, image, play_count, last_played) VALUES (?, ?, ?, ?, 1, 1)',
+        'a.flac',
+        'Kid A',
+        'Radiohead',
+        null,
+    );
+    before.close();
+
+    const after = openDb({ path });
+    const kept = after.all<{ album: string; release: string }>('SELECT album, release FROM favourite_album');
+    assert.deepEqual(
+        kept.map((r) => [r.album, r.release]),
+        [['Kid A', 'mb:kid-a']],
+    );
+    // v7 adds the column to a table that already had rows; they carry no release.
+    assert.deepEqual(
+        after.all<{ release: string | null }>('SELECT release FROM track_play').map((r) => r.release),
+        [null],
+    );
+    after.close();
 });
 
 test('a v1 file migrates forward to v2 without disturbing its settings', async (t) => {

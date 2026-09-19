@@ -99,6 +99,7 @@ export function createPlayWatch(plays: Plays): PlayWatch {
                         artist: track.artist,
                         album: track.album,
                         albumArtist: track.albumArtist,
+                        release: track.release,
                         image: track.image,
                     },
                     id: track.id,

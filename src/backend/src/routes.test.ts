@@ -38,6 +38,7 @@ import { openDb } from './db.ts';
 import { createPower, type Power } from './power.ts';
 import { BackupError, type Backups } from './backup.ts';
 import { createFavourites, type Favourites } from './favourites.ts';
+import { releaseFilter } from './release.ts';
 import { createPlays, type Plays, type TrackPlay } from './plays.ts';
 import type { LibrarySong } from './mpd/bridge.ts';
 
@@ -682,9 +683,9 @@ test('library listings reject a missing or empty parameter before reaching MPD',
         const cases: Array<[string, RegExp]> = [
             ['/api/library/albums', /missing 'artist'/],
             ['/api/library/albums?artist=', /missing 'artist'/],
-            ['/api/library/album?album=Kid%20A', /missing 'artist'/],
-            ['/api/library/album?artist=Radiohead', /missing 'album'/],
-            ['/api/library/album?artist=Radiohead&album=', /missing 'album'/],
+            ['/api/library/album?album=Kid%20A&release=mb:1', /missing 'artist'/],
+            ['/api/library/album?artist=Radiohead&album=Kid%20A', /missing 'release'/],
+            ['/api/library/album?artist=Radiohead&album=Kid%20A&release=', /missing 'release'/],
         ];
         for (const [path, expected] of cases) {
             const res = await fetch(`http://127.0.0.1:${port}${path}`);
@@ -707,7 +708,7 @@ test('library listings answer 503 when MPD is unreachable', async () => {
         for (const path of [
             '/api/library/artists',
             '/api/library/albums?artist=Radiohead',
-            '/api/library/album?artist=Radiohead&album=Kid%20A',
+            '/api/library/album?artist=Radiohead&album=Kid%20A&release=mb:1',
         ]) {
             const res = await fetch(`http://127.0.0.1:${port}${path}`);
             assert.equal(res.status, 503, path);
@@ -746,7 +747,7 @@ test('queueing and playing an album are refused while a phone owns the DAC', asy
             const res = await fetch(`http://127.0.0.1:${port}${path}`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ albumArtist: 'Radiohead', album: 'Kid A' }),
+                body: JSON.stringify({ albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' }),
             });
             // 409 for the same reason GET /api/queue is one: MPD's queue is not
             // what anyone is listening to during a Bluetooth session, so adding
@@ -840,6 +841,7 @@ test('a valid disc is accepted, and reaches MPD rather than being rejected', asy
                 body: JSON.stringify({
                     albumArtist: 'Alice in Chains',
                     album: 'Music Bank',
+                    release: 'mb:music-bank',
                     disc: '2',
                 }),
             });
@@ -872,8 +874,22 @@ test('an album is added with one findadd, not a track at a time', async () => {
     // button press. Both fields go through quoteArg separately.
     const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
     const helper = src.slice(src.indexOf('function findaddFor('));
-    assert.match(helper, /findadd \$\{quoteArg\('albumartist'\)\} \$\{quoteArg\(ref\.albumArtist\)\}/);
-    assert.match(helper, /\$\{quoteArg\('album'\)\} \$\{quoteArg\(ref\.album\)\}/);
+    // ONE filter pair, from the release — not the album tag, which matches every
+    // record sharing a title. Both halves still go through quoteArg separately.
+    assert.match(helper, /releaseFilter\(ref\.release\)/);
+    assert.match(helper, /findadd \$\{quoteArg\(tag\)\} \$\{quoteArg\(value\)\}/);
+    assert.doesNotMatch(helper, /quoteArg\('album'\)/);
+    // The disc still APPENDS to that one command rather than forking it.
+    assert.match(helper, /\$\{quoteArg\('disc'\)\} \$\{quoteArg\(ref\.disc\)\}/);
+});
+
+test('a release resolves to the one MPD filter pair that selects it', () => {
+    // Legacy filter form both ways, so findadd needs no filter-expression syntax.
+    assert.deepEqual(releaseFilter('mb:1e477f68-c407-4eae-ad01-518528cedc2c'), [
+        'MUSICBRAINZ_ALBUMID',
+        '1e477f68-c407-4eae-ad01-518528cedc2c',
+    ]);
+    assert.deepEqual(releaseFilter("dir:Don't Stop Me Now/EP"), ['base', "Don't Stop Me Now/EP"]);
 });
 
 test('the library index is invalidated by MPD, not by a timer', async () => {
@@ -1415,25 +1431,42 @@ function memoryFavourites(): Favourites {
 function song(albumArtist: string, album: string, track: string, date = '1997'): LibrarySong {
     const file = `${albumArtist}/${album}/${track}.flac`;
     return {
-        track: { file, albumArtist, album, track, date, title: `Track ${track}`, duration: 200, image: '/api/art?album=x' },
+        track: {
+            file,
+            albumArtist,
+            album,
+            track,
+            date,
+            title: `Track ${track}`,
+            duration: 200,
+            image: '/api/art?album=x',
+            release: releaseFor(albumArtist, album),
+        },
         genres: ['Rock'],
     };
+}
+
+/** The release a fixture album gets, so a test can name one in a URL. */
+function releaseFor(albumArtist: string, album: string): string {
+    return `mb:${albumArtist}/${album}`;
 }
 
 /** Answer every album lookup from a fixed list, as MPD's tag database would. */
 function stockLibrary(bridge: MpdBridge, songs: LibrarySong[]): void {
     bridge.findSongs = async (...pairs) => {
         const want = new Map(pairs);
-        return songs.filter(
-            (s) => s.track.albumArtist === want.get('albumartist') && s.track.album === want.get('album'),
-        );
+        const mb = want.get('MUSICBRAINZ_ALBUMID');
+        // The album screen and the favourite routes narrow by release; the
+        // artist screen still asks for every song an AlbumArtist has.
+        if (mb !== undefined) return songs.filter((s) => s.track.release === `mb:${mb}`);
+        return songs.filter((s) => s.track.albumArtist === want.get('albumartist'));
     };
 }
 
 test('PUT favourites an album the library has, keyed by artist and album', async (t) => {
     const { port, bridge } = await serverFor(t, { favourites: memoryFavourites() });
     stockLibrary(bridge, [song('Eagles', 'Greatest Hits', '1'), song('Queen', 'Greatest Hits', '1'), song('Queen', 'Greatest Hits', '2')]);
-    const put = await api(port, '/api/favourites/album?artist=Queen&album=Greatest%20Hits', { method: 'PUT' });
+    const put = await api(port, '/api/favourites/album?artist=Queen&release=mb:Queen/Greatest Hits', { method: 'PUT' });
     assert.equal(put.status, 200);
     assert.equal(put.body.albums.length, 1);
     assert.equal(put.body.albums[0].albumArtist, 'Queen');
@@ -1445,24 +1478,25 @@ test('PUT favourites an album the library has, keyed by artist and album', async
 test('PUT for an album the library does not have is a 404 and stores nothing', async (t) => {
     const { port, bridge } = await serverFor(t, { favourites: memoryFavourites() });
     stockLibrary(bridge, []);
-    const put = await api(port, '/api/favourites/album?artist=Nobody&album=Nothing', { method: 'PUT' });
+    const put = await api(port, '/api/favourites/album?artist=Nobody&release=mb:Nobody/Nothing', { method: 'PUT' });
     assert.equal(put.status, 404);
     assert.deepEqual((await api(port, '/api/favourites')).body, { albums: [] });
 });
 
 test('PUT answers 503 when MPD cannot be asked', async (t) => {
     const { port } = await serverFor(t, { favourites: memoryFavourites() });
-    const put = await api(port, '/api/favourites/album?artist=A&album=B', { method: 'PUT' });
+    const put = await api(port, '/api/favourites/album?artist=A&release=mb:A/B', { method: 'PUT' });
     assert.equal(put.status, 503);
 });
 
-test('favourite routes refuse a missing artist or album with 400', async (t) => {
+test('favourite routes refuse a missing artist or release with 400', async (t) => {
     const { port } = await serverFor(t, { favourites: memoryFavourites() });
     for (const method of ['PUT', 'DELETE']) {
         for (const [query, message] of [
-            ['?album=B', /missing 'artist'/],
-            ['?artist=&album=B', /missing 'artist'/],
-            ['?artist=A', /missing 'album'/],
+            ['?release=mb:1', /missing 'artist'/],
+            ['?artist=&release=mb:1', /missing 'artist'/],
+            ['?artist=A', /missing 'release'/],
+            ['?artist=A&release=', /missing 'release'/],
         ] as const) {
             const res = await api(port, `/api/favourites/album${query}`, { method });
             assert.equal(res.status, 400, `${method} ${query}`);
@@ -1473,21 +1507,21 @@ test('favourite routes refuse a missing artist or album with 400', async (t) => 
 
 test('DELETE removes a favourite without asking MPD, so a vanished album can go', async (t) => {
     const favourites = memoryFavourites();
-    favourites.add({ album: 'Gone', albumArtist: 'A', date: null, trackCount: 1, genres: [], discCount: 1, duration: null, image: null });
+    favourites.add({ album: 'Gone', albumArtist: 'A', release: 'mb:A/Gone', date: null, trackCount: 1, genres: [], discCount: 1, duration: null, image: null });
     const { port } = await serverFor(t, { favourites }); // dead bridge: MPD is unreachable
-    const del = await api(port, '/api/favourites/album?artist=A&album=Gone', { method: 'DELETE' });
+    const del = await api(port, '/api/favourites/album?artist=A&release=mb:A/Gone', { method: 'DELETE' });
     assert.equal(del.status, 200);
     assert.deepEqual(del.body, { albums: [] });
-    assert.equal((await api(port, '/api/favourites/album?artist=A&album=Gone', { method: 'DELETE' })).status, 200);
+    assert.equal((await api(port, '/api/favourites/album?artist=A&release=mb:A/Gone', { method: 'DELETE' })).status, 200);
 });
 
 test('opening a favourite album refreshes its stored summary', async (t) => {
     const favourites = memoryFavourites();
     const { port, bridge } = await serverFor(t, { favourites });
     stockLibrary(bridge, [song('A', 'One', '1', '1997')]);
-    await api(port, '/api/favourites/album?artist=A&album=One', { method: 'PUT' });
+    await api(port, '/api/favourites/album?artist=A&release=mb:A/One', { method: 'PUT' });
     stockLibrary(bridge, [song('A', 'One', '1', '1980'), song('A', 'One', '2', '1980')]);
-    assert.equal((await api(port, '/api/library/album?artist=A&album=One')).status, 200);
+    assert.equal((await api(port, '/api/library/album?artist=A&album=One&release=mb:A/One')).status, 200);
     const [stored] = favourites.all();
     assert.equal(stored?.date, '1980');
     assert.equal(stored?.trackCount, 2);
@@ -1502,7 +1536,7 @@ test('favourites arrive on the stream at connect and again on every change', asy
     assert.match(first, /event: favourites\ndata: \{"albums":\[\]\}/);
     assert.ok(first.indexOf('event: library') < first.indexOf('event: favourites'), 'after the library');
 
-    await api(port, '/api/favourites/album?artist=A&album=One', { method: 'PUT' });
+    await api(port, '/api/favourites/album?artist=A&release=mb:A/One', { method: 'PUT' });
     await settle();
     const frames = stream.text().split('event: favourites').length - 1;
     assert.equal(frames, 2);
@@ -1512,8 +1546,8 @@ test('favourites arrive on the stream at connect and again on every change', asy
 test('favourite routes answer 503 on a box with none wired up', async (t) => {
     const { port } = await serverFor(t);
     assert.equal((await api(port, '/api/favourites')).status, 503);
-    assert.equal((await api(port, '/api/favourites/album?artist=A&album=B', { method: 'PUT' })).status, 503);
-    assert.equal((await api(port, '/api/favourites/album?artist=A&album=B', { method: 'DELETE' })).status, 503);
+    assert.equal((await api(port, '/api/favourites/album?artist=A&release=mb:A/B', { method: 'PUT' })).status, 503);
+    assert.equal((await api(port, '/api/favourites/album?artist=A&release=mb:A/B', { method: 'DELETE' })).status, 503);
 });
 
 // ---------------------------------------------------------------------------
@@ -1536,7 +1570,7 @@ test('GET /api/library/recent answers the newest albums first, 100 by default', 
     assert.equal(res.body.albums.length, 100);
     assert.equal(res.body.albums[0].album, 'Album 0');
     // Only what a window of songs honestly knows — no track count, no runtime.
-    assert.deepEqual(Object.keys(res.body.albums[0]), ['album', 'albumArtist', 'date', 'image', 'addedAt']);
+    assert.deepEqual(Object.keys(res.body.albums[0]), ['album', 'albumArtist', 'release', 'date', 'image', 'addedAt']);
 });
 
 test('a limit narrows it, and the ceiling and the junk are refused', async (t) => {
@@ -1579,6 +1613,7 @@ function played(albumArtist: string, album: string, track: string): TrackPlay {
         artist: albumArtist,
         album,
         albumArtist,
+        release: releaseFor(albumArtist, album),
         image: '/api/art?album=x',
     };
 }

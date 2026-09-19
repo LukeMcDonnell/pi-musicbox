@@ -37358,6 +37358,22 @@ function createArtHandler(resolver) {
   };
 }
 
+// src/release.ts
+function albumNoteDirOf(file) {
+  const first = file.indexOf("/");
+  if (first === -1) return "";
+  const second = file.indexOf("/", first + 1);
+  return second === -1 ? "" : file.slice(0, second);
+}
+function releaseIdOf(mbAlbumId, file) {
+  if (mbAlbumId !== void 0 && mbAlbumId !== "") return `mb:${mbAlbumId}`;
+  const dir = file === void 0 ? "" : albumNoteDirOf(file);
+  return dir === "" ? null : `dir:${dir}`;
+}
+function releaseFilter(release) {
+  return release.startsWith("dir:") ? ["base", release.slice(4)] : ["MUSICBRAINZ_ALBUMID", release.slice(3)];
+}
+
 // src/mpd/bridge.ts
 var IDLE_SUBSYSTEMS = "player mixer playlist options update database";
 var BACKOFF_MIN_MS = 500;
@@ -37393,6 +37409,8 @@ function trackFromTags(tags) {
   if (tags.get("Artist")) track.artist = tags.get("Artist");
   if (tags.get("Album")) track.album = tags.get("Album");
   if (tags.get("AlbumArtist")) track.albumArtist = tags.get("AlbumArtist");
+  const release = releaseIdOf(tags.get("MUSICBRAINZ_ALBUMID"), file);
+  if (release !== null) track.release = release;
   if (tags.get("Track")) track.track = tags.get("Track");
   if (tags.get("Disc")) track.disc = tags.get("Disc");
   if (tags.get("Date")) track.date = tags.get("Date");
@@ -37924,14 +37942,8 @@ function artistDirOf(file) {
   const slash = file.indexOf("/");
   return slash === -1 ? "" : file.slice(0, slash);
 }
-function albumNoteDirOf(file) {
-  const first = file.indexOf("/");
-  if (first === -1) return "";
-  const second = file.indexOf("/", first + 1);
-  return second === -1 ? "" : file.slice(0, second);
-}
 function albumsFromSongs(albumArtist, songs, notes) {
-  const byAlbum = /* @__PURE__ */ new Map();
+  const byRelease = /* @__PURE__ */ new Map();
   const discs = /* @__PURE__ */ new Map();
   const undurated = /* @__PURE__ */ new Set();
   const firstFile = /* @__PURE__ */ new Map();
@@ -37939,16 +37951,19 @@ function albumsFromSongs(albumArtist, songs, notes) {
     const track = song.track;
     const album = track.album;
     if (album === void 0) continue;
-    if (track.duration === void 0) undurated.add(album);
-    if (track.file !== void 0 && !firstFile.has(album)) firstFile.set(album, track.file);
-    let seenDiscs = discs.get(album);
-    if (seenDiscs === void 0) discs.set(album, seenDiscs = /* @__PURE__ */ new Set());
+    const release = track.release;
+    if (release === void 0) continue;
+    if (track.duration === void 0) undurated.add(release);
+    if (track.file !== void 0 && !firstFile.has(release)) firstFile.set(release, track.file);
+    let seenDiscs = discs.get(release);
+    if (seenDiscs === void 0) discs.set(release, seenDiscs = /* @__PURE__ */ new Set());
     if (track.disc !== void 0) seenDiscs.add(track.disc);
-    const existing = byAlbum.get(album);
+    const existing = byRelease.get(release);
     if (existing === void 0) {
-      byAlbum.set(album, {
+      byRelease.set(release, {
         album,
         albumArtist,
+        release,
         date: releaseDateOf(track),
         trackCount: 1,
         genres: song.genres,
@@ -37968,24 +37983,21 @@ function albumsFromSongs(albumArtist, songs, notes) {
     if (existing.label === void 0 && song.label !== void 0) {
       existing.label = song.label;
     }
-    if (existing.mbAlbumId === void 0 && song.mbAlbumId !== void 0) {
-      existing.mbAlbumId = song.mbAlbumId;
-    }
     if (existing.mbReleaseGroupId === void 0 && song.mbReleaseGroupId !== void 0) {
       existing.mbReleaseGroupId = song.mbReleaseGroupId;
     }
   }
-  for (const summary of byAlbum.values()) {
-    summary.discCount = Math.max(1, discs.get(summary.album)?.size ?? 1);
-    if (undurated.has(summary.album)) summary.duration = null;
-    const file = firstFile.get(summary.album);
+  for (const summary of byRelease.values()) {
+    summary.discCount = Math.max(1, discs.get(summary.release)?.size ?? 1);
+    if (undurated.has(summary.release)) summary.duration = null;
+    const file = firstFile.get(summary.release);
     if (notes !== void 0 && file !== void 0) {
       const dir = albumNoteDirOf(file);
       const rating = dir === "" ? null : notes.forAlbum(dir)?.rating ?? null;
       if (rating !== null) summary.rating = rating;
     }
   }
-  return [...byAlbum.values()].sort(compareAlbums);
+  return [...byRelease.values()].sort(compareAlbums);
 }
 function releaseDateOf(track) {
   return track.originalDate ?? track.date ?? null;
@@ -38001,7 +38013,8 @@ function compareAlbums(a, b) {
   if (a.date !== null && b.date !== null && a.date !== b.date) {
     return a.date < b.date ? -1 : 1;
   }
-  return a.album.localeCompare(b.album);
+  const byTitle = a.album.localeCompare(b.album);
+  return byTitle !== 0 ? byTitle : a.release.localeCompare(b.release);
 }
 function yearOf(date) {
   if (date === null) return null;
@@ -38044,12 +38057,13 @@ function recentAlbumsFrom(songs, into, limit) {
   for (const song of songs) {
     if (into.size >= limit) return;
     const { album, albumArtist } = song.track;
-    if (album === void 0 || albumArtist === void 0) continue;
-    const key = JSON.stringify([albumArtist, album]);
-    if (into.has(key)) continue;
-    into.set(key, {
+    const release = song.track.release;
+    if (album === void 0 || albumArtist === void 0 || release === void 0) continue;
+    if (into.has(release)) continue;
+    into.set(release, {
       album,
       albumArtist,
+      release,
       date: releaseDateOf(song.track),
       image: song.track.image,
       addedAt: song.track.addedAt ?? null
@@ -38066,6 +38080,7 @@ function createLibrary(bridge, notes) {
   async function build() {
     builds += 1;
     const counts = /* @__PURE__ */ new Map();
+    const releases = /* @__PURE__ */ new Map();
     const order = [];
     let current = null;
     for (const [key, value] of (await bridge.list("album", "albumartist")).pairs) {
@@ -38078,6 +38093,22 @@ function createLibrary(bridge, notes) {
       } else if (key === "Album" && current !== null) {
         counts.set(current, (counts.get(current) ?? 0) + 1);
       }
+    }
+    let inGroup = null;
+    for (const [key, value] of (await bridge.list("MUSICBRAINZ_ALBUMID", "albumartist")).pairs) {
+      if (key === "AlbumArtist") {
+        inGroup = value === "" ? null : value;
+        if (inGroup !== null && !counts.has(inGroup)) {
+          order.push(inGroup);
+          counts.set(inGroup, 0);
+        }
+        releases.set(inGroup ?? "", 0);
+      } else if (key === "MUSICBRAINZ_ALBUMID" && inGroup !== null) {
+        releases.set(inGroup, (releases.get(inGroup) ?? 0) + 1);
+      }
+    }
+    for (const [name, n] of releases) {
+      if (name !== "" && n > (counts.get(name) ?? 0)) counts.set(name, n);
     }
     const totals = /* @__PURE__ */ new Map();
     let group = null;
@@ -38163,7 +38194,7 @@ function createLibrary(bridge, notes) {
         albums: albumsFromSongs(albumArtist, songs, notes)
       };
     },
-    songsOf: async (albumArtist, album) => sortAlbumSongs(await bridge.findSongs(["albumartist", albumArtist], ["album", album])),
+    songsOf: async (release) => sortAlbumSongs(await bridge.findSongs(releaseFilter(release))),
     recentlyAdded: async (limit) => {
       if (recent !== null && recent.limit >= limit) return recent.albums.slice(0, limit);
       if (collecting === null || collecting.limit < limit) {
@@ -38892,7 +38923,42 @@ var MIGRATIONS = [
         rating    REAL,
         biography TEXT,
         read_at   INTEGER NOT NULL
-    ) STRICT;`
+    ) STRICT;`,
+  // v6 — favourites keyed by RELEASE. The old (album_artist, album) key could
+  // not tell Weezer's four self-titled records apart, so favouriting one
+  // favourited all four. SQLite cannot alter a primary key, hence the copy.
+  // The release is recovered from the AlbumSummary already stored in `summary`,
+  // so this needs no MPD: 412 of the user's 413 rows carry the id. The row that
+  // does not is dropped rather than given a guessed key.
+  `CREATE TABLE favourite_album_v2 (
+        album_artist TEXT NOT NULL,
+        album        TEXT NOT NULL,
+        release      TEXT NOT NULL,
+        added_at     INTEGER NOT NULL,
+        summary      TEXT NOT NULL,
+        PRIMARY KEY (release)
+    ) STRICT;
+     INSERT INTO favourite_album_v2 (album_artist, album, release, added_at, summary)
+         SELECT album_artist, album, 'mb:' || json_extract(summary, '$.mbAlbumId'),
+                added_at, summary
+           FROM favourite_album
+          WHERE json_extract(summary, '$.mbAlbumId') IS NOT NULL;
+     DROP TABLE favourite_album;
+     ALTER TABLE favourite_album_v2 RENAME TO favourite_album;`,
+  // v7 — which release each play belongs to. NULL for every row written before
+  // this, and those drop off the recently-played shelf: the release cannot be
+  // recovered from what was stored, and this file is deliberately the only one
+  // that touches SQLite, so it cannot ask MPD for it.
+  `ALTER TABLE track_play ADD COLUMN release TEXT;
+     CREATE INDEX track_play_release ON track_play (release);`,
+  // v8 — heal the denormalised copy. v6 recovered the release into its own
+  // column but left `summary` as it was written, so every favourite made
+  // before releases existed carries an AlbumSummary with no `release`. The
+  // read path takes the column, not the copy, so this is consistency rather
+  // than a rescue — but a stale copy reaches clients until its album is opened.
+  `UPDATE favourite_album
+        SET summary = json_set(summary, '$.release', release)
+      WHERE json_extract(summary, '$.release') IS NULL;`
 ];
 var SCHEMA_VERSION = MIGRATIONS.length;
 function openDb(options) {
@@ -39411,15 +39477,15 @@ function registerRoutes(app, opts) {
     }
   });
   app.get("/api/library/album", async (request, reply) => {
-    const { artist, album } = request.query;
+    const { artist, release } = request.query;
     if (artist === void 0 || artist === "") {
       return reply.code(400).send({ error: "missing 'artist' query parameter" });
     }
-    if (album === void 0 || album === "") {
-      return reply.code(400).send({ error: "missing 'album' query parameter" });
+    if (release === void 0 || release === "") {
+      return reply.code(400).send({ error: "missing 'release' query parameter" });
     }
     try {
-      const songs = await library.songsOf(artist, album);
+      const songs = await library.songsOf(release);
       if (songs.length === 0) {
         return reply.code(404).send({ error: "no such album" });
       }
@@ -39437,12 +39503,15 @@ function registerRoutes(app, opts) {
       return "missing 'albumArtist'";
     }
     if (typeof ref.album !== "string" || ref.album === "") return "missing 'album'";
-    if (ref.disc === void 0) return { albumArtist: ref.albumArtist, album: ref.album };
+    if (typeof ref.release !== "string" || ref.release === "") return "missing 'release'";
+    const base = { albumArtist: ref.albumArtist, album: ref.album, release: ref.release };
+    if (ref.disc === void 0) return base;
     if (typeof ref.disc !== "string" || ref.disc === "") return "invalid 'disc'";
-    return { albumArtist: ref.albumArtist, album: ref.album, disc: ref.disc };
+    return { ...base, disc: ref.disc };
   }
   function findaddFor(ref) {
-    const album = `findadd ${quoteArg("albumartist")} ${quoteArg(ref.albumArtist)} ${quoteArg("album")} ${quoteArg(ref.album)}`;
+    const [tag, value] = releaseFilter(ref.release);
+    const album = `findadd ${quoteArg(tag)} ${quoteArg(value)}`;
     return ref.disc === void 0 ? album : `${album} ${quoteArg("disc")} ${quoteArg(ref.disc)}`;
   }
   app.post("/api/library/queue", async (request, reply) => {
@@ -39687,10 +39756,12 @@ function registerRoutes(app, opts) {
     }
   );
   function albumQuery(query) {
-    const { artist, album } = query ?? {};
+    const { artist, release } = query ?? {};
     if (typeof artist !== "string" || artist === "") return "missing 'artist' query parameter";
-    if (typeof album !== "string" || album === "") return "missing 'album' query parameter";
-    return { artist, album };
+    if (typeof release !== "string" || release === "") {
+      return "missing 'release' query parameter";
+    }
+    return { artist, release };
   }
   app.get("/api/favourites", async (_request, reply) => {
     if (!favourites) return reply.code(503).send({ error: "favourites are unavailable" });
@@ -39703,7 +39774,7 @@ function registerRoutes(app, opts) {
     if (typeof ref === "string") return reply.code(400).send({ error: ref });
     let songs;
     try {
-      songs = await library.songsOf(ref.artist, ref.album);
+      songs = await library.songsOf(ref.release);
     } catch (err) {
       return reply.code(503).send({ error: err.message });
     }
@@ -39716,7 +39787,7 @@ function registerRoutes(app, opts) {
     if (!favourites) return reply.code(503).send({ error: "favourites are unavailable" });
     const ref = albumQuery(request.query);
     if (typeof ref === "string") return reply.code(400).send({ error: ref });
-    const body = { albums: favourites.remove(ref.artist, ref.album) };
+    const body = { albums: favourites.remove(ref.release) };
     return body;
   });
   app.get("/api/library/recent", async (request, reply) => {
@@ -40052,6 +40123,11 @@ function parseFavourite(row) {
   if (typeof s.trackCount !== "number" || !Array.isArray(s.genres)) return void 0;
   return {
     ...s,
+    // FROM THE ROW, NOT THE COPY. `summary` is a denormalised AlbumSummary
+    // that predates this column on every favourite made before releases
+    // existed; requiring it to carry one made 411 of 412 favourites vanish
+    // from the screen while sitting intact in the table.
+    release: row.release,
     date: typeof s.date === "string" ? s.date : null,
     duration: typeof s.duration === "number" ? s.duration : null,
     discCount: typeof s.discCount === "number" ? s.discCount : 1,
@@ -40063,7 +40139,7 @@ function createFavourites(db, now = Date.now) {
   const listeners = /* @__PURE__ */ new Set();
   const all = () => {
     const rows = db.all(
-      "SELECT album_artist, album, added_at, summary FROM favourite_album ORDER BY added_at DESC, album_artist, album"
+      "SELECT album_artist, album, release, added_at, summary FROM favourite_album ORDER BY added_at DESC, album_artist, album"
     );
     const albums = [];
     for (const row of rows) {
@@ -40081,43 +40157,39 @@ function createFavourites(db, now = Date.now) {
     all,
     add(summary) {
       const exists = db.get(
-        "SELECT 1 AS one FROM favourite_album WHERE album_artist = ? AND album = ?",
-        summary.albumArtist,
-        summary.album
+        "SELECT 1 AS one FROM favourite_album WHERE release = ?",
+        summary.release
       );
       if (exists !== void 0) return all();
       db.run(
-        "INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)",
+        "INSERT INTO favourite_album (album_artist, album, release, added_at, summary) VALUES (?, ?, ?, ?, ?)",
         summary.albumArtist,
         summary.album,
+        summary.release,
         now(),
         JSON.stringify(summary)
       );
       return changed();
     },
-    remove(albumArtist, album) {
-      const exists = db.get(
-        "SELECT 1 AS one FROM favourite_album WHERE album_artist = ? AND album = ?",
-        albumArtist,
-        album
-      );
+    remove(release) {
+      const exists = db.get("SELECT 1 AS one FROM favourite_album WHERE release = ?", release);
       if (exists === void 0) return all();
-      db.run("DELETE FROM favourite_album WHERE album_artist = ? AND album = ?", albumArtist, album);
+      db.run("DELETE FROM favourite_album WHERE release = ?", release);
       return changed();
     },
     refresh(summary) {
       const row = db.get(
-        "SELECT summary FROM favourite_album WHERE album_artist = ? AND album = ?",
-        summary.albumArtist,
-        summary.album
+        "SELECT summary FROM favourite_album WHERE release = ?",
+        summary.release
       );
       const json = JSON.stringify(summary);
       if (row === void 0 || row.summary === json) return;
       db.run(
-        "UPDATE favourite_album SET summary = ? WHERE album_artist = ? AND album = ?",
-        json,
+        "UPDATE favourite_album SET album_artist = ?, album = ?, summary = ? WHERE release = ?",
         summary.albumArtist,
-        summary.album
+        summary.album,
+        json,
+        summary.release
       );
       changed();
     },
@@ -40133,11 +40205,12 @@ function createPlays(db, now = Date.now) {
   const listeners = /* @__PURE__ */ new Set();
   const recentAlbums = (limit) => {
     return db.all(
-      "SELECT album_artist, album, image, MAX(last_played) AS played_at, SUM(play_count) AS plays FROM track_play WHERE album IS NOT NULL AND album_artist IS NOT NULL GROUP BY album_artist, album ORDER BY played_at DESC, album_artist, album LIMIT ?",
+      "SELECT album_artist, album, release, image, MAX(last_played) AS played_at, SUM(play_count) AS plays FROM track_play WHERE album IS NOT NULL AND album_artist IS NOT NULL AND release IS NOT NULL GROUP BY release ORDER BY played_at DESC, album_artist, album LIMIT ?",
       Math.max(0, Math.trunc(limit))
     ).map((row) => ({
       album: row.album,
       albumArtist: row.album_artist,
+      release: row.release,
       image: row.image,
       playedAt: row.played_at,
       plays: row.plays
@@ -40161,12 +40234,13 @@ function createPlays(db, now = Date.now) {
     mostPlayedArtists,
     record(play) {
       db.run(
-        "INSERT INTO track_play (file, title, artist, album, album_artist, image, play_count, last_played) VALUES (?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(file) DO UPDATE SET play_count = play_count + 1, last_played = excluded.last_played, title = excluded.title, artist = excluded.artist, album = excluded.album, album_artist = excluded.album_artist, image = excluded.image",
+        "INSERT INTO track_play (file, title, artist, album, album_artist, release, image, play_count, last_played) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(file) DO UPDATE SET play_count = play_count + 1, last_played = excluded.last_played, title = excluded.title, artist = excluded.artist, album = excluded.album, album_artist = excluded.album_artist, release = excluded.release, image = excluded.image",
         play.file,
         play.title ?? null,
         play.artist ?? null,
         play.album ?? null,
         play.albumArtist ?? null,
+        play.release ?? null,
         play.image,
         now()
       );
@@ -40215,6 +40289,7 @@ function createPlayWatch(plays) {
             artist: track.artist,
             album: track.album,
             albumArtist: track.albumArtist,
+            release: track.release,
             image: track.image
           },
           id: track.id,
@@ -40233,7 +40308,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-18T11:00:49Z" : "dev";
+var BUILD = true ? "2026-09-19T01:32:04Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

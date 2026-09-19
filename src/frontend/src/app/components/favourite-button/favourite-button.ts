@@ -1,14 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
-import { LucideHeart } from '@lucide/angular';
+import { LucideStar } from '@lucide/angular';
 import { FavouritesStore } from '../../services/favourites-store';
 
 /**
- * A heart that favourites one album. Sits inside tappable rows, so it stops its own click.
+ * A star that favourites one album. Sits inside tappable rows, so it stops its own click.
  * The fill hangs off aria-pressed: Lucide's own class binding wipes a [class.x] on the svg.
+ *
+ * A STAR AND NOT A HEART, which is what this was. A filled heart now means a
+ * rating (components/rating), and on an artist screen's album row the two would
+ * otherwise sit inches apart on the same line meaning different things.
  */
 @Component({
     selector: 'app-favourite-button',
-    imports: [LucideHeart],
+    imports: [LucideStar],
     template: `
         @if (variant() === 'pill') {
             <button type="button"
@@ -18,7 +22,7 @@ import { FavouritesStore } from '../../services/favourites-store';
                            aria-pressed:border-accent aria-pressed:text-accent aria-pressed:*:fill-current"
                     [disabled]="busy()" [attr.aria-pressed]="on()" [attr.aria-label]="label()"
                     (click)="toggle($event)">
-                <svg lucideHeart class="size-5" aria-hidden="true"></svg>
+                <svg lucideStar class="size-5" aria-hidden="true"></svg>
             </button>
         } @else {
             <button type="button"
@@ -27,7 +31,7 @@ import { FavouritesStore } from '../../services/favourites-store';
                            aria-pressed:text-accent aria-pressed:*:fill-current"
                     [disabled]="busy()" [attr.aria-pressed]="on()" [attr.aria-label]="label()"
                     (click)="toggle($event)">
-                <svg lucideHeart class="size-5" aria-hidden="true"></svg>
+                <svg lucideStar class="size-5" aria-hidden="true"></svg>
             </button>
         }
     `,
@@ -39,13 +43,14 @@ export class FavouriteButton {
 
     readonly albumArtist = input.required<string>();
     readonly album = input.required<string>();
+    readonly release = input.required<string>();
     readonly variant = input<'pill' | 'icon'>('icon');
 
     /** The server's reason, when a toggle is refused. */
     readonly failed = output<string>();
 
     readonly busy = signal(false);
-    readonly on = computed(() => this.favourites.isFavourite(this.albumArtist(), this.album()));
+    readonly on = computed(() => this.favourites.isFavourite(this.release()));
     readonly label = computed(() =>
         this.on() ? `Remove ${this.album()} from favourites` : `Add ${this.album()} to favourites`,
     );
@@ -55,7 +60,11 @@ export class FavouriteButton {
         if (this.busy()) return;
         this.busy.set(true);
         try {
-            await this.favourites.toggle({ albumArtist: this.albumArtist(), album: this.album() });
+            await this.favourites.toggle({
+                albumArtist: this.albumArtist(),
+                album: this.album(),
+                release: this.release(),
+            });
         } catch (err) {
             this.failed.emit((err as Error).message);
         } finally {

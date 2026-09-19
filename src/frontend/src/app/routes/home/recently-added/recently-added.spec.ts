@@ -14,6 +14,7 @@ function album(i: number): RecentlyAddedAlbum {
     return {
         album: `Album ${i}`,
         albumArtist: `Artist ${i}`,
+        release: `mb:album-${i}`,
         date: '1997-05-21',
         image: `/api/art?album=Album%20${i}`,
         addedAt: '2026-09-18T10:00:00Z',
@@ -159,17 +160,17 @@ describe('RecentlyAdded', () => {
 
         (fixture.nativeElement.querySelector('li button') as HTMLButtonElement).click();
         expect(navigate).toHaveBeenCalledWith(['/library/album'], {
-            queryParams: { artist: 'Artist 0', album: 'Album 0' },
+            queryParams: { artist: 'Artist 0', album: 'Album 0', release: 'mb:album-0' },
         });
 
         button('Play Album 0').click();
         await fixture.whenStable();
-        expect(library.playAlbum).toHaveBeenCalledWith({ albumArtist: 'Artist 0', album: 'Album 0' });
+        expect(library.playAlbum).toHaveBeenCalledWith({ albumArtist: 'Artist 0', album: 'Album 0', release: 'mb:album-0' });
         expect(show).toHaveBeenCalled();
 
         button('Add Album 0 to the queue').click();
         await fixture.whenStable();
-        expect(library.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'Artist 0', album: 'Album 0' });
+        expect(library.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'Artist 0', album: 'Album 0', release: 'mb:album-0' });
         // Off by default, as on the Favourites rows.
         expect(showQueue).not.toHaveBeenCalled();
     });

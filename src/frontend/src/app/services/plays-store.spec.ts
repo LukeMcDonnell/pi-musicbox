@@ -12,7 +12,7 @@ const ARTISTS: MostPlayedArtist[] = [
 const OTHERS: MostPlayedArtist[] = [{ name: 'Tool', image: null, plays: 9 }];
 
 function played(album: string): RecentPlayAlbum[] {
-    return [{ album, albumArtist: 'Radiohead', image: null, playedAt: 1000, plays: 1 }];
+    return [{ album, albumArtist: 'Radiohead', release: `mb:${album}`, image: null, playedAt: 1000, plays: 1 }];
 }
 
 /** A store whose fetches finish when the test says so. */

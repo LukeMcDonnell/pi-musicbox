@@ -8,6 +8,7 @@ function summary(albumArtist: string, album: string, over: Partial<AlbumSummary>
     return {
         album,
         albumArtist,
+        release: `mb:${albumArtist}/${album}`,
         date: '1997-05-21',
         trackCount: 12,
         genres: ['Alternative Rock'],
@@ -54,7 +55,7 @@ test('the same title under two artists is two favourites', () => {
     const { db, favourites } = fresh();
     favourites.add(summary('Eagles', 'Greatest Hits'));
     favourites.add(summary('Queen', 'Greatest Hits'));
-    favourites.remove('Eagles', 'Greatest Hits');
+    favourites.remove(`mb:Eagles/Greatest Hits`);
     assert.deepEqual(
         favourites.all().map((a) => a.albumArtist),
         ['Queen'],
@@ -76,8 +77,8 @@ test('removing notifies with the full list, and removing nothing is harmless', (
     favourites.add(summary('B', 'Two'));
     const heard: FavouriteAlbum[][] = [];
     favourites.onChange((albums) => heard.push(albums));
-    favourites.remove('A', 'One');
-    favourites.remove('A', 'One');
+    favourites.remove(`mb:A/One`);
+    favourites.remove(`mb:A/One`);
     assert.equal(heard.length, 1);
     assert.deepEqual(heard[0]?.map((a) => a.album), ['Two']);
     db.close();
@@ -104,14 +105,37 @@ test('refresh never adds an album that is not a favourite', () => {
     db.close();
 });
 
+test('a favourite stored before releases existed is still readable', () => {
+    // THE REGRESSION. v6 recovered the release into its own column but left the
+    // stored AlbumSummary as written, with no `release` in it. Treating the copy
+    // as identity made 411 of 412 favourites vanish from the screen while
+    // sitting intact in the table. The COLUMN is the identity.
+    const { db, favourites } = fresh();
+    const old = summary('Radiohead', 'Kid A');
+    delete (old as { release?: string }).release;
+    db.run(
+        'INSERT INTO favourite_album (album_artist, album, release, added_at, summary) VALUES (?, ?, ?, ?, ?)',
+        'Radiohead',
+        'Kid A',
+        'mb:kid-a',
+        5,
+        JSON.stringify(old),
+    );
+    const [album] = favourites.all();
+    assert.equal(album?.album, 'Kid A');
+    assert.equal(album?.release, 'mb:kid-a');
+    db.close();
+});
+
 test('rows that cannot be trusted are skipped, not fatal', () => {
     const { db, favourites } = fresh();
     favourites.add(summary('A', 'Good'));
-    const insert = 'INSERT INTO favourite_album (album_artist, album, added_at, summary) VALUES (?, ?, ?, ?)';
-    db.run(insert, 'A', 'Not json', 5, '{nope');
-    db.run(insert, 'A', 'Array', 5, '[]');
-    db.run(insert, 'A', 'Mismatch', 5, JSON.stringify(summary('B', 'Mismatch')));
-    db.run(insert, 'A', 'No tracks', 5, JSON.stringify({ ...summary('A', 'No tracks'), trackCount: 'x' }));
+    const insert =
+        'INSERT INTO favourite_album (album_artist, album, release, added_at, summary) VALUES (?, ?, ?, ?, ?)';
+    db.run(insert, 'A', 'Not json', 'r1', 5, '{nope');
+    db.run(insert, 'A', 'Array', 'r2', 5, '[]');
+    db.run(insert, 'A', 'Mismatch', 'r3', 5, JSON.stringify(summary('B', 'Mismatch')));
+    db.run(insert, 'A', 'No tracks', 'r4', 5, JSON.stringify({ ...summary('A', 'No tracks'), trackCount: 'x' }));
     assert.deepEqual(favourites.all().map((a) => a.album), ['Good']);
     db.close();
 });

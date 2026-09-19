@@ -163,10 +163,12 @@ export class LibraryStore {
         );
     }
 
-    async fetchAlbum(albumArtist: string, album: string): Promise<AlbumResponse> {
+    async fetchAlbum(albumArtist: string, album: string, release: string): Promise<AlbumResponse> {
+        // `album` rides along for a legible URL; `release` is what selects it.
         return this.api.getJson<AlbumResponse>(
             `/api/library/album?artist=${encodeURIComponent(albumArtist)}` +
-                `&album=${encodeURIComponent(album)}`,
+                `&album=${encodeURIComponent(album)}` +
+                `&release=${encodeURIComponent(release)}`,
         );
     }
 

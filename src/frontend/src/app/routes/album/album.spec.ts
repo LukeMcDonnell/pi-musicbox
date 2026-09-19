@@ -24,6 +24,7 @@ function response(
         album: {
             album: 'Kid A',
             albumArtist: 'Radiohead',
+            release: 'mb:kid-a',
             date: '2000-10-02',
             trackCount: 2,
             genres: ['Alternative Rock', 'Art Rock'],
@@ -46,7 +47,12 @@ function fakeStore(data: AlbumResponse = response()) {
     };
 }
 
-function create(store: ReturnType<typeof fakeStore>, artist = 'Radiohead', album = 'Kid A') {
+function create(
+    store: ReturnType<typeof fakeStore>,
+    artist = 'Radiohead',
+    album = 'Kid A',
+    release = 'mb:kid-a',
+) {
     TestBed.configureTestingModule({
         imports: [Album],
         providers: [provideRouter([]), { provide: LibraryStore, useValue: store }],
@@ -54,6 +60,7 @@ function create(store: ReturnType<typeof fakeStore>, artist = 'Radiohead', album
     const fixture = TestBed.createComponent(Album);
     fixture.componentRef.setInput('artist', artist);
     fixture.componentRef.setInput('album', album);
+    fixture.componentRef.setInput('release', release);
     return fixture;
 }
 
@@ -72,8 +79,8 @@ describe('Album', () => {
     it('offers to favourite the album beside Play and Queue', () => {
         const fixture = create(fakeStore());
         fixture.detectChanges();
-        const heart = fixture.nativeElement.querySelector('app-favourite-button button') as HTMLButtonElement;
-        expect(heart.getAttribute('aria-label')).toBe('Add Kid A to favourites');
+        const star = fixture.nativeElement.querySelector('app-favourite-button button') as HTMLButtonElement;
+        expect(star.getAttribute('aria-label')).toBe('Add Kid A to favourites');
     });
 
     it('links the artist name to the artist, in the accent colour', async () => {
@@ -91,12 +98,23 @@ describe('Album', () => {
         expect(String(navigate.calls.mostRecent().args[0])).toBe('/library/artist?name=AC%2FDC');
     });
 
-    it('fetches by artist and album, both untouched', async () => {
+    it('fetches by artist, album and release, all untouched', async () => {
         const store = fakeStore();
-        const fixture = create(store, 'AC/DC', 'Back in Black');
+        const fixture = create(store, 'AC/DC', 'Back in Black', 'mb:bib');
         fixture.detectChanges();
         await fixture.whenStable();
-        expect(store.fetchAlbum).toHaveBeenCalledWith('AC/DC', 'Back in Black');
+        expect(store.fetchAlbum).toHaveBeenCalledWith('AC/DC', 'Back in Black', 'mb:bib');
+    });
+
+    it('refetches when only the release changes — two records can share a title', async () => {
+        const store = fakeStore();
+        const fixture = create(store, 'Weezer', 'Weezer', 'mb:blue');
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.componentRef.setInput('release', 'mb:green');
+        fixture.detectChanges();
+        await fixture.whenStable();
+        expect(store.fetchAlbum).toHaveBeenCalledWith('Weezer', 'Weezer', 'mb:green');
     });
 
     it('raises now-playing after a successful Play', async () => {
@@ -112,6 +130,7 @@ describe('Album', () => {
         expect(store.playAlbum).toHaveBeenCalledWith({
             albumArtist: 'Radiohead',
             album: 'Kid A',
+            release: 'mb:kid-a',
         });
         expect(sheet.open()).toBeTrue();
     });
@@ -140,6 +159,7 @@ describe('Album', () => {
         expect(store.queueAlbum).toHaveBeenCalledWith({
             albumArtist: 'Radiohead',
             album: 'Kid A',
+            release: 'mb:kid-a',
         });
         expect(store.playAlbum).not.toHaveBeenCalled();
         expect(TestBed.inject(NowPlayingSheet).open()).toBeFalse();
@@ -336,7 +356,7 @@ describe('Album', () => {
 
         await fixture.componentInstance.play();
         const ref = store.playAlbum.calls.mostRecent().args[0];
-        expect(ref).toEqual({ albumArtist: 'Radiohead', album: 'Kid A' });
+        expect(ref).toEqual({ albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' });
         // Absent, not `disc: null` — the backend rejects a non-string disc, so
         // the key has to be missing rather than nulled.
         expect('disc' in ref).toBeFalse();
@@ -344,7 +364,7 @@ describe('Album', () => {
 
     it('plays and queues a single disc by narrowing the same ref', async () => {
         const store = fakeStore();
-        const fixture = create(store, 'Alice in Chains', 'Music Bank');
+        const fixture = create(store, 'Alice in Chains', 'Music Bank', 'mb:music-bank');
         fixture.detectChanges();
         await fixture.whenStable();
 
@@ -352,6 +372,7 @@ describe('Album', () => {
         expect(store.playAlbum).toHaveBeenCalledWith({
             albumArtist: 'Alice in Chains',
             album: 'Music Bank',
+            release: 'mb:music-bank',
             disc: '2',
         });
 
@@ -359,6 +380,7 @@ describe('Album', () => {
         expect(store.queueAlbum).toHaveBeenCalledWith({
             albumArtist: 'Alice in Chains',
             album: 'Music Bank',
+            release: 'mb:music-bank',
             disc: '3',
         });
     });

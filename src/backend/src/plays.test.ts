@@ -10,6 +10,7 @@ function track(albumArtist: string, album: string, n: string, over: Partial<Trac
         artist: albumArtist,
         album,
         albumArtist,
+        release: `mb:${albumArtist}/${album}`,
         image: `/api/art?album=${encodeURIComponent(`${albumArtist}/${album}`)}`,
         ...over,
     };
@@ -35,6 +36,7 @@ test('one play makes one album, with when and how many', () => {
         {
             album: 'Ænima',
             albumArtist: 'Tool',
+            release: 'mb:Tool/Ænima',
             image: '/api/art?album=Tool%2F%C3%86nima',
             playedAt: 1000,
             plays: 1,
@@ -242,3 +244,4 @@ test('the limit cuts the list, keeping the most played', () => {
     );
     db.close();
 });
+

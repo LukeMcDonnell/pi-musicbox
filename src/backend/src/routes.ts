@@ -44,7 +44,7 @@ import {
 import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
-import { albumsFromSongs, createLibrary } from './library.ts';
+import { albumsFromSongs, createLibrary, releaseFilter } from './library.ts';
 import type { LibraryNotes } from './library-notes.ts';
 import {
     BluetoothUnavailableError,
@@ -426,15 +426,17 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
 
     /** One album: its header and its tracks in playing order. */
     app.get('/api/library/album', async (request: FastifyRequest, reply: FastifyReply) => {
-        const { artist, album } = request.query as { artist?: string; album?: string };
+        const { artist, release } = request.query as { artist?: string; release?: string };
         if (artist === undefined || artist === '') {
             return reply.code(400).send({ error: "missing 'artist' query parameter" });
         }
-        if (album === undefined || album === '') {
-            return reply.code(400).send({ error: "missing 'album' query parameter" });
+        // `album` still rides in the URL for legibility, but `release` is what
+        // selects the tracks: the tag pair matches all four self-titled Weezers.
+        if (release === undefined || release === '') {
+            return reply.code(400).send({ error: "missing 'release' query parameter" });
         }
         try {
-            const songs = await library.songsOf(artist, album);
+            const songs = await library.songsOf(release);
             if (songs.length === 0) {
                 return reply.code(404).send({ error: 'no such album' });
             }
@@ -460,17 +462,24 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * Same standard as the `/^\d+$/` on a song id.
      */
     function albumRefFrom(body: unknown): AlbumRef | string {
-        const ref = (body ?? {}) as { albumArtist?: unknown; album?: unknown; disc?: unknown };
+        const ref = (body ?? {}) as {
+            albumArtist?: unknown;
+            album?: unknown;
+            release?: unknown;
+            disc?: unknown;
+        };
         if (typeof ref.albumArtist !== 'string' || ref.albumArtist === '') {
             return "missing 'albumArtist'";
         }
         if (typeof ref.album !== 'string' || ref.album === '') return "missing 'album'";
+        if (typeof ref.release !== 'string' || ref.release === '') return "missing 'release'";
+        const base = { albumArtist: ref.albumArtist, album: ref.album, release: ref.release };
         // Optional, but held to the same standard once supplied: `disc: 1` would
         // reach quoteArg as "1" and happen to work, and `disc: {}` as
         // "[object Object]" and silently match nothing.
-        if (ref.disc === undefined) return { albumArtist: ref.albumArtist, album: ref.album };
+        if (ref.disc === undefined) return base;
         if (typeof ref.disc !== 'string' || ref.disc === '') return "invalid 'disc'";
-        return { albumArtist: ref.albumArtist, album: ref.album, disc: ref.disc };
+        return { ...base, disc: ref.disc };
     }
 
     /**
@@ -483,7 +492,10 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * guard against exactly that, and this makes it unnecessary.
      */
     function findaddFor(ref: AlbumRef): string {
-        const album = `findadd ${quoteArg('albumartist')} ${quoteArg(ref.albumArtist)} ${quoteArg('album')} ${quoteArg(ref.album)}`;
+        // ONE release, not the tag pair: `albumartist Weezer album Weezer` adds
+        // all 43 tracks of the four self-titled records.
+        const [tag, value] = releaseFilter(ref.release);
+        const album = `findadd ${quoteArg(tag)} ${quoteArg(value)}`;
         // One more filter pair narrows it to a disc. MPD indexes `Disc`, so this
         // is the same one command whether it adds 48 tracks or 17.
         return ref.disc === undefined
@@ -879,11 +891,13 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
     // Favourite albums. Appended for the same reason as the scan routes.
     // -----------------------------------------------------------------------
 
-    function albumQuery(query: unknown): { artist: string; album: string } | string {
-        const { artist, album } = (query ?? {}) as { artist?: unknown; album?: unknown };
+    function albumQuery(query: unknown): { artist: string; release: string } | string {
+        const { artist, release } = (query ?? {}) as { artist?: unknown; release?: unknown };
         if (typeof artist !== 'string' || artist === '') return "missing 'artist' query parameter";
-        if (typeof album !== 'string' || album === '') return "missing 'album' query parameter";
-        return { artist, album };
+        if (typeof release !== 'string' || release === '') {
+            return "missing 'release' query parameter";
+        }
+        return { artist, release };
     }
 
     app.get('/api/favourites', async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -899,7 +913,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         if (typeof ref === 'string') return reply.code(400).send({ error: ref });
         let songs: Awaited<ReturnType<typeof library.songsOf>>;
         try {
-            songs = await library.songsOf(ref.artist, ref.album);
+            songs = await library.songsOf(ref.release);
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
         }
@@ -913,7 +927,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         if (!favourites) return reply.code(503).send({ error: 'favourites are unavailable' });
         const ref = albumQuery(request.query);
         if (typeof ref === 'string') return reply.code(400).send({ error: ref });
-        const body: FavouritesResponse = { albums: favourites.remove(ref.artist, ref.album) };
+        const body: FavouritesResponse = { albums: favourites.remove(ref.release) };
         return body;
     });
 

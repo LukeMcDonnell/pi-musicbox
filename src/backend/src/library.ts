@@ -44,6 +44,7 @@ import { artUriForDir } from './art.ts';
 import { groupBy } from './mpd/protocol.ts';
 import type { LibraryNote } from './library-notes.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
+import { albumNoteDirOf, releaseFilter } from './release.ts';
 
 /**
  * The half of LibraryNotes this file uses.
@@ -53,6 +54,8 @@ import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
  * primary-key lookup in a local SQLite file — no MPD command and no share I/O,
  * which is what keeps the rule at the top of this file true.
  */
+export { albumNoteDirOf, releaseFilter, releaseIdOf } from './release.ts';
+
 export interface NoteLookup {
     forArtist(directory: string): LibraryNote | null;
     forAlbum(directory: string): LibraryNote | null;
@@ -80,35 +83,16 @@ export function artistDirOf(file: string): string {
 }
 
 /**
- * The album's own directory: the FIRST TWO path segments.
- *
- * NOT `albumDirOf`, which is the directory the SONG is in. For the 149 albums
- * that keep their tracks in a `CD 01` subdirectory those two differ, and every
- * `album.nfo` on this library sits at the album level — measured: all 3,262 of
- * them are exactly two segments deep, none beside the discs. So `albumDirOf` is
- * one level too deep for 149 albums and would find nothing for them.
- *
- * Art is the other way round and stays on `albumDirOf`: the cover IS in the disc
- * directory for all 149 (also measured), which is why the two helpers exist
- * rather than one. Empty when the file is not at least two deep.
- */
-export function albumNoteDirOf(file: string): string {
-    const first = file.indexOf('/');
-    if (first === -1) return '';
-    const second = file.indexOf('/', first + 1);
-    return second === -1 ? '' : file.slice(0, second);
-}
-
-/**
  * Group a `find albumartist "<name>"` reply into albums.
  *
  * Takes LibrarySongs rather than Tracks because the album's genres, label and
  * MusicBrainz ids are not on the wire per track — see LibrarySong. Everything
  * here is folded from rows already fetched; nothing asks MPD a second question.
  *
- * Grouped by the ALBUM TAG rather than by directory. The two nearly always
- * agree, and where they do not — a multi-disc album spread over `CD 01` and
- * `CD 02` — the tag is right and the directory would split one album in two.
+ * GROUPED BY RELEASE, not by the album tag: Weezer have four self-titled records
+ * and the tag alone folded all 43 tracks into one card showing 1994's cover.
+ * Not by directory either — that would split a multi-disc album spread over
+ * `CD 01` and `CD 02`.
  *
  * The album's art comes from the first track's own album directory, which for
  * those multi-disc albums is the disc directory. That is correct here rather
@@ -120,8 +104,8 @@ export function albumsFromSongs(
     songs: LibrarySong[],
     notes?: NoteLookup,
 ): AlbumSummary[] {
-    const byAlbum = new Map<string, AlbumSummary>();
-    // Disc numbers per album, and whether a track has gone by with no duration.
+    const byRelease = new Map<string, AlbumSummary>();
+    // Disc numbers per release, and whether a track has gone by with no duration.
     const discs = new Map<string, Set<string>>();
     const undurated = new Set<string>();
     // The first track's path per album, for the `.nfo` lookup at the end. Kept
@@ -132,17 +116,20 @@ export function albumsFromSongs(
         const track = song.track;
         const album = track.album;
         if (album === undefined) continue; // untagged; there is nothing to file it under
-        if (track.duration === undefined) undurated.add(album);
-        if (track.file !== undefined && !firstFile.has(album)) firstFile.set(album, track.file);
-        let seenDiscs = discs.get(album);
-        if (seenDiscs === undefined) discs.set(album, (seenDiscs = new Set()));
+        const release = track.release;
+        if (release === undefined) continue; // nor can it be said which release it is
+        if (track.duration === undefined) undurated.add(release);
+        if (track.file !== undefined && !firstFile.has(release)) firstFile.set(release, track.file);
+        let seenDiscs = discs.get(release);
+        if (seenDiscs === undefined) discs.set(release, (seenDiscs = new Set()));
         if (track.disc !== undefined) seenDiscs.add(track.disc);
 
-        const existing = byAlbum.get(album);
+        const existing = byRelease.get(release);
         if (existing === undefined) {
-            byAlbum.set(album, {
+            byRelease.set(release, {
                 album,
                 albumArtist,
+                release,
                 date: releaseDateOf(track),
                 trackCount: 1,
                 genres: song.genres,
@@ -167,27 +154,24 @@ export function albumsFromSongs(
         if (existing.label === undefined && song.label !== undefined) {
             existing.label = song.label;
         }
-        if (existing.mbAlbumId === undefined && song.mbAlbumId !== undefined) {
-            existing.mbAlbumId = song.mbAlbumId;
-        }
         if (existing.mbReleaseGroupId === undefined && song.mbReleaseGroupId !== undefined) {
             existing.mbReleaseGroupId = song.mbReleaseGroupId;
         }
     }
-    for (const summary of byAlbum.values()) {
+    for (const summary of byRelease.values()) {
         // Never 0: an album with no Disc tag at all is still one disc.
-        summary.discCount = Math.max(1, discs.get(summary.album)?.size ?? 1);
+        summary.discCount = Math.max(1, discs.get(summary.release)?.size ?? 1);
         // All or nothing. A sum that quietly skips the untagged tracks is a
         // wrong number presented as a right one.
-        if (undurated.has(summary.album)) summary.duration = null;
-        const file = firstFile.get(summary.album);
+        if (undurated.has(summary.release)) summary.duration = null;
+        const file = firstFile.get(summary.release);
         if (notes !== undefined && file !== undefined) {
             const dir = albumNoteDirOf(file);
             const rating = dir === '' ? null : notes.forAlbum(dir)?.rating ?? null;
             if (rating !== null) summary.rating = rating;
         }
     }
-    return [...byAlbum.values()].sort(compareAlbums);
+    return [...byRelease.values()].sort(compareAlbums);
 }
 
 /**
@@ -229,7 +213,11 @@ function compareAlbums(a: AlbumSummary, b: AlbumSummary): number {
     if (a.date !== null && b.date !== null && a.date !== b.date) {
         return a.date < b.date ? -1 : 1;
     }
-    return a.album.localeCompare(b.album);
+    // Two releases can share a title AND a date — an album and its anniversary
+    // reissue. Break on the release so the order is stable across requests
+    // rather than whatever order MPD happened to return the tracks in.
+    const byTitle = a.album.localeCompare(b.album);
+    return byTitle !== 0 ? byTitle : a.release.localeCompare(b.release);
 }
 
 function yearOf(date: string | null): number | null {
@@ -337,14 +325,15 @@ export function recentAlbumsFrom(
     for (const song of songs) {
         if (into.size >= limit) return;
         const { album, albumArtist } = song.track;
-        // Untagged either way: the library screens are keyed by both, so an
-        // album that cannot be opened is not one to offer.
-        if (album === undefined || albumArtist === undefined) continue;
-        const key = JSON.stringify([albumArtist, album]);
-        if (into.has(key)) continue;
-        into.set(key, {
+        const release = song.track.release;
+        // The library screens are keyed by all three, so an album that cannot be
+        // opened is not one to offer.
+        if (album === undefined || albumArtist === undefined || release === undefined) continue;
+        if (into.has(release)) continue;
+        into.set(release, {
             album,
             albumArtist,
+            release,
             date: releaseDateOf(song.track),
             image: song.track.image,
             addedAt: song.track.addedAt ?? null,
@@ -362,7 +351,7 @@ export interface Library {
         albums: AlbumSummary[];
     }>;
     /** The album's songs, in playing order. Routes take `.track` for the wire. */
-    songsOf: (albumArtist: string, album: string) => Promise<LibrarySong[]>;
+    songsOf: (release: string) => Promise<LibrarySong[]>;
     /** The most recently added albums, newest first. Cached until a scan. */
     recentlyAdded: (limit: number) => Promise<RecentlyAddedAlbum[]>;
     /** Drop the cached index. Called when MPD reports a database update. */
@@ -390,6 +379,7 @@ export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
         //    is applied here — one would have to be maintained forever, and
         //    "should The Panics be under T" has no answer worth owning.
         const counts = new Map<string, number>();
+        const releases = new Map<string, number>();
         const order: string[] = [];
         //    Read the pairs directly rather than through groupBy: a grouped
         //    reply repeats `Album` within one artist, and groupBy builds a Map
@@ -411,6 +401,31 @@ export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
             } else if (key === 'Album' && current !== null) {
                 counts.set(current, (counts.get(current) ?? 0) + 1);
             }
+        }
+
+        // 1a-ii. And the same again over release ids, because the screen counts
+        //     RELEASES now — Weezer have 5 album titles and 8 records. 58ms
+        //     measured, the same shape of reply.
+        //
+        //     THE COUNT IS THE LARGER OF THE TWO, which is exact for this
+        //     library and cheap: titles undercount the 23 artists with a
+        //     repeated title, and release ids undercount the one album that
+        //     carries none.
+        let inGroup: string | null = null;
+        for (const [key, value] of (await bridge.list('MUSICBRAINZ_ALBUMID', 'albumartist')).pairs) {
+            if (key === 'AlbumArtist') {
+                inGroup = value === '' ? null : value;
+                if (inGroup !== null && !counts.has(inGroup)) {
+                    order.push(inGroup);
+                    counts.set(inGroup, 0);
+                }
+                releases.set(inGroup ?? '', 0);
+            } else if (key === 'MUSICBRAINZ_ALBUMID' && inGroup !== null) {
+                releases.set(inGroup, (releases.get(inGroup) ?? 0) + 1);
+            }
+        }
+        for (const [name, n] of releases) {
+            if (name !== '' && n > (counts.get(name) ?? 0)) counts.set(name, n);
         }
 
         // 1b. Songs and playtime per artist, for all 488 in ONE command — 35ms
@@ -530,8 +545,7 @@ export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
                 albums: albumsFromSongs(albumArtist, songs, notes),
             };
         },
-        songsOf: async (albumArtist, album) =>
-            sortAlbumSongs(await bridge.findSongs(['albumartist', albumArtist], ['album', album])),
+        songsOf: async (release) => sortAlbumSongs(await bridge.findSongs(releaseFilter(release))),
         recentlyAdded: async (limit) => {
             if (recent !== null && recent.limit >= limit) return recent.albums.slice(0, limit);
             // Share one collection between concurrent callers, as the index does

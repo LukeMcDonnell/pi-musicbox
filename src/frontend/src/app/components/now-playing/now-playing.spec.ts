@@ -156,6 +156,7 @@ describe('NowPlaying track lines', () => {
         artist: 'AC/DC',
         albumArtist: 'AC/DC',
         album: 'Back in Black',
+        release: 'mb:bib',
         file: 'AC-DC/x.flac',
         format: '96000:24:2',
         encoding: 'FLAC',
@@ -189,7 +190,7 @@ describe('NowPlaying track lines', () => {
         // The page is keyed by AlbumArtist; the line still shows the performing credit.
         expect(artist.textContent!.trim()).toBe('AC/DC feat. Someone');
         expect(artist.getAttribute('href')).toBe('/library/artist?name=AC%2FDC');
-        expect(album.getAttribute('href')).toBe('/library/album?artist=AC%2FDC&album=Back%20in%20Black');
+        expect(album.getAttribute('href')).toBe('/library/album?artist=AC%2FDC&album=Back%20in%20Black&release=mb:bib');
         expect(album.parentElement!.classList).toContain('text-text');
         const progress = [...el.querySelectorAll('p')].find((p) => p.textContent!.includes(' / '))!;
         expect(getComputedStyle(progress).textShadow).not.toBe('none');
@@ -211,7 +212,9 @@ describe('NowPlaying track lines', () => {
         (el.querySelector('a[href^="/library/album"]') as HTMLAnchorElement).click();
         await new Promise((r) => setTimeout(r));
         expect(sheet.hide).toHaveBeenCalled();
-        expect(String(navigate.calls.mostRecent().args[0])).toBe('/library/album?artist=AC%2FDC&album=Back%20in%20Black');
+        expect(String(navigate.calls.mostRecent().args[0])).toBe(
+            '/library/album?artist=AC%2FDC&album=Back%20in%20Black&release=mb:bib',
+        );
     });
 
     it('links nothing for a phone, or a track with no AlbumArtist to file it under', () => {

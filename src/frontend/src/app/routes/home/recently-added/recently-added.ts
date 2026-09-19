@@ -100,7 +100,7 @@ export class RecentlyAdded {
     }
 
     trackKey(album: RecentlyAddedAlbum): string {
-        return JSON.stringify([album.albumArtist, album.album]);
+        return album.release;
     }
 
     /** "Radiohead · 1997", or just the artist when the album carries no date. */
@@ -111,7 +111,7 @@ export class RecentlyAdded {
 
     open(album: RecentlyAddedAlbum): void {
         void this.router.navigate(['/library/album'], {
-            queryParams: { artist: album.albumArtist, album: album.album },
+            queryParams: { artist: album.albumArtist, album: album.album, release: album.release },
         });
     }
 
@@ -142,5 +142,5 @@ export class RecentlyAdded {
 }
 
 function refOf(album: RecentlyAddedAlbum) {
-    return { albumArtist: album.albumArtist, album: album.album };
+    return { albumArtist: album.albumArtist, album: album.album, release: album.release };
 }

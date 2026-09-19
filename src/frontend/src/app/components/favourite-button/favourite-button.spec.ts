@@ -10,6 +10,7 @@ function create(favourite: boolean, toggle = jasmine.createSpy('toggle').and.res
     const fixture = TestBed.createComponent(FavouriteButton);
     fixture.componentRef.setInput('albumArtist', 'Radiohead');
     fixture.componentRef.setInput('album', 'Kid A');
+    fixture.componentRef.setInput('release', 'mb:kid-a');
     fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
     return { fixture, button, toggle };
@@ -33,7 +34,7 @@ describe('FavouriteButton', () => {
         button.parentElement!.addEventListener('click', row);
         button.click();
         await Promise.resolve();
-        expect(toggle).toHaveBeenCalledWith({ albumArtist: 'Radiohead', album: 'Kid A' });
+        expect(toggle).toHaveBeenCalledWith({ albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' });
         expect(row).not.toHaveBeenCalled();
     });
 

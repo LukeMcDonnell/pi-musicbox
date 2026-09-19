@@ -163,7 +163,7 @@ describe('Favourites', () => {
         const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
         (fixture.nativeElement.querySelector('li button') as HTMLButtonElement).click();
         expect(navigate).toHaveBeenCalledWith(['/library/album'], {
-            queryParams: { artist: 'AC/DC', album: 'Back in Black' },
+            queryParams: { artist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' },
         });
     });
 
@@ -177,17 +177,17 @@ describe('Favourites', () => {
 
         button('Play Back in Black').click();
         await fixture.whenStable();
-        expect(library.playAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black' });
+        expect(library.playAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' });
         expect(show).toHaveBeenCalled();
 
         button('Add Back in Black to the queue').click();
         await fixture.whenStable();
-        expect(library.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black' });
+        expect(library.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' });
         // Off by default: Queue is pressed several times in a row.
         expect(showQueue).not.toHaveBeenCalled();
     });
 
-    it('offers Play and Queue on a row, but no heart to un-favourite it', async () => {
+    it('offers Play and Queue on a row, but no star to un-favourite it', async () => {
         const { fixture } = await create([BACK]);
         const labels = [...fixture.nativeElement.querySelectorAll('li button')].map((b) =>
             (b as HTMLElement).getAttribute('aria-label'),

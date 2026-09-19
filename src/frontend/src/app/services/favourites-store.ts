@@ -5,7 +5,7 @@ import { MusicboxApi } from './musicbox-api';
 
 /*
   Favourite albums. The list is the box's and arrives on the stream; this adds
-  the lookups and the two writes. No optimistic update: a heart flips when the
+  the lookups and the two writes. No optimistic update: a star flips when the
   server's answer does.
 */
 @Injectable({ providedIn: 'root' })
@@ -17,11 +17,11 @@ export class FavouritesStore {
     readonly albums = this.box.favourites;
 
     private readonly keys = computed(
-        () => new Set((this.albums() ?? []).map((a) => keyOf(a.albumArtist, a.album))),
+        () => new Set((this.albums() ?? []).map((a) => a.release)),
     );
 
-    isFavourite(albumArtist: string, album: string): boolean {
-        return this.keys().has(keyOf(albumArtist, album));
+    isFavourite(release: string): boolean {
+        return this.keys().has(release);
     }
 
     async add(ref: AlbumRef): Promise<void> {
@@ -35,18 +35,13 @@ export class FavouritesStore {
     }
 
     async toggle(ref: AlbumRef): Promise<void> {
-        await (this.isFavourite(ref.albumArtist, ref.album) ? this.remove(ref) : this.add(ref));
+        await (this.isFavourite(ref.release) ? this.remove(ref) : this.add(ref));
     }
-}
-
-// JSON rather than a joined string, so no pair of names can collide with another.
-function keyOf(albumArtist: string, album: string): string {
-    return JSON.stringify([albumArtist, album]);
 }
 
 function path(ref: AlbumRef): string {
     return (
         `/api/favourites/album?artist=${encodeURIComponent(ref.albumArtist)}` +
-        `&album=${encodeURIComponent(ref.album)}`
+        `&release=${encodeURIComponent(ref.release)}`
     );
 }

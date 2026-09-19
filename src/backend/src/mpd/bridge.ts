@@ -25,6 +25,7 @@ import {
     type Reply,
 } from './protocol.ts';
 import { artUriFor } from '../art.ts';
+import { releaseIdOf } from '../release.ts';
 import type { BluetoothState } from '../bluetooth.ts';
 
 /**
@@ -136,6 +137,10 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
     if (tags.get('Artist')) track.artist = tags.get('Artist');
     if (tags.get('Album')) track.album = tags.get('Album');
     if (tags.get('AlbumArtist')) track.albumArtist = tags.get('AlbumArtist');
+    // The one album fact a Track carries. Derived from the tags and the path, so
+    // it costs nothing here — the play log and the now-playing link both need it.
+    const release = releaseIdOf(tags.get('MUSICBRAINZ_ALBUMID'), file);
+    if (release !== null) track.release = release;
     if (tags.get('Track')) track.track = tags.get('Track');
     if (tags.get('Disc')) track.disc = tags.get('Disc');
     if (tags.get('Date')) track.date = tags.get('Date');
@@ -153,7 +158,8 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
  * THESE ARE ALBUM FACTS, and putting them on every Track would repeat them once
  * per row for no gain — a UUID on each of the Beatles' 495 songs, and ten genre
  * strings on each of Pink Floyd's 309. `albumsFromSongs` folds them up to the
- * AlbumSummary, which is where the contract exposes them.
+ * AlbumSummary, which is where the contract exposes them. (`Track.release` is
+ * the deliberate exception; see the note on it in api.ts.)
  *
  * Only the library browse path builds these. `queue()` and `currentsong` have no
  * use for them and go on using `trackFromTags` directly.

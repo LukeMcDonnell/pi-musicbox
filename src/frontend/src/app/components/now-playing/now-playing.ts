@@ -142,9 +142,11 @@ export class NowPlaying implements OnDestroy {
         return this.router.serializeUrl(this.router.createUrlTree(['/library/artist'], { queryParams: { name: ref.albumArtist } }));
     }
 
-    albumHref(ref: { albumArtist: string; album: string }): string {
+    albumHref(ref: { albumArtist: string; album: string; release: string }): string {
         return this.router.serializeUrl(
-            this.router.createUrlTree(['/library/album'], { queryParams: { artist: ref.albumArtist, album: ref.album } }),
+            this.router.createUrlTree(['/library/album'], {
+                queryParams: { artist: ref.albumArtist, album: ref.album, release: ref.release },
+            }),
         );
     }
 
@@ -231,8 +233,12 @@ export class NowPlaying implements OnDestroy {
     readonly libraryAlbum = computed(() => {
         const snap = this.snapshot();
         const track = snap?.track;
-        if (snap?.source !== 'mpd' || !track?.albumArtist || !track.album) return null;
-        return { albumArtist: track.albumArtist, album: track.album };
+        // The release too: the album screen is keyed by it, and without one there
+        // is no album page to link to — four self-titled Weezers share a title.
+        if (snap?.source !== 'mpd' || !track?.albumArtist || !track.album || !track.release) {
+            return null;
+        }
+        return { albumArtist: track.albumArtist, album: track.album, release: track.release };
     });
 
     /** "Luke's iPhone · aptX HD", or just the name until the codec is known. */
