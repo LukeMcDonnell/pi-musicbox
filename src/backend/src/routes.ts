@@ -52,6 +52,7 @@ import {
     sendControl,
     type ControlVerb,
 } from './bluetooth.ts';
+import { CdUnavailableError, DEFAULT_CD_CONTROL_PATH, cdPlayCommands, sendCdControl } from './cd.ts';
 import type { Panel } from './panel.ts';
 import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
@@ -85,6 +86,8 @@ export interface RouteOptions {
     musicRoot: string;
     /** The arbiter's control FIFO. See config.bluetoothControl. */
     bluetoothControl?: string;
+    /** The CD helper's control FIFO. See config.cdControl. */
+    cdControl?: string;
     /** The panel's backlight. Absent on a build with no panel support wired up. */
     panel?: Panel;
     /** The box's settings store. See settings.ts for what belongs in it. */
@@ -155,6 +158,7 @@ function sseFrame(event: string, data: unknown): string {
 export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteHandle {
     const { bridge, build, startedAt, musicRoot } = opts;
     const controlPath = opts.bluetoothControl ?? DEFAULT_CONTROL_PATH;
+    const cdControlPath = opts.cdControl ?? DEFAULT_CD_CONTROL_PATH;
 
     /** Every live SSE stream, so shutdown can end them. */
     const streams = new Set<() => void>();
@@ -1000,6 +1004,31 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
         const body: MostPlayedArtistsResponse = { artists: plays.mostPlayedArtists(count) };
         return body;
+    });
+
+    // Allowed during a Bluetooth session: MPD playing is what hands the DAC back.
+    app.post('/api/cd/play', async (_req: FastifyRequest, reply: FastifyReply) => {
+        const disc = bridge.current.cd;
+        if (disc === null) return reply.code(409).send({ error: 'there is no audio CD in the drive' });
+        try {
+            await bridge.runAll(cdPlayCommands(disc.tracks));
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    app.post('/api/cd/eject', async (_req: FastifyRequest, reply: FastifyReply) => {
+        if (bridge.current.cd === null) {
+            return reply.code(409).send({ error: 'there is no audio CD in the drive' });
+        }
+        try {
+            await sendCdControl('eject', cdControlPath);
+            return reply.code(202).send({ accepted: 'eject' });
+        } catch (err) {
+            if (err instanceof CdUnavailableError) return reply.code(503).send({ error: err.message });
+            throw err;
+        }
     });
 
     return {

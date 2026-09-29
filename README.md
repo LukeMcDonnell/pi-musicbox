@@ -11,7 +11,7 @@ A Raspberry Pi music player appliance.
 | Library | NFS/SMB network share |
 | Web UI | Angular + Fastify at `http://musicbox.local/` |
 | Bluetooth | A2DP sink — a phone pairs and plays through the DAC |
-| Planned | USB CD audio |
+| CD | USB drive — an audio CD plays through MPD, bit-perfect, and can start itself on insert |
 
 ## Run order
 
@@ -22,14 +22,15 @@ sudo reboot                             # 3.
 musicbox-bootreport                     # 4. before/after boot timings
 sudo ./install/setup-hardware.sh        # 5. DAC+, DSI panel, HDMI
 sudo reboot                             # 6.
-sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc, node 24, bluez-alsa)
+sudo ./install/install.sh               # 7. packages (NAS clients, mpd, mpc, node 24, bluez-alsa, eject)
 sudo ./install/setup-nas.sh             # 8. mount the music share (interactive)
 sudo ./install/setup-mpd.sh             # 9. point MPD at the library and the DAC
 sudo ./install/setup-server.sh          # 10. web server + API
 tools/dev-push.sh                       # 11. build here, push the app to the Pi
 sudo ./install/setup-bluetooth.sh       # 12. Bluetooth A2DP sink
-sudo ./install/setup-kiosk.sh           # 13. cage + chromium on the panel
-sudo reboot                             # 14.
+sudo ./install/setup-cd.sh              # 13. USB CD playback
+sudo ./install/setup-kiosk.sh           # 14. cage + chromium on the panel
+sudo reboot                             # 15.
 ```
 
 The three scripts split by concern, and each owns its own managed block in
@@ -44,6 +45,7 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf`, the `MPDCONF=` line that selects it, and the `mpd.service` drop-in that orders MPD ahead of the share |
 | `setup-server.sh` | the web server units, `/etc/musicbox/server.conf`, and `/var/lib/musicbox/data/` where the database lives |
 | `setup-bluetooth.sh` | the A2DP sink, the pairing agent and the DAC arbiter |
+| `setup-cd.sh` | the CD drive watcher, and `mpd` joining `cdrom` |
 | `install.sh` | apt packages, and the NodeSource apt source they need — nothing else |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
@@ -251,7 +253,7 @@ Both halves are now code, split by how generic they are:
 |---|---|
 | HiFiBerry DAC+ | **Configured and working.** `setup-hardware.sh` pins `dtoverlay=hifiberry-dacplus-std` and `dtparam=audio=off`; it is now the only ALSA card (`card 0: snd_rpi_hifiberry_dacplus`). |
 | DSI touchscreen | **Connected.** `card1-DSI-1 status=connected`, mode `800x480`; touch controller `ft5x06` live at i2c `10-0038`. |
-| USB CD drive | Not attached. |
+| USB CD drive | **Attached.** `sr0`, `DVD RW AD-7251H5` in a USB enclosure; `/dev/cdrom` links to it. See `.claude/docs/cd.md`. |
 
 The DAC+ has **no programmed HAT ID EEPROM**, so `/proc/device-tree/hat/` is
 empty and the card will never be auto-detected. This is normal for HiFiBerry and
@@ -593,6 +595,24 @@ therefore waited the full `DefaultTimeoutStopSec` before SIGKILLing it, and
 unit now sets `KillSignal=SIGINT` and `TimeoutStopSec=5`. SIGINT it does act on:
 measured at ~100ms, unregistering from BlueZ on the way out, where SIGTERM never
 returned. The timeout escalates to SIGKILL if that ever changes.
+
+## CD
+
+`setup-cd.sh` makes the USB drive a source. Put in an audio CD and the home
+screen offers **Play** and **Eject**; with *Play CDs when inserted* on (System
+settings, on by default) it starts by itself, and takes over from a phone as any
+MPD playback does. Now Playing and the queue show a disc and "Track 1..N" —
+titles and covers from a disc lookup are the next step.
+
+MPD reads the disc through its built-in `cdio_paranoia` input, so a CD is as
+bit-perfect as the library: nothing new touches `hw:0,0`. A small helper,
+`musicbox-cd`, tells the web server what is in the drive and ejects it. See
+`.claude/docs/cd.md`.
+
+```sh
+musicbox-cd status                     # {"present":true,"tracks":11}
+journalctl -u musicbox-cd -f
+```
 
 ## MPD
 

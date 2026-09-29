@@ -74,6 +74,7 @@ async function startServer(
         forceCloseConnections?: boolean;
         musicRoot?: string;
         bluetoothControl?: string;
+        cdControl?: string;
         panel?: Panel;
         settings?: Settings;
         power?: Power;
@@ -96,6 +97,7 @@ async function startServer(
         // A path that cannot exist, so control attempts fail fast and loudly
         // rather than reaching a real arbiter on a developer's machine.
         bluetoothControl: opts.bluetoothControl ?? '/nonexistent-run-dir/control',
+        cdControl: opts.cdControl ?? '/nonexistent-run-dir/cd-control',
         panel: opts.panel,
         settings: opts.settings,
         power: opts.power,
@@ -1740,4 +1742,85 @@ test('the most played artists route is the last route in the file', () => {
     assert.ok(src.indexOf("app.post('/api/restore'") < src.indexOf("app.get('/api/library/recent'"));
     assert.ok(src.indexOf("app.get('/api/library/recent'") < src.indexOf("app.get('/api/plays/recent'"));
     assert.ok(src.indexOf("app.get('/api/plays/recent'") < src.indexOf("app.get('/api/plays/artists'"));
+});
+
+test('the CD routes refuse when there is no disc', async () => {
+    const { app, routes, port } = await startServer();
+    try {
+        for (const verb of ['play', 'eject']) {
+            const res = await fetch(`http://127.0.0.1:${port}/api/cd/${verb}`, { method: 'POST' });
+            assert.equal(res.status, 409, verb);
+            assert.match(((await res.json()) as { error: string }).error, /no audio CD/);
+        }
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing a disc reaches MPD, and says so when MPD is down', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setCd({ tracks: 4 });
+        const res = await fetch(`http://127.0.0.1:${port}/api/cd/play`, { method: 'POST' });
+        assert.equal(res.status, 503);
+        assert.match(((await res.json()) as { error: string }).error, /MPD is not connected/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing a disc is allowed while a phone owns the DAC', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        await bridge.setCd({ tracks: 4 });
+        const res = await fetch(`http://127.0.0.1:${port}/api/cd/play`, { method: 'POST' });
+        // MPD's error, not a 409: the request got past the source check.
+        assert.equal(res.status, 503);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('eject reaches the helper, and reports honestly when it cannot', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setCd({ tracks: 4 });
+        const res = await fetch(`http://127.0.0.1:${port}/api/cd/eject`, { method: 'POST' });
+        assert.equal(res.status, 503);
+        assert.match(((await res.json()) as { error: string }).error, /CD helper is not running/);
+    } finally {
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('eject writes one verb into the FIFO and answers 202', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-routes-'));
+    try {
+        const fifo = join(dir, 'control');
+        await new Promise<void>((resolve, reject) => {
+            execFile('mkfifo', [fifo], (e) => (e ? reject(e) : resolve()));
+        });
+        const reader = await fsOpen(fifo, fsConstants.O_RDWR | fsConstants.O_NONBLOCK);
+        const { app, bridge, routes, port } = await startServer({ cdControl: fifo });
+        try {
+            await bridge.setCd({ tracks: 4 });
+            const res = await fetch(`http://127.0.0.1:${port}/api/cd/eject`, { method: 'POST' });
+            assert.equal(res.status, 202);
+            assert.deepEqual(await res.json(), { accepted: 'eject' });
+            const buf = Buffer.alloc(32);
+            const { bytesRead } = await reader.read(buf, 0, buf.length, null);
+            assert.equal(buf.subarray(0, bytesRead).toString('utf8'), 'eject\n');
+        } finally {
+            routes.closeStreams();
+            await app.close();
+            await reader.close();
+        }
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
 });

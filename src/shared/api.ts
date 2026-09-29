@@ -31,10 +31,26 @@ export const API_VERSION = 1;
 /**
  * Playback sources. Exactly one owns the DAC at a time — `hw:0,0` is opened raw,
  * with no mixing layer, so this is a hard exclusion and not a preference.
- * See .claude/docs/bluetooth.md for how the handoff is sequenced. CD is not
- * implemented yet.
+ * See .claude/docs/bluetooth.md for how the handoff is sequenced.
+ *
+ * 'cd' is MPD playing a `cdda://` track: MPD still owns the DAC, so there is no
+ * handoff of its own. See .claude/docs/cd.md.
  */
 export type Source = 'mpd' | 'bluetooth' | 'cd';
+
+/** How MPD names a track on the disc: `cdda:///3` is track 3. */
+export const CD_URI_PREFIX = 'cdda://';
+
+/** Whether a track is on the CD rather than in the library. */
+export function isCdTrack(track: { file?: string } | null | undefined): boolean {
+    return track?.file?.startsWith(CD_URI_PREFIX) ?? false;
+}
+
+/** An audio CD in the drive. */
+export interface CdInfo {
+    /** Audio tracks on the disc, numbered 1..tracks. */
+    tracks: number;
+}
 
 export type PlaybackState = 'play' | 'pause' | 'stop';
 
@@ -259,6 +275,12 @@ export interface Snapshot {
      * the next snapshot — it is simply not what is playing.
      */
     bluetooth: BluetoothInfo | null;
+
+    /**
+     * The audio CD in the drive, or null when there is none — whichever source is
+     * playing. Always present as a key, like `bluetooth`.
+     */
+    cd: CdInfo | null;
 
     /*
      * NOTE: there is no `volume`. This box has no volume control — it feeds a
@@ -630,6 +652,16 @@ export interface AlbumRef {
 }
 
 /*
+ * THE CD
+ *
+ *   POST /api/cd/play    replace the queue with the disc and play it; a Snapshot
+ *   POST /api/cd/eject   202; stops MPD first if it is playing the disc
+ *
+ * Both 409 when there is no audio CD in the drive. Play takes over from a phone,
+ * as any MPD play does; eject answers 503 when the CD helper is not installed.
+ */
+
+/*
  * PUTTING AN ALBUM IN THE QUEUE
  *
  *   POST /api/library/queue   appends it
@@ -724,6 +756,8 @@ export interface SettingsResponse {
     libraryScanHour: number;
     /** Scan the library once, a couple of minutes after the box starts up. */
     libraryScanOnBoot: boolean;
+    /** Start playing an audio CD as soon as one is inserted. */
+    cdAutoPlay: boolean;
 }
 
 /**

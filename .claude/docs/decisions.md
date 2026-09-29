@@ -1767,3 +1767,25 @@ panel — which sits on one screen for hours — a transient failure blanks a co
 until you navigate away. Clearing the set when the SSE stream reconnects is the
 minimal fix, and it is on the roadmap rather than in this change, because
 `(error)` is not the fault being fixed.
+
+## CD: MPD plays the disc, and a helper only watches the drive (2026-09-29)
+
+**Not a second player.** `cdparanoia | aplay` or similar would be a third thing
+wanting `hw:0,0` and would need its own leg in the Bluetooth arbiter. MPD's
+`cdio_paranoia` input is already built in, so a disc is just a queue of
+`cdda:///N` URIs and the existing "MPD started playing" handoff covers it.
+
+**Tracks are numbered 1..N from `ID_CDROM_MEDIA_TRACK_COUNT_AUDIO`.** udev gives a
+count, not a TOC. Right for every ordinary CD and for an Enhanced CD (data track
+last); wrong for the rare mixed-mode disc whose data track comes first. Accepted
+for this cut — disc lookup will need the TOC anyway, and fixes it then.
+
+**The helper is not root.** Reading udev events needs nothing and eject needs
+only `cdrom`, so it runs as `musicbox` — unlike `musicbox-bt`, which starts units
+and has to be.
+
+**`Snapshot.cd` rather than an SSE event of its own.** A disc in the drive is a
+source you can play, the same kind of fact as a connected phone, and it has to
+change the Now Playing and home screens in the same frame as `source` does.
+
+See `cd.md`.

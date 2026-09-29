@@ -12,6 +12,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { DEFAULT_CD_CONTROL_PATH, DEFAULT_CD_STATE_PATH } from './cd.ts';
 
 export interface Config {
     port: number;
@@ -40,6 +41,9 @@ export interface Config {
      * for why it is a FIFO and not a subprocess.
      */
     bluetoothControl: string;
+    /** The CD helper's state file and control FIFO; see cd.ts and install/setup-cd.sh. */
+    cdState: string;
+    cdControl: string;
     /**
      * The SQLite file holding the box's own state — settings now, favourites
      * and recent plays later.
@@ -74,6 +78,8 @@ export const DEFAULTS: Config = {
     musicRoot: '/srv/music/Music',
     bluetoothState: '/run/musicbox/bluetooth.json',
     bluetoothControl: '/run/musicbox/control',
+    cdState: DEFAULT_CD_STATE_PATH,
+    cdControl: DEFAULT_CD_CONTROL_PATH,
     dbPath: '/var/lib/musicbox/data/musicbox.db',
     powerDir: '/run/musicbox-power',
     mpdStateDir: '/var/lib/mpd',
@@ -140,6 +146,8 @@ export function loadConfig(
         musicRoot: pick('MUSICBOX_MUSIC_ROOT') ?? DEFAULTS.musicRoot,
         bluetoothState: pick('MUSICBOX_BLUETOOTH_STATE') ?? DEFAULTS.bluetoothState,
         bluetoothControl: pick('MUSICBOX_BLUETOOTH_CONTROL') ?? DEFAULTS.bluetoothControl,
+        cdState: pick('MUSICBOX_CD_STATE') ?? DEFAULTS.cdState,
+        cdControl: pick('MUSICBOX_CD_CONTROL') ?? DEFAULTS.cdControl,
         dbPath: pick('MUSICBOX_DB') ?? DEFAULTS.dbPath,
         powerDir: pick('MUSICBOX_POWER_DIR') ?? DEFAULTS.powerDir,
         mpdStateDir: pick('MUSICBOX_MPD_STATE_DIR') ?? DEFAULTS.mpdStateDir,

@@ -35,6 +35,8 @@ export interface SettingsValues {
     libraryScanHour: number;
     /** Scan once a couple of minutes after startup. */
     libraryScanOnBoot: boolean;
+    /** Play an audio CD as soon as it is inserted. */
+    cdAutoPlay: boolean;
 }
 
 export const SETTINGS_DEFAULTS: Readonly<SettingsValues> = {
@@ -45,6 +47,8 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsValues> = {
     // hour, and one nobody asked for looks like the box has seized up.
     libraryScanHour: -1,
     libraryScanOnBoot: false,
+    // On: a disc going into a CD player and playing is what anyone expects.
+    cdAutoPlay: true,
 };
 
 /** One per key, and the only way a stored row becomes a setting. */
@@ -67,6 +71,8 @@ const GUARDS: { [K in keyof SettingsValues]: (value: string) => SettingsValues[K
     },
     // `set` stores String(value), so a boolean arrives back as 'true'/'false'.
     libraryScanOnBoot: (value) =>
+        value === 'true' ? true : value === 'false' ? false : undefined,
+    cdAutoPlay: (value) =>
         value === 'true' ? true : value === 'false' ? false : undefined,
 };
 

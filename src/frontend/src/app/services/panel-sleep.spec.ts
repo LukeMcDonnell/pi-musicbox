@@ -16,6 +16,7 @@ function snapshot(state: PlaybackState): Snapshot {
         source: 'mpd',
         state,
         bluetooth: null,
+        cd: null,
         repeat: false,
         random: false,
         single: false,

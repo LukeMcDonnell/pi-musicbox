@@ -136,6 +136,9 @@ export class MusicboxApi {
      */
     readonly bluetooth = computed(() => this._snapshot()?.bluetooth ?? null);
 
+    /** The audio CD in the drive, whatever is playing; null without one. */
+    readonly cd = computed(() => this._snapshot()?.cd ?? null);
+
     private source: EventSource | null = null;
 
     /**
@@ -314,6 +317,16 @@ export class MusicboxApi {
      */
     async disconnectBluetooth(): Promise<void> {
         await this.api.post('/api/bluetooth/disconnect');
+    }
+
+    /** Replace the queue with the disc and play it. Takes over from a phone. */
+    async playCd(): Promise<void> {
+        await this.api.post('/api/cd/play');
+    }
+
+    /** Stops MPD first if it is playing the disc; the drive then reports empty. */
+    async ejectCd(): Promise<void> {
+        await this.api.post('/api/cd/eject');
     }
 
     /** One-shot GET. Prefer the `queue` signal, which keeps itself current. */

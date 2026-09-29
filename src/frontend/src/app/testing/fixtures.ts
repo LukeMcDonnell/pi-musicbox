@@ -13,6 +13,7 @@ export function boxSettings(overrides: Partial<SettingsResponse> = {}): Settings
         panelSleepAfterMinutes: 0,
         libraryScanHour: -1,
         libraryScanOnBoot: false,
+        cdAutoPlay: true,
         ...overrides,
     };
 }

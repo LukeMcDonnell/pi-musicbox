@@ -552,3 +552,38 @@ test('songFromTags leaves absent album tags absent rather than empty', () => {
     assert.ok(!('label' in song));
     assert.ok(!('mbAlbumId' in song));
 });
+
+const DISC = { tracks: 11 };
+const CD_CURRENT = reply('file: cdda:///3', 'Format: 44100:16:2', 'Time: 200', 'duration: 200.000', 'Pos: 2', 'Id: 40');
+
+test('a disc track is "Track N" with no art, release or container', () => {
+    const track = trackFromTags(groupBy(CD_CURRENT, 'file')[0]);
+    assert.deepEqual(track, {
+        file: 'cdda:///3',
+        image: null,
+        title: 'Track 3',
+        track: '3',
+        id: 40,
+        position: 2,
+        format: '44100:16:2',
+        duration: 200,
+    });
+});
+
+test('playing a disc track makes the source cd', () => {
+    assert.equal(buildSnapshot(STATUS, CD_CURRENT, 0, null, DISC).source, 'cd');
+    // A disc in the drive does not make a library track a CD one.
+    assert.equal(buildSnapshot(STATUS, CURRENT, 0, null, DISC).source, 'mpd');
+});
+
+test('the disc is on every kind of snapshot, and null without one', () => {
+    assert.deepEqual(buildSnapshot(STATUS, CURRENT, 0, null, DISC).cd, DISC);
+    assert.deepEqual(buildSnapshot(STATUS, CURRENT, 0, PHONE, DISC).cd, DISC);
+    assert.deepEqual(unavailableSnapshot(0, null, DISC).cd, DISC);
+    assert.deepEqual(unavailableSnapshot(0, PHONE, DISC).cd, DISC);
+    assert.equal(buildSnapshot(STATUS, CURRENT, 0).cd, null);
+    assert.deepEqual(
+        Object.keys(buildSnapshot(STATUS, CURRENT, 0, null, DISC)).sort(),
+        Object.keys(unavailableSnapshot(0)).sort(),
+    );
+});

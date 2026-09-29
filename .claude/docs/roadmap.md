@@ -191,9 +191,12 @@ Not yet checked on the panel itself.
    no new code. See the "Browsing the library" section of `README.md` for the
    measurements that shaped it, and `decisions.md` for what they ruled out.
    Search is the remaining half and the API is shaped for it.
-2. **USB CD** — playback and ripping (`cdparanoia` / `libcdio-utils`). Note the
-   DAC exclusion that Bluetooth ran into applies again: whatever plays a CD has
-   to go through the same arbiter, not open `hw:0,0` for itself.
+2. **USB CD, the rest.** Playback landed (`cd.md`). Next: disc lookup for track
+   titles and cover art (MusicBrainz disc id — needs the TOC, so `libcdio-utils`
+   or `cd-discid`). The same TOC gives per-track durations, which the queue lacks
+   today because MPD knows a `cdda://` track's length only once it plays. Then
+   ripping (`cdparanoia`). A mixed-mode disc with a
+   leading data track is a known gap in the current numbering.
 3. **Repeat and shuffle control, for both sources at once.** They are now
    *reflected* in the snapshot — AVRCP's `Repeat`/`Shuffle` for a phone, MPD's own
    flags otherwise — but nothing can change them: there has never been an API for

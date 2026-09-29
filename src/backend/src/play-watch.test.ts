@@ -44,6 +44,7 @@ function frame({ at, track = song('a.flac', 1), state = 'play', elapsed = 0, sou
         source,
         state,
         bluetooth: null,
+        cd: null,
         repeat: false,
         random: false,
         single: false,
@@ -179,6 +180,15 @@ test('a phone taking over ends the MPD play and records nothing of its own', () 
         plays.recorded.map((p) => p.file),
         ['a.flac'],
     );
+});
+
+test('a CD track is never recorded: it has no library album', () => {
+    const plays = recorder();
+    const watch = createPlayWatch(plays);
+    const disc: Track = { file: 'cdda:///1', title: 'Track 1', image: null };
+    watch.observe(frame({ at: 0, source: 'cd', track: disc }));
+    watch.observe(frame({ at: 300 * SECOND, source: 'cd', track: disc }));
+    assert.equal(plays.recorded.length, 0);
 });
 
 test('MPD going unavailable banks what was playing and stops there', () => {

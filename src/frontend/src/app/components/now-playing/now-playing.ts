@@ -22,6 +22,8 @@ import {
     LucideSkipForward,
     LucideBluetooth,
     LucideChevronDown,
+    LucideDisc3,
+    LucideEject,
     LucideX,
 } from '@lucide/angular';
 import { NavigationCancel, NavigationEnd, NavigationError, NavigationSkipped, Router } from '@angular/router';
@@ -98,6 +100,8 @@ const SYNC_TIMEOUT_MS = 500;
         LucideSkipForward,
         LucideBluetooth,
         LucideChevronDown,
+        LucideDisc3,
+        LucideEject,
         LucideX,
         Queue,
     ],
@@ -229,6 +233,9 @@ export class NowPlaying implements OnDestroy {
      */
     readonly onBluetooth = computed(() => this.snapshot()?.source === 'bluetooth');
 
+    /** Playing the disc: a CD icon for art, and Eject where Disconnect would be. */
+    readonly onCd = computed(() => this.snapshot()?.source === 'cd');
+
     /** The playing album, when the library can open it: an MPD track with both tags. */
     readonly libraryAlbum = computed(() => {
         const snap = this.snapshot();
@@ -298,7 +305,8 @@ export class NowPlaying implements OnDestroy {
         }
         if (!this.mpdAvailable()) return 'no mpd';
         const format = this.formatLabel();
-        return format ? `mpd · ${format}` : 'mpd';
+        const source = this.onCd() ? 'cd' : 'mpd';
+        return format ? `${source} · ${format}` : source;
     });
 
     readonly pillClass = computed(() => {
@@ -387,6 +395,15 @@ export class NowPlaying implements OnDestroy {
         // sent `play`, which started MPD and made the arbiter disconnect. That is
         // now an explicit Disconnect button.
         await this.command(this.playing() ? 'pause' : 'play');
+    }
+
+    async ejectCd(): Promise<void> {
+        this.error.set(null);
+        try {
+            await this.api.ejectCd();
+        } catch (err) {
+            this.error.set((err as Error).message);
+        }
     }
 
     /** Hand the DAC back to MPD. Leaves MPD paused where it was. */

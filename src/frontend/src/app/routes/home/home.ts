@@ -7,6 +7,7 @@ import { LibraryStore } from '../../services/library-store';
 import { PlaysStore } from '../../services/plays-store';
 import { AlbumCard } from './components/album-card/album-card';
 import { ArtistCard } from './components/artist-card/artist-card';
+import { CdCard } from './components/cd-card/cd-card';
 import { Shelf } from './components/shelf/shelf';
 import { ShelfSkeleton } from './components/shelf-skeleton/shelf-skeleton';
 
@@ -17,7 +18,10 @@ import { ShelfSkeleton } from './components/shelf-skeleton/shelf-skeleton';
   picked at random; the rest are the first ten of the lists their own screens
   show.
 
-  RECENT PLAYS LEADS because picking up where you left off is the commonest
+  A CD IN THE DRIVE COMES FIRST of all, above the shelves: it is the one thing
+  here that someone just physically did.
+
+  RECENT PLAYS LEADS the shelves because picking up where you left off is the commonest
   reason to walk up to the box, and it is the shelf that changes most.
 
   EACH SHELF SAYS ITS OWN PIECE. A box that has played nothing must not take the
@@ -28,7 +32,7 @@ import { ShelfSkeleton } from './components/shelf-skeleton/shelf-skeleton';
 */
 @Component({
     selector: 'app-home',
-    imports: [AlbumCard, ArtistCard, Shelf, ShelfSkeleton],
+    imports: [AlbumCard, ArtistCard, CdCard, Shelf, ShelfSkeleton],
     templateUrl: './home.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })

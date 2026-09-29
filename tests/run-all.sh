@@ -49,6 +49,9 @@ bash tests/test-server-config.sh || rc=1
 step "bluetooth config tests"
 bash tests/test-bluetooth-config.sh || rc=1
 
+step "CD config tests"
+bash tests/test-cd-config.sh || rc=1
+
 step "backend unit tests (node)"
 # node 24: the backend imports node:sqlite and the tests are .ts run directly.
 # Debian's 20 fails both, and this says so rather than leaving a cryptic error.

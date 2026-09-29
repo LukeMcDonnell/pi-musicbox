@@ -103,6 +103,12 @@ async function startFakeMpd(
                     socket.write('file: A/Album/01.flac\nAlbumArtist: A\nAlbum: Album\nAdded: 2026-09-17T10:00:00Z\nOK\n');
                 } else if (line === 'currentsong') {
                     socket.write(SONG_REPLY);
+                } else if (line === 'playlistinfo') {
+                    socket.write(
+                        'file: cdda:///1\nPos: 0\nId: 20\n' +
+                            'file: A/Album/01.flac\nPos: 1\nId: 21\n' +
+                            'file: cdda:///2\nPos: 2\nId: 22\nOK\n',
+                    );
                 } else {
                     socket.write('OK\n');
                 }
@@ -479,4 +485,18 @@ test('songsByAdded asks MPD for a window of the newest songs first', async () =>
 
     bridge.stop();
     await fake.close();
+});
+
+test('removing the disc deletes exactly its tracks from the queue', async () => {
+    const fake = await startFakeMpd({ idleForever: true });
+    const { bridge } = makeBridge(fake);
+    bridge.start();
+    await wait(150);
+    await bridge.removeCdTracks();
+    bridge.stop();
+    await fake.close();
+    assert.deepEqual(
+        fake.commands.filter((c) => c.startsWith('deleteid')),
+        ['deleteid 20', 'deleteid 22'],
+    );
 });

@@ -1,6 +1,7 @@
 import { Component, computed, inject, output, signal } from '@angular/core';
 import {
     LucideBluetooth,
+    LucideDisc3,
     LucideMusic,
     LucidePause,
     LucidePlay,
@@ -28,7 +29,7 @@ import { MusicboxApi } from '../../services/musicbox-api';
 */
 @Component({
     selector: 'app-now-playing-mini',
-    imports: [LucideBluetooth, LucideMusic, LucidePause, LucidePlay, LucideSkipForward],
+    imports: [LucideBluetooth, LucideDisc3, LucideMusic, LucidePause, LucidePlay, LucideSkipForward],
     templateUrl: './now-playing-mini.html',
     // overflow-hidden clips the viewport-sized backdrop to the bar.
     host: { class: 'block overflow-hidden bg-surface' },
@@ -42,6 +43,7 @@ export class NowPlayingMini {
     readonly track = computed(() => this.api.snapshot()?.track ?? null);
     readonly playing = computed(() => this.api.snapshot()?.state === 'play');
     readonly onBluetooth = computed(() => this.api.snapshot()?.source === 'bluetooth');
+    readonly onCd = computed(() => this.api.snapshot()?.source === 'cd');
 
     readonly trackTitle = computed(() => {
         const track = this.track();

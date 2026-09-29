@@ -144,4 +144,20 @@ describe('SystemSettings', () => {
         expect(el.querySelector('app-backup-restore')).toBeNull();
         expect(el.textContent).not.toContain('Backup');
     });
+
+    it('shows CD auto-play as the box has it, and saves a toggle to the box', async () => {
+        const { fixture, settings, patchJson } = create(0);
+        const el = fixture.nativeElement as HTMLElement;
+        const toggle = () => el.querySelector<HTMLButtonElement>('[role="switch"]')!;
+        expect(toggle().textContent).toContain('Play CDs when inserted');
+        expect(toggle().getAttribute('aria-checked')).toBe('true');
+
+        settings.set(boxSettings({ cdAutoPlay: false }));
+        fixture.detectChanges();
+        expect(toggle().getAttribute('aria-checked')).toBe('false');
+
+        toggle().click();
+        await fixture.whenStable();
+        expect(patchJson).toHaveBeenCalledWith('/api/settings', { cdAutoPlay: true });
+    });
 });

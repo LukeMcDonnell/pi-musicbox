@@ -23,6 +23,7 @@ for whoever is editing the code.
 | `.claude/docs/testing.md` | Writing or debugging tests |
 | `.claude/docs/roadmap.md` | Picking up the next piece of work |
 | `.claude/docs/bluetooth.md` | **Anything Bluetooth.** The A2DP sink, why the DAC handoff is sequenced by a root arbiter rather than the backend, the codec ladder and why there is no AAC |
+| `.claude/docs/cd.md` | **Anything CD.** Why MPD plays the disc, the eject sequencing, why auto-play ignores a disc already in at startup |
 | `.claude/docs/clock-deadlock.md` | **Any "the box stopped responding" report — start here.** Diagnosed: a firmware/clock deadlock. Has the triage commands and tells this fault apart from the wifi one |
 | `.claude/docs/wifi-instability.md` | The *other* "stopped responding" fault — network drops, kiosk keeps running. Open issue, and there is temporary instrumentation on the device |
 
@@ -84,8 +85,8 @@ Node 24+ is required: the backend imports `node:sqlite` and the tests are `.ts`
 run directly. Debian's node 20 does neither.
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 9 suites (745 asserts) + 375 node tests
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 330 specs
+bash tests/run-all.sh          # shellcheck + 10 suites (786 asserts) + 454 node tests
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 402 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s

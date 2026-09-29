@@ -24,6 +24,8 @@
              width="69" height="69" (error)="onArtError(uri)">
       } @else if (onBluetooth()) {
         <svg lucideBluetooth class="size-6 text-muted" aria-hidden="true"></svg>
+      } @else if (onCd()) {
+        <svg lucideDisc3 class="size-6 text-muted" aria-hidden="true"></svg>
       } @else {
         <svg lucideMusic class="size-6 text-muted" aria-hidden="true"></svg>
       }
@@ -36,7 +38,7 @@
           <span class="block truncate text-[0.85rem] text-warn" role="alert">{{ message }}</span>
         } @else {
           <span class="block truncate text-[0.85rem] text-accent">
-            {{ t.artist || 'Unknown artist' }}
+            {{ t.artist || (onCd() ? 'Audio CD' : 'Unknown artist') }}
           </span>
         }
       } @else {

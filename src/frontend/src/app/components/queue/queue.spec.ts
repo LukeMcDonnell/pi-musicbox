@@ -15,6 +15,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
         source: 'mpd',
         state: 'play',
         bluetooth: null,
+        cd: null,
         repeat: false,
         random: false,
         single: false,
@@ -81,5 +82,31 @@ describe('Queue', () => {
             const queue = make();
             expect(queue.rows()).toEqual(queue.upNext());
         });
+    });
+
+    it('shows a disc track with a CD icon and "Audio CD"', () => {
+        const disc: Track[] = [
+            { id: 1, file: 'cdda:///1', title: 'Track 1', image: null },
+            { id: 2, file: 'cdda:///2', title: 'Track 2', image: null },
+        ];
+        TestBed.configureTestingModule({
+            imports: [Queue],
+            providers: [{
+                provide: MusicboxApi,
+                useValue: {
+                    queue: () => disc,
+                    snapshot: () => snapshot({ source: 'cd', queuePosition: 0, queueLength: 2 }),
+                    hasQueue: () => true,
+                    resolve: (p: string) => p,
+                },
+            }],
+        });
+        const fixture = TestBed.createComponent(Queue);
+        fixture.detectChanges();
+        const el = fixture.nativeElement as HTMLElement;
+        expect(el.textContent).toContain('Track 2');
+        expect(el.textContent).toContain('Audio CD');
+        expect(el.querySelector('svg[lucideDisc3]')).not.toBeNull();
+        expect(el.querySelector('svg[lucideMusic]')).toBeNull();
     });
 });

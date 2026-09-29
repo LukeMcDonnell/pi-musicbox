@@ -37,51 +37,25 @@
  *   MPD commands already have. Honest here too — AVRCP status takes seconds to
  *   settle, so a synchronous answer would be a guess.
  *
- * WHY THE DIRECTORY IS WATCHED, NOT THE FILE
- *   The arbiter writes to a temp file and renames it over the target, so the
- *   reader never sees a half-written document. A rename REPLACES the inode, and
- *   an fs.watch on the path follows the old inode into oblivion — it fires once
- *   and then goes silent forever. Watching the containing directory is what
- *   survives that. The same reason tools/dev-push.sh does not pass rsync
- *   --inplace.
- *
- * WHY THERE IS ALSO A POLL, AND WHY IT RE-ARMS THE WATCH
- *   /run is a tmpfs so inotify is reliable there, but this is the only channel
- *   between the two halves of the feature and a missed event would leave the UI
- *   claiming a phone is connected indefinitely. The poll is the floor on how
- *   wrong the UI can get; it is not the primary mechanism.
- *
- *   It also retries the watch, and that is not defensive padding — it is the
- *   normal path. /run/musicbox is created by the arbiter's RuntimeDirectory, and
- *   this server is deliberately not ordered after the arbiter, so at boot the
- *   directory reliably does not exist yet and the initial watch fails with
- *   ENOENT. Observed on the device: without the retry the feature silently ran on
- *   10-second polling forever, which looks like "the UI is a bit slow" rather
- *   than like a bug.
- *
- *   AND IT CHECKS THE DIRECTORY HAS NOT BEEN REPLACED. Restarting the arbiter
- *   deletes and recreates /run/musicbox, because that is what systemd's
- *   RuntimeDirectory does. inotify watches an inode, so the watch then points at
- *   a directory that no longer exists and never fires again — the same trap as
- *   watching the state file across a rename, one level up. Observed on the
- *   device: the arbiter was publishing correctly and the API showed nothing.
- *   Comparing the inode each poll is what catches it.
+ * The watch-and-poll machinery lives in state-file.ts, shared with the CD helper.
  */
 
-import { readFile, open as openFile, stat } from 'node:fs/promises';
-import { watch, statSync, constants as fsConstants } from 'node:fs';
-import type { FSWatcher } from 'node:fs';
-import { dirname } from 'node:path';
 import type { BluetoothInfo, PlaybackState } from '../../shared/api.ts';
+import {
+    DEFAULT_POLL_MS,
+    FifoUnavailableError,
+    createStateFileWatcher,
+    writeFifoLine,
+} from './state-file.ts';
+import type { StateFileDeps } from './state-file.ts';
+
+export { DEFAULT_POLL_MS };
 
 /** Where install/setup-bluetooth.sh puts the state file. See config.bluetoothState. */
 export const DEFAULT_STATE_PATH = '/run/musicbox/bluetooth.json';
 
 /** The FIFO the arbiter reads commands from. See config.bluetoothControl. */
 export const DEFAULT_CONTROL_PATH = '/run/musicbox/control';
-
-/** Backstop for a missed inotify event. Long: this is a safety net, not the channel. */
-export const DEFAULT_POLL_MS = 10_000;
 
 /**
  * What the arbiter knows: the device, plus whatever AVRCP is reporting.
@@ -216,21 +190,7 @@ export function parseBluetoothState(text: string | null): BluetoothState | null 
 }
 
 /** Injected in tests so the watcher can be driven without a real filesystem. */
-export interface BluetoothDeps {
-    readText: (path: string) => Promise<string | null>;
-}
-
-const realDeps: BluetoothDeps = {
-    readText: async (path) => {
-        try {
-            return await readFile(path, 'utf8');
-        } catch {
-            // Absent is the normal state: the arbiter only creates the file once
-            // Bluetooth has been set up, and this server runs on dev machines too.
-            return null;
-        }
-    },
-};
+export type BluetoothDeps = StateFileDeps;
 
 export interface BluetoothWatcherOptions {
     path?: string;
@@ -242,20 +202,11 @@ export interface BluetoothWatcherOptions {
 }
 
 export interface BluetoothWatcher {
-    /** Read once and emit if it differs. Called on every event and on startup. */
     poll: () => Promise<void>;
     /** Last value emitted. */
     current: () => BluetoothState | null;
-    /** Whether an inotify watch is currently established. Test seam. */
     watching: () => boolean;
-    /**
-     * Release the inotify watch and the timer.
-     *
-     * MUST be called from the server's shutdown path: an active fs.watch and an
-     * unref'd-nothing interval both hold the event loop open, and this service has
-     * already been bitten once by something that never lets go on SIGTERM (the SSE
-     * streams — see routes.ts RouteHandle).
-     */
+    /** Must be called from the server's shutdown path. */
     stop: () => void;
 }
 
@@ -294,102 +245,17 @@ function same(a: BluetoothState | null, b: BluetoothState | null): boolean {
 }
 
 export function createBluetoothWatcher(opts: BluetoothWatcherOptions): BluetoothWatcher {
-    const path = opts.path ?? DEFAULT_STATE_PATH;
-    const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
-    const deps = opts.deps ?? realDeps;
-    const log = opts.log ?? (() => {});
-
-    let value: BluetoothState | null = null;
-    let stopped = false;
-    let watcher: FSWatcher | null = null;
-    let armWarned = false;
-    /** Inode of the directory the current watch is on, to notice a replacement. */
-    let watchedIno: number | null = null;
-
-    /**
-     * Try to establish the inotify watch, returning whether one is now active.
-     *
-     * Called on startup and again from every poll while there is no watch. A
-     * missing directory is the EXPECTED state at boot — the arbiter's
-     * RuntimeDirectory creates it, and this server starts in parallel with the
-     * arbiter by design — so it is not logged as a failure, only once as a note.
-     */
-    const arm = (): boolean => {
-        if (stopped || watcher !== null) return watcher !== null;
-        try {
-            const w = watch(dirname(path), () => void poll());
-            w.on('error', (err) => {
-                log('warn', `bluetooth state watch dropped, falling back to polling: ${(err as Error).message}`);
-                w.close();
-                if (watcher === w) watcher = null;
-            });
-            watcher = w;
-            try {
-                watchedIno = statSync(dirname(path)).ino;
-            } catch {
-                watchedIno = null;
-            }
-            if (armWarned) log('info', `bluetooth state watch established on ${dirname(path)}`);
-            return true;
-        } catch {
-            if (!armWarned) {
-                armWarned = true;
-                log('info', `${dirname(path)} does not exist yet — polling until it does`);
-            }
-            return false;
-        }
-    };
-
-    /**
-     * Drop the watch if the directory it points at has been replaced.
-     *
-     * systemd deletes and recreates a RuntimeDirectory on every restart of the
-     * owning unit, so this happens whenever the arbiter is restarted — which a
-     * deploy does. The watch survives the call but is attached to a dead inode.
-     */
-    const dropStaleWatch = async (): Promise<void> => {
-        if (watcher === null) return;
-        let ino: number | null = null;
-        try {
-            ino = (await stat(dirname(path))).ino;
-        } catch {
-            ino = null;
-        }
-        if (ino === watchedIno) return;
-        log('info', `bluetooth state directory was replaced — re-arming the watch`);
-        watcher.close();
-        watcher = null;
-        watchedIno = null;
-    };
-
-    const poll = async (): Promise<void> => {
-        if (stopped) return;
-        // Before reading, so the directory appearing — or reappearing — is noticed
-        // in the same tick that first sees a file in it.
-        await dropStaleWatch();
-        if (stopped) return;
-        arm();
-        const next = parseBluetoothState(await deps.readText(path));
-        if (stopped || same(value, next)) return;
-        value = next;
-        opts.onChange(next);
-    };
-
-    arm();
-
-    const timer = setInterval(() => void poll(), pollMs);
-
-    return {
-        poll,
-        current: () => value,
-        watching: () => watcher !== null,
-        stop: () => {
-            stopped = true;
-            clearInterval(timer);
-            watcher?.close();
-            watcher = null;
-        },
-    };
+    return createStateFileWatcher<BluetoothState | null>({
+        path: opts.path ?? DEFAULT_STATE_PATH,
+        parse: parseBluetoothState,
+        same,
+        initial: null,
+        label: 'bluetooth',
+        pollMs: opts.pollMs,
+        deps: opts.deps,
+        onChange: (state) => opts.onChange(state),
+        log: opts.log,
+    });
 }
 
 /**
@@ -408,12 +274,6 @@ export class BluetoothUnavailableError extends Error {}
 /**
  * Send one verb to the arbiter.
  *
- * NON-BLOCKING OPEN, AND THAT IS THE WHOLE TRICK. Opening a FIFO for writing
- * blocks until a reader appears — so on a box where the arbiter is not running
- * (no setup-bluetooth.sh, or the unit stopped) a plain open would hang the HTTP
- * request until the client gave up. O_NONBLOCK makes the kernel answer ENXIO
- * immediately instead, which becomes a clean 503.
- *
  * Fire-and-forget by design: the result arrives as the next snapshot, the same
  * contract MPD commands already have. A synchronous answer would be a guess —
  * AVRCP Status was measured taking about four seconds to settle.
@@ -422,23 +282,14 @@ export async function sendControl(
     verb: ControlVerb,
     path: string = DEFAULT_CONTROL_PATH,
 ): Promise<void> {
-    let handle;
     try {
-        handle = await openFile(path, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+        await writeFifoLine(path, verb);
     } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        // ENXIO: the FIFO exists but nobody is reading it. ENOENT: no FIFO at all.
-        // Both mean the same thing to a caller, and neither is a server fault.
-        if (code === 'ENXIO' || code === 'ENOENT') {
+        if (err instanceof FifoUnavailableError) {
             throw new BluetoothUnavailableError(
                 'the Bluetooth arbiter is not running (musicbox-bt-monitor)',
             );
         }
         throw err;
-    }
-    try {
-        await handle.write(`${verb}\n`);
-    } finally {
-        await handle.close();
     }
 }

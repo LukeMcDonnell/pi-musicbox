@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { LucideBluetooth, LucideMusic } from '@lucide/angular';
+import { LucideBluetooth, LucideDisc3, LucideMusic } from '@lucide/angular';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 
@@ -21,7 +21,7 @@ import { NowPlayingSheet } from '../../services/now-playing-sheet';
 */
 @Component({
     selector: 'app-now-playing-micro',
-    imports: [LucideBluetooth, LucideMusic],
+    imports: [LucideBluetooth, LucideDisc3, LucideMusic],
     template: `
       <button class="flex h-full w-full cursor-pointer touch-manipulation items-center justify-center
                      py-2 select-none active:bg-raised max-[46rem]:py-1"
@@ -34,6 +34,8 @@ import { NowPlayingSheet } from '../../services/now-playing-sheet';
                  width="60" height="60" (error)="onArtError(uri)">
           } @else if (onBluetooth()) {
             <svg lucideBluetooth class="size-6 text-muted max-[46rem]:size-5" aria-hidden="true"></svg>
+          } @else if (onCd()) {
+            <svg lucideDisc3 class="size-6 text-muted max-[46rem]:size-5" aria-hidden="true"></svg>
           } @else {
             <svg lucideMusic class="size-6 text-muted max-[46rem]:size-5" aria-hidden="true"></svg>
           }
@@ -47,6 +49,7 @@ export class NowPlayingMicro {
 
     private readonly track = computed(() => this.api.snapshot()?.track ?? null);
     readonly onBluetooth = computed(() => this.api.snapshot()?.source === 'bluetooth');
+    readonly onCd = computed(() => this.api.snapshot()?.source === 'cd');
 
     private readonly artFailed = signal<string | null>(null);
 

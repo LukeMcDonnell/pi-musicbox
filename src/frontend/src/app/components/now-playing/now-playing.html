@@ -37,6 +37,13 @@
           <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent
                      px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
                   (click)="disconnectBluetooth()">Disconnect</button>
+        } @else if (onCd()) {
+          <button class="inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-full border border-muted
+                     bg-transparent px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
+                  (click)="ejectCd()">
+            <svg lucideEject class="size-4" aria-hidden="true"></svg>
+            Eject
+          </button>
         }
       </section>
     } @else if (snapshot()?.track; as track) {
@@ -57,6 +64,8 @@
               } @else {
                 @if (onBluetooth()) {
                   <svg lucideBluetooth class="size-10 text-muted" aria-hidden="true"></svg>
+                } @else if (onCd()) {
+                  <svg lucideDisc3 class="size-10 text-muted" aria-hidden="true"></svg>
                 } @else {
                   <svg lucideMusic class="size-10 text-muted" aria-hidden="true"></svg>
                 }
@@ -65,6 +74,13 @@
                 <button class="flex-none cursor-pointer rounded-full border border-muted bg-transparent absolute bottom-3
                      px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
                         (click)="disconnectBluetooth()">Disconnect</button>
+              } @else if (onCd()) {
+                <button class="inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-full border border-muted
+                     bg-transparent absolute bottom-3 px-[0.9rem] py-[0.4rem] text-[0.9rem] text-muted font-semibold"
+                        (click)="ejectCd()">
+                  <svg lucideEject class="size-4" aria-hidden="true"></svg>
+                  Eject
+                </button>
               }
             </div>
           </div>
@@ -87,7 +103,7 @@
               </p>
             } @else {
               <p class="mt-1 text-[clamp(1.3rem,4vw,1.8rem)] text-accent font-bold
-                      [overflow-wrap:anywhere]">{{ track.artist || 'Unknown artist' }}</p>
+                      [overflow-wrap:anywhere]">{{ track.artist || (onCd() ? 'Audio CD' : 'Unknown artist') }}</p>
               <p class="text-[clamp(1.1rem,2.8vw,1.4rem)] text-text
                       [overflow-wrap:anywhere]">{{ track.album }}</p>
             }

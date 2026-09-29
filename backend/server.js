@@ -36872,133 +36872,115 @@ var import_fastify = __toESM(require_fastify(), 1);
 
 // src/config.ts
 import { readFileSync } from "node:fs";
-var DEFAULT_CONF_PATH = "/etc/musicbox/server.conf";
-var DEFAULTS = {
-  port: 80,
-  host: "0.0.0.0",
-  mpdHost: "127.0.0.1",
-  mpdPort: 6600,
-  mpdConnectTimeoutMs: 5e3,
-  webRoot: "/home/musicbox/musicbox/frontend",
-  musicRoot: "/srv/music/Music",
-  bluetoothState: "/run/musicbox/bluetooth.json",
-  bluetoothControl: "/run/musicbox/control",
-  dbPath: "/var/lib/musicbox/data/musicbox.db",
-  powerDir: "/run/musicbox-power",
-  mpdStateDir: "/var/lib/mpd",
-  restoreDir: "/run/musicbox-restore",
-  logLevel: "info"
-};
-function parseConf(text) {
-  const out = {};
-  for (const rawLine of text.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    let value = line.slice(eq + 1).trim();
-    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2 || value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
-      value = value.slice(1, -1);
+
+// src/state-file.ts
+import { readFile, open as openFile, stat } from "node:fs/promises";
+import { watch, statSync, constants as fsConstants } from "node:fs";
+import { dirname } from "node:path";
+var DEFAULT_POLL_MS = 1e4;
+var realStateFileDeps = {
+  readText: async (path) => {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      return null;
     }
-    out[key] = value;
   }
-  return out;
-}
-function intOr(value, fallback) {
-  if (value === void 0) return fallback;
-  const n = Number.parseInt(value, 10);
-  return Number.isFinite(n) ? n : fallback;
-}
-function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
-  let fileValues = {};
-  try {
-    fileValues = parseConf(readFileSync(confPath, "utf8"));
-  } catch {
-  }
-  const pick = (key) => env[key] ?? fileValues[key];
+};
+function createStateFileWatcher(opts) {
+  const { path, label } = opts;
+  const dir = dirname(path);
+  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
+  const deps = opts.deps ?? realStateFileDeps;
+  const log = opts.log ?? (() => {
+  });
+  let value = opts.initial;
+  let stopped = false;
+  let watcher = null;
+  let armWarned = false;
+  let watchedIno = null;
+  const arm = () => {
+    if (stopped || watcher !== null) return watcher !== null;
+    try {
+      const w = watch(dir, () => void poll());
+      w.on("error", (err) => {
+        log("warn", `${label} state watch dropped, falling back to polling: ${err.message}`);
+        w.close();
+        if (watcher === w) watcher = null;
+      });
+      watcher = w;
+      try {
+        watchedIno = statSync(dir).ino;
+      } catch {
+        watchedIno = null;
+      }
+      if (armWarned) log("info", `${label} state watch established on ${dir}`);
+      return true;
+    } catch {
+      if (!armWarned) {
+        armWarned = true;
+        log("info", `${dir} does not exist yet \u2014 polling until it does`);
+      }
+      return false;
+    }
+  };
+  const dropStaleWatch = async () => {
+    if (watcher === null) return;
+    let ino = null;
+    try {
+      ino = (await stat(dir)).ino;
+    } catch {
+      ino = null;
+    }
+    if (ino === watchedIno) return;
+    log("info", `${label} state directory was replaced \u2014 re-arming the watch`);
+    watcher.close();
+    watcher = null;
+    watchedIno = null;
+  };
+  const poll = async () => {
+    if (stopped) return;
+    await dropStaleWatch();
+    if (stopped) return;
+    arm();
+    const next = opts.parse(await deps.readText(path));
+    if (stopped || opts.same(value, next)) return;
+    const previous = value;
+    value = next;
+    opts.onChange(next, previous);
+  };
+  arm();
+  const timer = setInterval(() => void poll(), pollMs);
   return {
-    port: intOr(pick("MUSICBOX_PORT"), DEFAULTS.port),
-    host: pick("MUSICBOX_HOST") ?? DEFAULTS.host,
-    mpdHost: pick("MUSICBOX_MPD_HOST") ?? DEFAULTS.mpdHost,
-    mpdPort: intOr(pick("MUSICBOX_MPD_PORT"), DEFAULTS.mpdPort),
-    mpdConnectTimeoutMs: intOr(
-      pick("MUSICBOX_MPD_TIMEOUT_MS"),
-      DEFAULTS.mpdConnectTimeoutMs
-    ),
-    webRoot: pick("MUSICBOX_WEB_ROOT") ?? DEFAULTS.webRoot,
-    musicRoot: pick("MUSICBOX_MUSIC_ROOT") ?? DEFAULTS.musicRoot,
-    bluetoothState: pick("MUSICBOX_BLUETOOTH_STATE") ?? DEFAULTS.bluetoothState,
-    bluetoothControl: pick("MUSICBOX_BLUETOOTH_CONTROL") ?? DEFAULTS.bluetoothControl,
-    dbPath: pick("MUSICBOX_DB") ?? DEFAULTS.dbPath,
-    powerDir: pick("MUSICBOX_POWER_DIR") ?? DEFAULTS.powerDir,
-    mpdStateDir: pick("MUSICBOX_MPD_STATE_DIR") ?? DEFAULTS.mpdStateDir,
-    restoreDir: pick("MUSICBOX_RESTORE_DIR") ?? DEFAULTS.restoreDir,
-    logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
+    poll,
+    current: () => value,
+    watching: () => watcher !== null,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+      watcher?.close();
+      watcher = null;
+    }
   };
 }
-
-// ../shared/api.ts
-var API_VERSION = 1;
-var PLAYBACK_COMMANDS = ["play", "pause", "stop", "next", "previous"];
-var SSE_SNAPSHOT_EVENT = "snapshot";
-var SSE_BUILD_EVENT = "build";
-var SSE_SETTINGS_EVENT = "settings";
-var PANEL_SLEEP_MINUTES = [
-  0,
-  1,
-  2,
-  3,
-  4,
-  5,
-  6,
-  7,
-  8,
-  9,
-  10,
-  15,
-  20
-];
-var SSE_LIBRARY_EVENT = "library";
-var LIBRARY_SCAN_HOURS = [
-  -1,
-  0,
-  1,
-  2,
-  3,
-  4,
-  5,
-  6,
-  7,
-  8,
-  9,
-  10,
-  11,
-  12,
-  13,
-  14,
-  15,
-  16,
-  17,
-  18,
-  19,
-  20,
-  21,
-  22,
-  23
-];
-var BACKUP_CONTENT_TYPE = "application/gzip";
-var BACKUP_MAX_BYTES = 32 * 1024 * 1024;
-var SSE_FAVOURITES_EVENT = "favourites";
-var RECENTLY_ADDED_LIMIT = 100;
-var RECENTLY_ADDED_MAX = 500;
-var RECENT_PLAYS_LIMIT = 100;
-var RECENT_PLAYS_MAX = 500;
-var PLAY_THRESHOLD_SECONDS = 30;
-var SSE_PLAYS_EVENT = "plays";
-var MOST_PLAYED_ARTISTS_LIMIT = 100;
-var MOST_PLAYED_ARTISTS_MAX = 500;
+var FifoUnavailableError = class extends Error {
+};
+async function writeFifoLine(path, line) {
+  let handle;
+  try {
+    handle = await openFile(path, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+  } catch (err) {
+    const code = err.code;
+    if (code === "ENXIO" || code === "ENOENT") throw new FifoUnavailableError(code);
+    throw err;
+  }
+  try {
+    await handle.write(`${line}
+`);
+  } finally {
+    await handle.close();
+  }
+}
 
 // src/mpd/protocol.ts
 import { createConnection } from "node:net";
@@ -37185,14 +37167,211 @@ var MpdConnection = class {
   }
 };
 
+// src/cd.ts
+var DEFAULT_CD_STATE_PATH = "/run/musicbox-cd/cd.json";
+var DEFAULT_CD_CONTROL_PATH = "/run/musicbox-cd/control";
+function parseCdState(text) {
+  if (text === null || text.trim() === "") return null;
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const { present, tracks } = raw;
+  if (present === false) return { present: false };
+  if (present === true && typeof tracks === "number" && Number.isInteger(tracks) && tracks > 0) {
+    return { present: true, tracks };
+  }
+  return null;
+}
+function cdInfoOf(state) {
+  return state?.present ? { tracks: state.tracks } : null;
+}
+function same(a, b) {
+  if (a === null || b === null) return a === b;
+  if (!a.present || !b.present) return a.present === b.present;
+  return a.tracks === b.tracks;
+}
+function createCdWatcher(opts) {
+  return createStateFileWatcher({
+    path: opts.path ?? DEFAULT_CD_STATE_PATH,
+    parse: parseCdState,
+    same,
+    initial: null,
+    label: "cd",
+    pollMs: opts.pollMs,
+    deps: opts.deps,
+    onChange: opts.onChange,
+    log: opts.log
+  });
+}
+var CdUnavailableError = class extends Error {
+};
+async function sendCdControl(verb, path = DEFAULT_CD_CONTROL_PATH) {
+  try {
+    await writeFifoLine(path, verb);
+  } catch (err) {
+    if (err instanceof FifoUnavailableError) {
+      throw new CdUnavailableError("the CD helper is not running (musicbox-cd) \u2014 is setup-cd.sh installed?");
+    }
+    throw err;
+  }
+}
+function cdUri(track) {
+  return `cdda:///${track}`;
+}
+function cdPlayCommands(tracks) {
+  const adds = Array.from({ length: tracks }, (_, i) => `add ${quoteArg(cdUri(i + 1))}`);
+  return ["clear", ...adds, "play"];
+}
+
+// src/config.ts
+var DEFAULT_CONF_PATH = "/etc/musicbox/server.conf";
+var DEFAULTS = {
+  port: 80,
+  host: "0.0.0.0",
+  mpdHost: "127.0.0.1",
+  mpdPort: 6600,
+  mpdConnectTimeoutMs: 5e3,
+  webRoot: "/home/musicbox/musicbox/frontend",
+  musicRoot: "/srv/music/Music",
+  bluetoothState: "/run/musicbox/bluetooth.json",
+  bluetoothControl: "/run/musicbox/control",
+  cdState: DEFAULT_CD_STATE_PATH,
+  cdControl: DEFAULT_CD_CONTROL_PATH,
+  dbPath: "/var/lib/musicbox/data/musicbox.db",
+  powerDir: "/run/musicbox-power",
+  mpdStateDir: "/var/lib/mpd",
+  restoreDir: "/run/musicbox-restore",
+  logLevel: "info"
+};
+function parseConf(text) {
+  const out = {};
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    let value = line.slice(eq + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2 || value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+function intOr(value, fallback) {
+  if (value === void 0) return fallback;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
+  let fileValues = {};
+  try {
+    fileValues = parseConf(readFileSync(confPath, "utf8"));
+  } catch {
+  }
+  const pick = (key) => env[key] ?? fileValues[key];
+  return {
+    port: intOr(pick("MUSICBOX_PORT"), DEFAULTS.port),
+    host: pick("MUSICBOX_HOST") ?? DEFAULTS.host,
+    mpdHost: pick("MUSICBOX_MPD_HOST") ?? DEFAULTS.mpdHost,
+    mpdPort: intOr(pick("MUSICBOX_MPD_PORT"), DEFAULTS.mpdPort),
+    mpdConnectTimeoutMs: intOr(
+      pick("MUSICBOX_MPD_TIMEOUT_MS"),
+      DEFAULTS.mpdConnectTimeoutMs
+    ),
+    webRoot: pick("MUSICBOX_WEB_ROOT") ?? DEFAULTS.webRoot,
+    musicRoot: pick("MUSICBOX_MUSIC_ROOT") ?? DEFAULTS.musicRoot,
+    bluetoothState: pick("MUSICBOX_BLUETOOTH_STATE") ?? DEFAULTS.bluetoothState,
+    bluetoothControl: pick("MUSICBOX_BLUETOOTH_CONTROL") ?? DEFAULTS.bluetoothControl,
+    cdState: pick("MUSICBOX_CD_STATE") ?? DEFAULTS.cdState,
+    cdControl: pick("MUSICBOX_CD_CONTROL") ?? DEFAULTS.cdControl,
+    dbPath: pick("MUSICBOX_DB") ?? DEFAULTS.dbPath,
+    powerDir: pick("MUSICBOX_POWER_DIR") ?? DEFAULTS.powerDir,
+    mpdStateDir: pick("MUSICBOX_MPD_STATE_DIR") ?? DEFAULTS.mpdStateDir,
+    restoreDir: pick("MUSICBOX_RESTORE_DIR") ?? DEFAULTS.restoreDir,
+    logLevel: pick("MUSICBOX_LOG_LEVEL") ?? DEFAULTS.logLevel
+  };
+}
+
+// ../shared/api.ts
+var API_VERSION = 1;
+var CD_URI_PREFIX = "cdda://";
+function isCdTrack(track) {
+  return track?.file?.startsWith(CD_URI_PREFIX) ?? false;
+}
+var PLAYBACK_COMMANDS = ["play", "pause", "stop", "next", "previous"];
+var SSE_SNAPSHOT_EVENT = "snapshot";
+var SSE_BUILD_EVENT = "build";
+var SSE_SETTINGS_EVENT = "settings";
+var PANEL_SLEEP_MINUTES = [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  15,
+  20
+];
+var SSE_LIBRARY_EVENT = "library";
+var LIBRARY_SCAN_HOURS = [
+  -1,
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23
+];
+var BACKUP_CONTENT_TYPE = "application/gzip";
+var BACKUP_MAX_BYTES = 32 * 1024 * 1024;
+var SSE_FAVOURITES_EVENT = "favourites";
+var RECENTLY_ADDED_LIMIT = 100;
+var RECENTLY_ADDED_MAX = 500;
+var RECENT_PLAYS_LIMIT = 100;
+var RECENT_PLAYS_MAX = 500;
+var PLAY_THRESHOLD_SECONDS = 30;
+var SSE_PLAYS_EVENT = "plays";
+var MOST_PLAYED_ARTISTS_LIMIT = 100;
+var MOST_PLAYED_ARTISTS_MAX = 500;
+
 // src/art.ts
 import { createReadStream as createReadStream2 } from "node:fs";
-import { stat as stat2 } from "node:fs/promises";
+import { stat as stat3 } from "node:fs/promises";
 import { posix } from "node:path";
 
 // src/static.ts
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { stat as stat2 } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 var MIME = {
   ".html": "text/html; charset=utf-8",
@@ -37239,7 +37418,7 @@ function safeJoin(root, urlPath) {
 }
 async function sendFile(reply, path) {
   try {
-    const info = await stat(path);
+    const info = await stat2(path);
     if (!info.isFile()) return false;
     reply.header("content-type", contentTypeFor(path)).header("cache-control", cacheControlFor(path)).header("content-length", String(info.size));
     await reply.send(createReadStream(path));
@@ -37297,7 +37476,7 @@ function artUriFor(file) {
 var realDeps = {
   statFile: async (path) => {
     try {
-      const info = await stat2(path);
+      const info = await stat3(path);
       return info.isFile() ? { size: info.size, mtimeMs: info.mtimeMs } : null;
     } catch {
       return null;
@@ -37398,6 +37577,7 @@ function encodingOf(file) {
 function trackFromTags(tags) {
   const file = tags.get("file");
   if (!file) return null;
+  if (file.startsWith(CD_URI_PREFIX)) return trackFromCd(file, tags);
   const track = { file, image: artUriFor(file) };
   const encoding = encodingOf(file);
   if (encoding !== void 0) track.encoding = encoding;
@@ -37417,6 +37597,22 @@ function trackFromTags(tags) {
   if (tags.get("OriginalDate")) track.originalDate = tags.get("OriginalDate");
   if (tags.get("Format")) track.format = tags.get("Format");
   if (tags.get("Added")) track.addedAt = tags.get("Added");
+  const dur = num(tags.get("duration") ?? tags.get("Time"));
+  if (dur !== void 0) track.duration = dur;
+  return track;
+}
+function trackFromCd(file, tags) {
+  const track = { file, image: null };
+  const n = /^cdda:\/\/[^/]*\/(\d+)$/.exec(file)?.[1];
+  if (n !== void 0) {
+    track.title = `Track ${Number(n)}`;
+    track.track = String(Number(n));
+  }
+  const id = num(tags.get("Id"));
+  const pos = num(tags.get("Pos"));
+  if (id !== void 0) track.id = id;
+  if (pos !== void 0) track.position = pos;
+  if (tags.get("Format")) track.format = tags.get("Format");
   const dur = num(tags.get("duration") ?? tags.get("Time"));
   if (dur !== void 0) track.duration = dur;
   return track;
@@ -37456,10 +37652,10 @@ function trackFromBluetooth(bt) {
   if (bt.queuePosition !== null) track.position = bt.queuePosition;
   return track;
 }
-function unavailableSnapshot(now, bt = null) {
+function unavailableSnapshot(now, bt = null, cd = null) {
   if (bt !== null) {
     return {
-      ...bluetoothSnapshot(bt, now),
+      ...bluetoothSnapshot(bt, now, cd),
       status: "unavailable"
     };
   }
@@ -37469,6 +37665,7 @@ function unavailableSnapshot(now, bt = null) {
     source: "mpd",
     state: "stop",
     bluetooth: null,
+    cd,
     repeat: false,
     random: false,
     single: false,
@@ -37482,13 +37679,14 @@ function unavailableSnapshot(now, bt = null) {
     serverTime: now
   };
 }
-function bluetoothSnapshot(bt, now) {
+function bluetoothSnapshot(bt, now, cd) {
   return {
     apiVersion: API_VERSION,
     status: "ok",
     source: "bluetooth",
     state: bt.state ?? "stop",
     bluetooth: bt.device,
+    cd,
     repeat: bt.repeat,
     random: bt.random,
     single: bt.single,
@@ -37503,8 +37701,8 @@ function bluetoothSnapshot(bt, now) {
     serverTime: now
   };
 }
-function buildSnapshot(status, currentSong, now, bt = null) {
-  if (bt !== null) return bluetoothSnapshot(bt, now);
+function buildSnapshot(status, currentSong, now, bt = null, cd = null) {
+  if (bt !== null) return bluetoothSnapshot(bt, now, cd);
   const get = (k) => firstValue(status, k);
   const rawState = get("state");
   const state = rawState === "play" || rawState === "pause" ? rawState : "stop";
@@ -37513,9 +37711,10 @@ function buildSnapshot(status, currentSong, now, bt = null) {
   return {
     apiVersion: API_VERSION,
     status: "ok",
-    source: "mpd",
+    source: isCdTrack(track) ? "cd" : "mpd",
     state,
     bluetooth: null,
+    cd,
     // No volume: MPD runs mixer_type "none" and reports -1. See shared/api.ts.
     repeat: get("repeat") === "1",
     random: get("random") === "1",
@@ -37555,6 +37754,8 @@ var MpdBridge = class {
    * src/backend/src/bluetooth.ts for why this side only observes.
    */
   bluetooth = null;
+  /** The disc in the drive, as last reported by the CD helper. */
+  cd = null;
   // Declared explicitly rather than as a constructor parameter property:
   // those emit code, so Node's type-stripping (used by `npm test`) rejects them.
   opts;
@@ -37562,7 +37763,7 @@ var MpdBridge = class {
     this.opts = opts;
     this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
     this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
-    this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth);
+    this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth, this.cd);
   }
   get current() {
     return this.snapshot;
@@ -37629,7 +37830,7 @@ var MpdBridge = class {
       this.unavailableTimer = null;
       if (!this.commands.connected && !this.stopped) {
         this.opts.log("warn", "MPD still unreachable \u2014 reporting unavailable");
-        this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
+        this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
       }
     }, grace);
     this.timers.add(timer);
@@ -37715,7 +37916,7 @@ var MpdBridge = class {
     try {
       const status = await this.commands.send("status");
       const song = await this.commands.send("currentsong");
-      this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth));
+      this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth, this.cd));
       const job = num(firstValue(status, "updating_db")) ?? null;
       if (job !== this.updating) {
         const was = this.updating;
@@ -37742,7 +37943,17 @@ var MpdBridge = class {
     if (this.commands.connected) {
       await this.refresh();
     } else {
-      this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
+      this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
+    }
+  }
+  /** Record the disc in the drive and republish; nothing in MPD wakes for it. */
+  async setCd(info) {
+    this.cd = info;
+    if (this.stopped) return;
+    if (this.commands.connected) {
+      await this.refresh();
+    } else {
+      this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
     }
   }
   announceUpdating(was, job) {
@@ -37917,6 +38128,12 @@ var MpdBridge = class {
     if (!this.commands.connected) throw new Error("MPD is not connected");
     for (const cmd of cmds) await this.commands.send(cmd);
     await this.refresh();
+  }
+  /** Drop every disc track from the queue — they cannot play once it is out. */
+  async removeCdTracks() {
+    const { tracks } = await this.queue();
+    const ids = tracks.filter((t) => isCdTrack(t) && t.id !== void 0).map((t) => t.id);
+    if (ids.length > 0) await this.runAll(ids.map((id) => `deleteid ${id}`));
   }
 };
 
@@ -38222,12 +38439,8 @@ async function collectRecent(bridge, limit) {
 }
 
 // src/bluetooth.ts
-import { readFile, open as openFile, stat as stat3 } from "node:fs/promises";
-import { watch, statSync, constants as fsConstants } from "node:fs";
-import { dirname } from "node:path";
 var DEFAULT_STATE_PATH = "/run/musicbox/bluetooth.json";
 var DEFAULT_CONTROL_PATH = "/run/musicbox/control";
-var DEFAULT_POLL_MS = 1e4;
 function playbackState(value) {
   switch (value) {
     case "playing":
@@ -38295,113 +38508,35 @@ function parseBluetoothState(text) {
     single: repeat === "singletrack"
   };
 }
-var realDeps2 = {
-  readText: async (path) => {
-    try {
-      return await readFile(path, "utf8");
-    } catch {
-      return null;
-    }
-  }
-};
-function same(a, b) {
+function same2(a, b) {
   if (a === null || b === null) return a === b;
   return a.device.name === b.device.name && a.device.address === b.device.address && a.device.codec === b.device.codec && a.state === b.state && a.title === b.title && a.artist === b.artist && a.album === b.album && a.duration === b.duration && a.queuePosition === b.queuePosition && a.queueLength === b.queueLength && a.repeat === b.repeat && a.random === b.random && a.single === b.single;
 }
 function createBluetoothWatcher(opts) {
-  const path = opts.path ?? DEFAULT_STATE_PATH;
-  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
-  const deps = opts.deps ?? realDeps2;
-  const log = opts.log ?? (() => {
+  return createStateFileWatcher({
+    path: opts.path ?? DEFAULT_STATE_PATH,
+    parse: parseBluetoothState,
+    same: same2,
+    initial: null,
+    label: "bluetooth",
+    pollMs: opts.pollMs,
+    deps: opts.deps,
+    onChange: (state) => opts.onChange(state),
+    log: opts.log
   });
-  let value = null;
-  let stopped = false;
-  let watcher = null;
-  let armWarned = false;
-  let watchedIno = null;
-  const arm = () => {
-    if (stopped || watcher !== null) return watcher !== null;
-    try {
-      const w = watch(dirname(path), () => void poll());
-      w.on("error", (err) => {
-        log("warn", `bluetooth state watch dropped, falling back to polling: ${err.message}`);
-        w.close();
-        if (watcher === w) watcher = null;
-      });
-      watcher = w;
-      try {
-        watchedIno = statSync(dirname(path)).ino;
-      } catch {
-        watchedIno = null;
-      }
-      if (armWarned) log("info", `bluetooth state watch established on ${dirname(path)}`);
-      return true;
-    } catch {
-      if (!armWarned) {
-        armWarned = true;
-        log("info", `${dirname(path)} does not exist yet \u2014 polling until it does`);
-      }
-      return false;
-    }
-  };
-  const dropStaleWatch = async () => {
-    if (watcher === null) return;
-    let ino = null;
-    try {
-      ino = (await stat3(dirname(path))).ino;
-    } catch {
-      ino = null;
-    }
-    if (ino === watchedIno) return;
-    log("info", `bluetooth state directory was replaced \u2014 re-arming the watch`);
-    watcher.close();
-    watcher = null;
-    watchedIno = null;
-  };
-  const poll = async () => {
-    if (stopped) return;
-    await dropStaleWatch();
-    if (stopped) return;
-    arm();
-    const next = parseBluetoothState(await deps.readText(path));
-    if (stopped || same(value, next)) return;
-    value = next;
-    opts.onChange(next);
-  };
-  arm();
-  const timer = setInterval(() => void poll(), pollMs);
-  return {
-    poll,
-    current: () => value,
-    watching: () => watcher !== null,
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-      watcher?.close();
-      watcher = null;
-    }
-  };
 }
 var BluetoothUnavailableError = class extends Error {
 };
 async function sendControl(verb, path = DEFAULT_CONTROL_PATH) {
-  let handle;
   try {
-    handle = await openFile(path, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+    await writeFifoLine(path, verb);
   } catch (err) {
-    const code = err.code;
-    if (code === "ENXIO" || code === "ENOENT") {
+    if (err instanceof FifoUnavailableError) {
       throw new BluetoothUnavailableError(
         "the Bluetooth arbiter is not running (musicbox-bt-monitor)"
       );
     }
     throw err;
-  }
-  try {
-    await handle.write(`${verb}
-`);
-  } finally {
-    await handle.close();
   }
 }
 
@@ -38450,7 +38585,9 @@ var SETTINGS_DEFAULTS = {
   // Both opted into for the same reason: a scan takes the better part of an
   // hour, and one nobody asked for looks like the box has seized up.
   libraryScanHour: -1,
-  libraryScanOnBoot: false
+  libraryScanOnBoot: false,
+  // On: a disc going into a CD player and playing is what anyone expects.
+  cdAutoPlay: true
 };
 var GUARDS = {
   panelSleepAfterMinutes: (value) => {
@@ -38464,7 +38601,8 @@ var GUARDS = {
     return LIBRARY_SCAN_HOURS.includes(hour) ? hour : void 0;
   },
   // `set` stores String(value), so a boolean arrives back as 'true'/'false'.
-  libraryScanOnBoot: (value) => value === "true" ? true : value === "false" ? false : void 0
+  libraryScanOnBoot: (value) => value === "true" ? true : value === "false" ? false : void 0,
+  cdAutoPlay: (value) => value === "true" ? true : value === "false" ? false : void 0
 };
 var SETTING_KEYS = Object.keys(SETTINGS_DEFAULTS);
 function isSettingKey(key) {
@@ -39332,6 +39470,7 @@ data: ${JSON.stringify(data)}
 function registerRoutes(app, opts) {
   const { bridge, build, startedAt, musicRoot } = opts;
   const controlPath = opts.bluetoothControl ?? DEFAULT_CONTROL_PATH;
+  const cdControlPath = opts.cdControl ?? DEFAULT_CD_CONTROL_PATH;
   const streams = /* @__PURE__ */ new Set();
   const panelStreams = /* @__PURE__ */ new Set();
   const panel = opts.panel;
@@ -39841,6 +39980,28 @@ function registerRoutes(app, opts) {
     const body = { artists: plays.mostPlayedArtists(count) };
     return body;
   });
+  app.post("/api/cd/play", async (_req, reply) => {
+    const disc = bridge.current.cd;
+    if (disc === null) return reply.code(409).send({ error: "there is no audio CD in the drive" });
+    try {
+      await bridge.runAll(cdPlayCommands(disc.tracks));
+      return bridge.current;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.post("/api/cd/eject", async (_req, reply) => {
+    if (bridge.current.cd === null) {
+      return reply.code(409).send({ error: "there is no audio CD in the drive" });
+    }
+    try {
+      await sendCdControl("eject", cdControlPath);
+      return reply.code(202).send({ accepted: "eject" });
+    } catch (err) {
+      if (err instanceof CdUnavailableError) return reply.code(503).send({ error: err.message });
+      throw err;
+    }
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -39852,6 +40013,24 @@ function registerRoutes(app, opts) {
       streams.clear();
     },
     invalidateLibrary: () => library.invalidate()
+  };
+}
+
+// src/cd-autoplay.ts
+function createCdReactor(deps) {
+  return async (next, previous) => {
+    await deps.setCd(cdInfoOf(next));
+    try {
+      if (previous?.present === false && next?.present === true) {
+        deps.log("info", `cd: audio disc inserted, ${next.tracks} tracks`);
+        if (deps.autoPlay()) await deps.playCd(next.tracks);
+      } else if (previous?.present === true && next?.present === false) {
+        deps.log("info", "cd: disc removed");
+        await deps.removeCdTracks();
+      }
+    } catch (err) {
+      deps.log("warn", `cd: ${err.message}`);
+    }
   };
 }
 
@@ -40308,7 +40487,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-19T03:41:24Z" : "dev";
+var BUILD = true ? "2026-09-29T01:05:49Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -40374,6 +40553,7 @@ async function main() {
     startedAt,
     musicRoot: config.musicRoot,
     bluetoothControl: config.bluetoothControl,
+    cdControl: config.cdControl,
     panel,
     settings,
     power: createPower(config.powerDir),
@@ -40400,6 +40580,18 @@ async function main() {
     }
   });
   void bluetooth.poll();
+  const cd = createCdWatcher({
+    path: config.cdState,
+    log: (level, msg) => app.log[level](msg),
+    onChange: createCdReactor({
+      setCd: (info) => bridge.setCd(info),
+      playCd: (tracks) => bridge.runAll(cdPlayCommands(tracks)),
+      removeCdTracks: () => bridge.removeCdTracks(),
+      autoPlay: () => settings.all().cdAutoPlay,
+      log: (level, msg) => app.log[level](msg)
+    })
+  });
+  void cd.poll();
   bridge.start();
   scanner.start();
   if (notes.count() === 0) {
@@ -40429,6 +40621,7 @@ async function main() {
     bridge.stop();
     scanner.stop();
     bluetooth.stop();
+    cd.stop();
     routes.closeStreams();
     if (panel.supported) panel.set(true);
     await app.close();

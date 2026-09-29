@@ -13,8 +13,8 @@
  * snapshot reports status 'unavailable' in the meantime.
  */
 
-import type { Snapshot, Track, PlaybackState, BackendStatus } from '../../../shared/api.ts';
-import { API_VERSION } from '../../../shared/api.ts';
+import type { Snapshot, Track, PlaybackState, BackendStatus, CdInfo } from '../../../shared/api.ts';
+import { API_VERSION, CD_URI_PREFIX, isCdTrack } from '../../../shared/api.ts';
 import {
     MpdConnection,
     firstOf,
@@ -123,6 +123,7 @@ function encodingOf(file: string): string | undefined {
 export function trackFromTags(tags: Map<string, string>): Track | null {
     const file = tags.get('file');
     if (!file) return null;
+    if (file.startsWith(CD_URI_PREFIX)) return trackFromCd(file, tags);
     // Derived from the path alone — no I/O here. This is the one chokepoint for
     // every Track the backend produces (snapshot, queue and find all call it),
     // so setting `image` here is what guarantees it is never missing.
@@ -147,6 +148,27 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
     if (tags.get('OriginalDate')) track.originalDate = tags.get('OriginalDate');
     if (tags.get('Format')) track.format = tags.get('Format');
     if (tags.get('Added')) track.addedAt = tags.get('Added');
+    const dur = num(tags.get('duration') ?? tags.get('Time'));
+    if (dur !== undefined) track.duration = dur;
+    return track;
+}
+
+/**
+ * A track on the disc: no library, so no art, release or container. Titled by
+ * its number until disc lookup exists.
+ */
+function trackFromCd(file: string, tags: Map<string, string>): Track {
+    const track: Track = { file, image: null };
+    const n = /^cdda:\/\/[^/]*\/(\d+)$/.exec(file)?.[1];
+    if (n !== undefined) {
+        track.title = `Track ${Number(n)}`;
+        track.track = String(Number(n));
+    }
+    const id = num(tags.get('Id'));
+    const pos = num(tags.get('Pos'));
+    if (id !== undefined) track.id = id;
+    if (pos !== undefined) track.position = pos;
+    if (tags.get('Format')) track.format = tags.get('Format');
     const dur = num(tags.get('duration') ?? tags.get('Time'));
     if (dur !== undefined) track.duration = dur;
     return track;
@@ -250,14 +272,18 @@ export function trackFromBluetooth(bt: BluetoothState): Track | null {
  * phone can perfectly well be connected and playing while MPD is down. Reporting
  * "no Bluetooth" in that state would be a lie the UI acts on.
  */
-export function unavailableSnapshot(now: number, bt: BluetoothState | null = null): Snapshot {
+export function unavailableSnapshot(
+    now: number,
+    bt: BluetoothState | null = null,
+    cd: CdInfo | null = null,
+): Snapshot {
     if (bt !== null) {
         // MPD is unreachable but a phone is playing, so the snapshot describes the
         // phone. `state: 'stop'` was hardcoded here before and was simply wrong:
         // it claimed source 'bluetooth' and stopped in the same breath while audio
         // was coming out of the speakers.
         return {
-            ...bluetoothSnapshot(bt, now),
+            ...bluetoothSnapshot(bt, now, cd),
             status: 'unavailable',
         };
     }
@@ -267,6 +293,7 @@ export function unavailableSnapshot(now: number, bt: BluetoothState | null = nul
         source: 'mpd',
         state: 'stop',
         bluetooth: null,
+        cd,
         repeat: false,
         random: false,
         single: false,
@@ -292,13 +319,14 @@ export function unavailableSnapshot(now: number, bt: BluetoothState | null = nul
  * which is exactly the signal a client needs. The counts beside it are real
  * though: AVRCP reports "track 1 of 8", so a client can say that much honestly.
  */
-function bluetoothSnapshot(bt: BluetoothState, now: number): Snapshot {
+function bluetoothSnapshot(bt: BluetoothState, now: number, cd: CdInfo | null): Snapshot {
     return {
         apiVersion: API_VERSION,
         status: 'ok',
         source: 'bluetooth',
         state: bt.state ?? 'stop',
         bluetooth: bt.device,
+        cd,
         repeat: bt.repeat,
         random: bt.random,
         single: bt.single,
@@ -333,8 +361,9 @@ export function buildSnapshot(
     currentSong: Reply,
     now: number,
     bt: BluetoothState | null = null,
+    cd: CdInfo | null = null,
 ): Snapshot {
-    if (bt !== null) return bluetoothSnapshot(bt, now);
+    if (bt !== null) return bluetoothSnapshot(bt, now, cd);
 
     const get = (k: string) => firstValue(status, k);
     const rawState = get('state');
@@ -347,9 +376,10 @@ export function buildSnapshot(
     return {
         apiVersion: API_VERSION,
         status: 'ok',
-        source: 'mpd',
+        source: isCdTrack(track) ? 'cd' : 'mpd',
         state,
         bluetooth: null,
+        cd,
         // No volume: MPD runs mixer_type "none" and reports -1. See shared/api.ts.
         repeat: get('repeat') === '1',
         random: get('random') === '1',
@@ -401,6 +431,9 @@ export class MpdBridge {
      */
     private bluetooth: BluetoothState | null = null;
 
+    /** The disc in the drive, as last reported by the CD helper. */
+    private cd: CdInfo | null = null;
+
     // Declared explicitly rather than as a constructor parameter property:
     // those emit code, so Node's type-stripping (used by `npm test`) rejects them.
     private opts: BridgeOptions;
@@ -409,7 +442,7 @@ export class MpdBridge {
         this.opts = opts;
         this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
         this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
-        this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth);
+        this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth, this.cd);
     }
 
     get current(): Snapshot {
@@ -485,7 +518,7 @@ export class MpdBridge {
             this.unavailableTimer = null;
             if (!this.commands.connected && !this.stopped) {
                 this.opts.log('warn', 'MPD still unreachable — reporting unavailable');
-                this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
+                this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
             }
         }, grace);
         this.timers.add(timer);
@@ -587,7 +620,7 @@ export class MpdBridge {
         try {
             const status = await this.commands.send('status');
             const song = await this.commands.send('currentsong');
-            this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth));
+            this.publish(buildSnapshot(status, song, Date.now(), this.bluetooth, this.cd));
             // After publish, so a listener reacting to a scan sees a current
             // snapshot. Deliberately not on the Snapshot itself — see shared/api.ts.
             const job = num(firstValue(status, 'updating_db')) ?? null;
@@ -617,7 +650,18 @@ export class MpdBridge {
         if (this.commands.connected) {
             await this.refresh();
         } else {
-            this.publish(unavailableSnapshot(Date.now(), this.bluetooth));
+            this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
+        }
+    }
+
+    /** Record the disc in the drive and republish; nothing in MPD wakes for it. */
+    async setCd(info: CdInfo | null): Promise<void> {
+        this.cd = info;
+        if (this.stopped) return;
+        if (this.commands.connected) {
+            await this.refresh();
+        } else {
+            this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
         }
     }
 
@@ -821,5 +865,12 @@ export class MpdBridge {
         if (!this.commands.connected) throw new Error('MPD is not connected');
         for (const cmd of cmds) await this.commands.send(cmd);
         await this.refresh();
+    }
+
+    /** Drop every disc track from the queue — they cannot play once it is out. */
+    async removeCdTracks(): Promise<void> {
+        const { tracks } = await this.queue();
+        const ids = tracks.filter((t) => isCdTrack(t) && t.id !== undefined).map((t) => t.id);
+        if (ids.length > 0) await this.runAll(ids.map((id) => `deleteid ${id}`));
     }
 }

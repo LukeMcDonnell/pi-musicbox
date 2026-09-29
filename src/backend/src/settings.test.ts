@@ -138,6 +138,16 @@ test('scan-on-boot rejects the near misses', () => {
     }
 });
 
+test('CD auto-play defaults on, and off is kept as a value', () => {
+    const { db, settings } = fresh();
+    assert.equal(settings.all().cdAutoPlay, true);
+    assert.equal(settings.set('cdAutoPlay', false).cdAutoPlay, false);
+    assert.equal(settings.all().cdAutoPlay, false);
+    assert.equal(parseSetting('cdAutoPlay', 'yes'), undefined);
+    assert.equal(parseSetting('cdAutoPlay', 1), undefined);
+    db.close();
+});
+
 test('a scan setting written by a newer build falls back to its default', () => {
     const { db, settings } = fresh();
     db.run('INSERT INTO settings (key, value) VALUES (?, ?)', 'libraryScanHour', '37');

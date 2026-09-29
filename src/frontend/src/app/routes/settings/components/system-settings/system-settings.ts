@@ -5,6 +5,7 @@ import { MusicboxApi } from '../../../../services/musicbox-api';
 import { IS_PANEL } from '../../../../services/panel-client';
 import { BackupRestore } from '../backup-restore/backup-restore';
 import { SettingSelect, type SettingOption } from '../setting-select/setting-select';
+import { SettingSwitch } from '../setting-switch/setting-switch';
 
 /**
  * The System tab: settings that belong to the BOX rather than to this screen.
@@ -16,7 +17,7 @@ import { SettingSelect, type SettingOption } from '../setting-select/setting-sel
  */
 @Component({
     selector: 'app-system-settings',
-    imports: [SettingSelect, BackupRestore],
+    imports: [SettingSelect, SettingSwitch, BackupRestore],
     template: `
         <h2 class="text-lg font-semibold">System</h2>
 
@@ -36,6 +37,13 @@ import { SettingSelect, type SettingOption } from '../setting-select/setting-sel
             The panel's own screen only, and only while nothing is playing. Touch it,
             or start the music, and it comes back.
         </p>
+
+        <div class="flex flex-col pt-4">
+            <app-setting-switch
+                label="Play CDs when inserted"
+                [checked]="cdAutoPlay()"
+                (toggled)="setCdAutoPlay($event)" />
+        </div>
 
         @if (!isPanel) {
             <app-backup-restore />
@@ -70,6 +78,24 @@ export class SystemSettings {
     protected readonly panelSleepAfterMinutes = computed(
         () => this.pending() ?? this.api.settings()?.panelSleepAfterMinutes ?? 0,
     );
+
+    private readonly pendingCd = signal<boolean | null>(null);
+
+    protected readonly cdAutoPlay = computed(
+        () => this.pendingCd() ?? this.api.settings()?.cdAutoPlay ?? true,
+    );
+
+    protected async setCdAutoPlay(on: boolean): Promise<void> {
+        this.pendingCd.set(on);
+        this.error.set(null);
+        try {
+            await this.client.patchJson('/api/settings', { cdAutoPlay: on });
+        } catch (err) {
+            this.error.set((err as Error).message);
+        } finally {
+            this.pendingCd.set(null);
+        }
+    }
 
     protected async setPanelSleep(minutes: number): Promise<void> {
         this.pending.set(minutes);

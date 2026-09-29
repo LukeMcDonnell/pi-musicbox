@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { LucideMusic } from '@lucide/angular';
-import type { Track } from '@musicbox/shared';
+import { LucideDisc3, LucideMusic } from '@lucide/angular';
+import { isCdTrack, type Track } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { clock } from '../now-playing/now-playing';
 import { CoverArt } from '../cover-art/cover-art';
@@ -31,7 +31,7 @@ type Tab = 'back' | 'next';
 */
 @Component({
     selector: 'app-queue',
-    imports: [CoverArt, LucideMusic],
+    imports: [CoverArt, LucideDisc3, LucideMusic],
     templateUrl: './queue.html',
     // The list is up to a few hundred rows and none of them depend on anything
     // but signals, so there is no reason to re-check them on every unrelated
@@ -105,6 +105,8 @@ export class Queue {
     onArtError(uri: string): void {
         this.artFailed.update((failed) => new Set(failed).add(uri));
     }
+
+    readonly isCd = isCdTrack;
 
     titleOf(track: Track): string {
         return track.title || track.file || 'Unknown track';

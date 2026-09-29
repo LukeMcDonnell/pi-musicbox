@@ -31,6 +31,7 @@ the 6.6s total boot saving, so in practice it is not optional at all.
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf` + one `MPDCONF=` line in `/etc/default/mpd` | `# >>> musicbox setup-mpd.sh managed block >>>` |
 | `setup-server.sh` | `/etc/musicbox/server.conf` + three systemd units | (owns whole files) |
 | `setup-bluetooth.sh` | `/etc/bluetooth/main.conf` + `/etc/default/bluez-alsa`, the arbiter and three systemd units, the rfkill soft block | `# >>> musicbox setup-bluetooth.sh managed block >>>` |
+| `setup-cd.sh` | `musicbox-cd` + its unit, `mpd` in the `cdrom` group | (owns whole files) |
 | `setup-kiosk.sh` | 4 files, `getty@tty1`, its own packages | (no shared file) |
 | `install.sh` | `apt-get install` only | (none) |
 | `migrate-network.sh` | `/etc/NetworkManager/system-connections/` | (none) |
@@ -198,7 +199,9 @@ Installs `cifs-utils`, `nfs-common`, `smbclient` (both NAS clients, because
 anything itself) plus `mpd` and `mpc`. Its header carries the contract with
 `setup.sh` (the automount rule, the hardware, MPD and kiosk handoffs); read it
 before adding packages. `bluez-alsa-utils` and `bluez-tools` give the Bluetooth
-A2DP sink, configured by `setup-bluetooth.sh`. CD packages are still TODO.
+A2DP sink, configured by `setup-bluetooth.sh`. `eject` is for `setup-cd.sh`; MPD
+reads CDs through its built-in `cdio_paranoia` input, so playback needs nothing
+else. Ripping (`cdparanoia` / `libcdio-utils`) is still TODO.
 
 `mpd` alone costs **118 packages** with `--no-install-recommends`. See
 `decisions.md` for why that is accepted.

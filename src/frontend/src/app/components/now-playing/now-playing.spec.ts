@@ -28,6 +28,7 @@ describe('NowPlaying', () => {
             queue: () => [],
             elapsedNow: () => null,
             bluetooth: () => null,
+            cd: () => null,
             resolve: (path: string) => path,
         };
         TestBed.configureTestingModule({
@@ -69,6 +70,62 @@ describe('NowPlaying', () => {
         TestBed.inject(ApplicationRef).tick();
         expect(scrolled).not.toHaveBeenCalled();
     });
+});
+
+describe('NowPlaying on the CD source', () => {
+    function create(source: Snapshot['source']) {
+        const snap = {
+            source,
+            status: 'ok',
+            state: 'play',
+            queueLength: 11,
+            track: { file: 'cdda:///3', title: 'Track 3', format: '44100:16:2', image: null },
+        } as unknown as Snapshot;
+        const api = {
+            snapshot: () => snap,
+            stream: () => 'live',
+            mpdAvailable: () => true,
+            hasQueue: () => false,
+            queue: () => [],
+            elapsedNow: () => 10,
+            bluetooth: () => null,
+            cd: () => ({ tracks: 11 }),
+            resolve: (path: string) => path,
+            ejectCd: jasmine.createSpy('ejectCd').and.resolveTo(),
+        };
+        TestBed.configureTestingModule({
+            imports: [NowPlaying],
+            providers: [{ provide: MusicboxApi, useValue: api }, provideRouter([])],
+        });
+        const fixture = TestBed.createComponent(NowPlaying);
+        fixture.detectChanges();
+        TestBed.inject(ApplicationRef).tick();
+        return { el: fixture.nativeElement as HTMLElement, api, fixture };
+    }
+
+    it('shows a CD icon, "Track N" and an Eject button where Disconnect would be', () => {
+        const { el, api } = create('cd');
+        expect(el.textContent).toContain('Track 3');
+        expect(el.textContent).toContain('Audio CD');
+        expect(el.textContent).toContain('cd · 16/44.1');
+        expect(el.querySelector('svg[lucideDisc3]')).not.toBeNull();
+        const eject = Array.from(el.querySelectorAll('button')).find((b) => b.textContent!.includes('Eject'));
+        expect(eject).toBeDefined();
+        eject!.click();
+        expect(api.ejectCd).toHaveBeenCalled();
+        clearAll();
+    });
+
+    it('has no Eject for a library track, even with a disc in the drive', () => {
+        const { el } = create('mpd');
+        expect(Array.from(el.querySelectorAll('button')).some((b) => b.textContent!.includes('Eject'))).toBeFalse();
+        clearAll();
+    });
+
+    // The component's 1Hz ticker is cleared on destroy.
+    function clearAll() {
+        TestBed.resetTestingModule();
+    }
 });
 
 describe('audioFormat', () => {

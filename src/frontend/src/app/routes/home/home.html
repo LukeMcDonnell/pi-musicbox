@@ -1,4 +1,6 @@
 <section aria-label="Home" class="px-4 py-3">
+  <app-cd-card />
+
   @if (playedLoading()) {
     <app-shelf heading="Recent Plays" link="/home/recent-plays">
       <app-shelf-skeleton />

@@ -105,7 +105,7 @@
 #    passthrough measured in .claude/docs/device.md true.
 #
 # 7. STILL TO DO HERE
-#      - USB CD audio playback and ripping
+#      - USB CD ripping (playback is done: setup-cd.sh)
 #      - the web UI service
 #      - optional: read-only root via `raspi-config nonint enable_overlayfs`
 #
@@ -155,6 +155,10 @@ PACKAGES=(
     # codec libraries (libfreeaptx, libsbc, liblc3, libldacbt) come as Depends.
     bluez-alsa-utils  # the sink daemon and bluealsa-aplay
     bluez-tools       # bt-agent: a just-works pairing agent, for a box with no keyboard
+
+    # CD playback; configured by setup-cd.sh. MPD reads the disc itself through
+    # its built-in cdio_paranoia input, so eject is the only addition.
+    eject
 )
 
 # NOTE: nodejs only, and never Debian's npm — which is 363 packages, because it
@@ -168,7 +172,7 @@ PACKAGES=(
 # actually about still holds — one package depending only on libc6, libstdc++6
 # and python3, against Debian's 12, and nothing is ever built here.
 
-# TODO, next pass: cdparanoia / libcdio-utils for the CD source.
+# TODO, next pass: cdparanoia / libcdio-utils for CD ripping.
 #
 # NOT installed, deliberately: libfdk-aac2t64. It is the only way to get AAC into
 # a Bluetooth sink, and Debian's bluez-alsa is not linked against it because it
@@ -429,12 +433,11 @@ main() {
       sudo ./install/setup-mpd.sh     # configure MPD against it
       sudo ./install/setup-server.sh  # web server + API
       sudo ./install/setup-bluetooth.sh  # Bluetooth A2DP sink
+      sudo ./install/setup-cd.sh      # USB CD playback
 
     Installing mpd does NOT configure or enable it. On Trixie the package leaves
     mpd.service and mpd.socket disabled and inactive, on a default config
     pointing at /var/lib/mpd/music. setup-mpd.sh is what makes it useful.
-
-    Not implemented yet: USB CD.
 EOF
 }
 
