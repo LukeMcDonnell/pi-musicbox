@@ -145,6 +145,14 @@ export const MIGRATIONS: readonly string[] = [
     `UPDATE favourite_album
         SET summary = json_set(summary, '$.release', release)
       WHERE json_extract(summary, '$.release') IS NULL;`,
+    // v9 — CD lookups by MusicBrainz disc ID, so a disc is asked about once and a
+    // re-inserted one is known offline. `info` is the picked release as JSON.
+    `CREATE TABLE cd_disc (
+        disc_id    TEXT PRIMARY KEY,
+        status     TEXT NOT NULL,
+        info       TEXT,
+        fetched_at INTEGER NOT NULL
+    ) STRICT;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

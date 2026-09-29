@@ -160,4 +160,15 @@ describe('SystemSettings', () => {
         await fixture.whenStable();
         expect(patchJson).toHaveBeenCalledWith('/api/settings', { cdAutoPlay: true });
     });
+
+    it('offers the online lookup beside auto-play, and saves it to the box', async () => {
+        const { fixture, patchJson } = create(0);
+        const el = fixture.nativeElement as HTMLElement;
+        const lookup = Array.from(el.querySelectorAll<HTMLButtonElement>('[role="switch"]'))
+            .find((b) => b.textContent!.includes('Look up CDs online'))!;
+        expect(lookup.getAttribute('aria-checked')).toBe('true');
+        lookup.click();
+        await fixture.whenStable();
+        expect(patchJson).toHaveBeenCalledWith('/api/settings', { cdLookup: false });
+    });
 });

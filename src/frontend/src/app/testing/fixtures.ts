@@ -14,6 +14,7 @@ export function boxSettings(overrides: Partial<SettingsResponse> = {}): Settings
         libraryScanHour: -1,
         libraryScanOnBoot: false,
         cdAutoPlay: true,
+        cdLookup: true,
         ...overrides,
     };
 }

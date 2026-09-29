@@ -12,17 +12,17 @@ import { Shelf } from './components/shelf/shelf';
 import { ShelfSkeleton } from './components/shelf-skeleton/shelf-skeleton';
 
 /*
-  The screen the box opens on. Four shelves: what was played lately, who has been
-  played most, the newest albums, then ten of your favourites — the same ten for
-  as long as the page is loaded, see favourite-picks.ts. Only the favourites are
+  The screen the box opens on. Four shelves: ten of your favourites — the same ten
+  for as long as the page is loaded, see favourite-picks.ts — then what was played
+  lately, who has been played most, and the newest albums. Only the favourites are
   picked at random; the rest are the first ten of the lists their own screens
   show.
 
   A CD IN THE DRIVE COMES FIRST of all, above the shelves: it is the one thing
   here that someone just physically did.
 
-  RECENT PLAYS LEADS the shelves because picking up where you left off is the commonest
-  reason to walk up to the box, and it is the shelf that changes most.
+  FAVOURITES LEAD the shelves, then Recent Plays: picking up where you left off is
+  the next commonest reason to walk up to the box.
 
   EACH SHELF SAYS ITS OWN PIECE. A box that has played nothing must not take the
   other two down with it, so loading and empty are per shelf rather than for the

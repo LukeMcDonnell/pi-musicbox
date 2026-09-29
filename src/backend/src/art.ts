@@ -211,14 +211,14 @@ export function etagFor(art: ResolvedArt): string {
  * client should show its placeholder, and telling them apart would leak whether
  * a path exists.
  */
-export function createArtHandler(resolver: ArtResolver) {
+export function createArtHandler(resolver: ArtResolver, param = 'album') {
     return async function artHandler(
         request: FastifyRequest,
         reply: FastifyReply,
     ): Promise<FastifyReply> {
-        const { album } = request.query as { album?: string };
+        const album = (request.query as Record<string, string | undefined>)[param];
         if (album === undefined) {
-            return reply.code(400).send({ error: "missing 'album' query parameter" });
+            return reply.code(400).send({ error: `missing '${param}' query parameter` });
         }
 
         const art = await resolver.resolve(album);

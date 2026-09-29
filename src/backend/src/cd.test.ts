@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
     CdUnavailableError,
-    cdInfoOf,
+    discFromState,
     cdPlayCommands,
     createCdWatcher,
     parseCdState,
@@ -25,14 +25,42 @@ test('anything else is unknown, never "no disc"', () => {
     }
 });
 
-test('only a disc goes on the wire', () => {
-    assert.deepEqual(cdInfoOf({ present: true, tracks: 3 }), { tracks: 3 });
-    assert.equal(cdInfoOf({ present: false }), null);
-    assert.equal(cdInfoOf(null), null);
+const TOC = { first: 1, leadout: 900, offsets: [150, 450], data: [false, false] };
+
+test('a table of contents is kept when it is consistent, and dropped when not', () => {
+    assert.deepEqual(parseCdState(JSON.stringify({ present: true, tracks: 2, toc: TOC })), {
+        present: true,
+        tracks: 2,
+        toc: TOC,
+    });
+    for (const toc of [
+        { ...TOC, offsets: [450, 150] },
+        { ...TOC, leadout: 300 },
+        { ...TOC, data: [false] },
+        { ...TOC, first: 0 },
+        { ...TOC, offsets: [150, '450'] },
+    ]) {
+        assert.deepEqual(parseCdState(JSON.stringify({ present: true, tracks: 2, toc })), { present: true, tracks: 2 });
+    }
+});
+
+test('the drive alone gives durations and a disc ID, and says the lookup is due', () => {
+    const disc = discFromState({ tracks: 2, toc: TOC }, true);
+    assert.deepEqual(disc.tracks.map((t) => [t.number, t.duration]), [[1, 4], [2, 6]]);
+    assert.equal(typeof disc.info.discId, 'string');
+    assert.equal(disc.info.lookup, 'pending');
+    assert.equal(discFromState({ tracks: 2, toc: TOC }, false).info.lookup, 'off');
+});
+
+test('without a TOC there is no ID to look up: tracks 1..N, no durations', () => {
+    const disc = discFromState({ tracks: 3 }, true);
+    assert.deepEqual(disc.tracks.map((t) => [t.number, t.duration]), [[1, null], [2, null], [3, null]]);
+    assert.equal(disc.info.discId, null);
+    assert.equal(disc.info.lookup, 'not-found');
 });
 
 test('playing the disc replaces the queue with every track in order', () => {
-    assert.deepEqual(cdPlayCommands(3), [
+    assert.deepEqual(cdPlayCommands([1, 2, 3]), [
         'clear',
         'add "cdda:///1"',
         'add "cdda:///2"',

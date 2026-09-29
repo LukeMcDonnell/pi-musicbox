@@ -171,13 +171,38 @@ audio_tracks() {
         | sed -n 's/^ID_CDROM_MEDIA_TRACK_COUNT_AUDIO=\([0-9][0-9]*\)$/\1/p' | head -1
 }
 
+# The table of contents as JSON, or nothing. Offsets are in frames (1/75s) with
+# the 150-frame pregap added, as MusicBrainz counts them; `data` flags tracks that
+# are not audio. python3 because bash cannot issue an ioctl.
+read_toc() {
+    python3 - "$CD_DEVICE" 2>/dev/null <<'PY'
+import fcntl, json, os, struct, sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NONBLOCK)
+first, last = fcntl.ioctl(fd, 0x5305, bytes(2))[:2]   # CDROMREADTOCHDR
+offsets, data = [], []
+for track in list(range(first, last + 1)) + [0xAA]:   # 0xAA is the lead-out
+    entry = fcntl.ioctl(fd, 0x5306, struct.pack("BBBBiB", track, 0, 1, 0, 0, 0))  # CDROMREADTOCENTRY, LBA
+    _, adr_ctrl, _, _, lba, _ = struct.unpack("BBBBiB", entry)
+    offsets.append(lba + 150)
+    data.append(bool((adr_ctrl >> 4) & 0x4))
+print(json.dumps({"first": first, "leadout": offsets[-1], "offsets": offsets[:-1], "data": data[:-1]},
+                 separators=(",", ":")))
+PY
+}
+
 # Asks udev rather than the event: the tray-close event arrives before the disc
 # has been read, and a later change event carries the track counts.
 refresh() {
-    local tracks
+    local tracks toc
     tracks="$(audio_tracks)"
     if [[ -n "$tracks" && "$tracks" -gt 0 ]]; then
-        publish_raw "{\"present\":true,\"tracks\":${tracks}}"
+        toc="$(read_toc)"
+        # Without a TOC the disc still plays; it just cannot be looked up.
+        if [[ "$toc" == \{* ]]; then
+            publish_raw "{\"present\":true,\"tracks\":${tracks},\"toc\":${toc}}"
+        else
+            publish_raw "{\"present\":true,\"tracks\":${tracks}}"
+        fi
     else
         publish_raw '{"present":false}'
     fi

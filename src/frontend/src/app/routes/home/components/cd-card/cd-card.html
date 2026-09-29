@@ -1,28 +1,34 @@
 @if (cd(); as disc) {
   <section aria-label="Audio CD" class="mb-4 flex items-center gap-4 rounded-md bg-surface p-3">
-    <span class="grid size-14 flex-none place-items-center rounded-md bg-raised">
+    <app-cover-art class="size-14 flex-none rounded-md bg-raised" [uri]="cover()"
+                   [width]="56" [height]="56" (failed)="coverFailed.set($event)">
       <svg lucideDisc3 class="size-8 text-muted" aria-hidden="true"></svg>
-    </span>
+    </app-cover-art>
     <span class="min-w-0 flex-1">
-      <span class="block truncate text-[1.1rem] font-bold">Audio CD</span>
+      <span class="block truncate text-[1.1rem] font-bold">{{ disc.album || 'Audio CD' }}</span>
+      @if (byline(); as line) {
+        <span class="block truncate text-[0.9rem] text-accent">{{ line }}</span>
+      }
       <span class="block truncate text-[0.9rem] text-muted">
-        {{ disc.tracks }} {{ disc.tracks === 1 ? 'track' : 'tracks' }}{{ playing() ? ' · playing' : '' }}
+        {{ disc.tracks }} {{ disc.tracks === 1 ? 'track' : 'tracks' }}{{ playing() ? ' · playing' : '' }}{{ disc.lookup === 'pending' ? ' · looking up…' : '' }}
       </span>
     </span>
     @if (!playing()) {
-      <button class="inline-flex h-11 flex-none cursor-pointer touch-manipulation items-center gap-1.5
-                     rounded-full bg-accent px-4 font-semibold text-on-accent select-none active:bg-raised"
-              (click)="play()">
+      <!-- Icon only on narrow screens, where the labels would squeeze the title. -->
+      <button class="inline-flex h-11 flex-none cursor-pointer touch-manipulation items-center justify-center gap-1.5
+                     rounded-full bg-accent px-4 font-semibold text-on-accent select-none active:bg-raised
+                     max-[40rem]:w-11 max-[40rem]:px-0"
+              (click)="play()" aria-label="Play">
         <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
-        Play
+        <span class="max-[40rem]:hidden">Play</span>
       </button>
     }
-    <button class="inline-flex h-11 flex-none cursor-pointer touch-manipulation items-center gap-1.5
+    <button class="inline-flex h-11 flex-none cursor-pointer touch-manipulation items-center justify-center gap-1.5
                    rounded-full border border-muted bg-transparent px-4 font-semibold text-muted
-                   select-none active:bg-raised"
-            (click)="eject()">
+                   select-none active:bg-raised max-[40rem]:w-11 max-[40rem]:px-0"
+            (click)="eject()" aria-label="Eject">
       <svg lucideEject class="size-5" aria-hidden="true"></svg>
-      Eject
+      <span class="max-[40rem]:hidden">Eject</span>
     </button>
   </section>
   @if (error(); as message) {

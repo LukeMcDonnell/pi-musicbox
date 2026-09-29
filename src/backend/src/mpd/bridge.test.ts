@@ -15,6 +15,7 @@ import {
 } from './bridge.ts';
 import { firstOf, groupBy, groupByMulti } from './protocol.ts';
 import type { BluetoothState } from '../bluetooth.ts';
+import { discFromState } from '../cd.ts';
 import type { Reply } from './protocol.ts';
 
 /** Build a Reply the way MpdConnection would, from raw "key: value" lines. */
@@ -553,7 +554,7 @@ test('songFromTags leaves absent album tags absent rather than empty', () => {
     assert.ok(!('mbAlbumId' in song));
 });
 
-const DISC = { tracks: 11 };
+const DISC = discFromState({ tracks: 11 }, false);
 const CD_CURRENT = reply('file: cdda:///3', 'Format: 44100:16:2', 'Time: 200', 'duration: 200.000', 'Pos: 2', 'Id: 40');
 
 test('a disc track is "Track N" with no art, release or container', () => {
@@ -577,13 +578,41 @@ test('playing a disc track makes the source cd', () => {
 });
 
 test('the disc is on every kind of snapshot, and null without one', () => {
-    assert.deepEqual(buildSnapshot(STATUS, CURRENT, 0, null, DISC).cd, DISC);
-    assert.deepEqual(buildSnapshot(STATUS, CURRENT, 0, PHONE, DISC).cd, DISC);
-    assert.deepEqual(unavailableSnapshot(0, null, DISC).cd, DISC);
-    assert.deepEqual(unavailableSnapshot(0, PHONE, DISC).cd, DISC);
+    assert.deepEqual(buildSnapshot(STATUS, CURRENT, 0, null, DISC).cd, DISC.info);
+    assert.deepEqual(buildSnapshot(STATUS, CURRENT, 0, PHONE, DISC).cd, DISC.info);
+    assert.deepEqual(unavailableSnapshot(0, null, DISC.info).cd, DISC.info);
+    assert.deepEqual(unavailableSnapshot(0, PHONE, DISC.info).cd, DISC.info);
     assert.equal(buildSnapshot(STATUS, CURRENT, 0).cd, null);
     assert.deepEqual(
         Object.keys(buildSnapshot(STATUS, CURRENT, 0, null, DISC)).sort(),
         Object.keys(unavailableSnapshot(0)).sort(),
     );
+});
+
+test('a looked-up disc names its tracks; the TOC gives the duration MPD lacks', () => {
+    const disc = discFromState(
+        { tracks: 2, toc: { first: 1, leadout: 900, offsets: [150, 450], data: [false, false] } },
+        true,
+    );
+    const found = {
+        info: { ...disc.info, lookup: 'found' as const, album: 'Ten', artist: 'Pearl Jam', date: '1991', image: '/api/cd/art?release=x' },
+        tracks: disc.tracks.map((t, i) => ({ ...t, title: ['Once', 'Even Flow'][i], artist: 'Pearl Jam' })),
+    };
+    const queued = groupBy(reply('file: cdda:///2', 'Pos: 1', 'Id: 7'), 'file')[0];
+    assert.deepEqual(trackFromTags(queued, found), {
+        file: 'cdda:///2',
+        image: '/api/cd/art?release=x',
+        title: 'Even Flow',
+        track: '2',
+        artist: 'Pearl Jam',
+        album: 'Ten',
+        albumArtist: 'Pearl Jam',
+        date: '1991',
+        id: 7,
+        position: 1,
+        duration: 6,
+    });
+    // Not looked up: still "Track N", but with its length.
+    assert.equal(trackFromTags(queued, disc)?.title, 'Track 2');
+    assert.equal(trackFromTags(queued, disc)?.duration, 6);
 });

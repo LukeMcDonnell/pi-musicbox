@@ -35,6 +35,8 @@ for f in "$HELPER" "$UNIT"; do
 done
 check "helper is executable" "0" "$(if [[ -x "$HELPER" ]]; then echo 0; else echo 1; fi)"
 check "helper parses" "0" "$(bash -n "$HELPER"; echo $?)"
+check "the embedded python parses" "0" \
+    "$(sed -n "/<<'PY'$/,/^PY$/p" "$HELPER" | sed '1d;$d' | python3 -c 'import ast,sys; ast.parse(sys.stdin.read())' 2>/dev/null; echo $?)"
 
 banner "the unit"
 check "runs the monitor" "0" "$(has 'ExecStart=/usr/local/bin/musicbox-cd monitor' "$UNIT")"
@@ -62,6 +64,7 @@ BIN="$WORK/bin"; mkdir -p "$BIN"
 export STUB_CALLS="$WORK/calls"; : > "$STUB_CALLS"
 export STUB_TRACKS="$WORK/tracks"
 export STUB_CURRENT="$WORK/current"; : > "$STUB_CURRENT"
+export STUB_TOC="$WORK/toc"; : > "$STUB_TOC"
 cat > "$BIN/udevadm" <<'STUB'
 #!/usr/bin/env bash
 printf 'udevadm %s\n' "$*" >> "$STUB_CALLS"
@@ -92,6 +95,8 @@ cat > "$DRIVEDIR/drive.sh" <<'DRIVE'
 source "$CD_LIB"
 STATE_FILE="$CD_STATE"
 RUN_DIR="$(dirname "$CD_STATE")"
+# The ioctl needs a real drive; its output is what is under test here.
+read_toc() { cat "$STUB_TOC"; }
 # Each argument is "udev LINE", "ctl VERB", or "tracks N" to change the disc.
 for step in "$@"; do
     kind="${step%% *}"; rest="${step#* }"
@@ -111,6 +116,19 @@ mapfile -t S < <(drive "udev DEVNAME=/dev/sr0" "tracks 11" "udev DEVNAME=/dev/sr
 check "an empty drive publishes present:false" '{"present":false}' "${S[0]:-}"
 check "an audio disc publishes its track count" '{"present":true,"tracks":11}' "${S[1]:-}"
 check "unrelated property lines change nothing" '{"present":true,"tracks":11}' "${S[2]:-}"
+
+TOC='{"first":1,"leadout":900,"offsets":[150,450],"data":[false,false]}'
+rm -f "$CD_STATE"; : > "$STUB_TRACKS"; printf '%s\n' "$TOC" > "$STUB_TOC"
+mapfile -t S < <(drive "tracks 2" "udev DEVNAME=/dev/sr0")
+check "the table of contents rides along with the disc" \
+    "{\"present\":true,\"tracks\":2,\"toc\":${TOC}}" "${S[0]:-}"
+check "and the document is valid JSON" "0" \
+    "$(printf '%s' "${S[0]:-}" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; echo $?)"
+printf 'Traceback (most recent call last):\n' > "$STUB_TOC"
+rm -f "$CD_STATE"
+mapfile -t S < <(drive "udev DEVNAME=/dev/sr0")
+check "an unreadable TOC is left out, not published broken" '{"present":true,"tracks":2}' "${S[0]:-}"
+: > "$STUB_TOC"
 
 rm -f "$CD_STATE"; : > "$STUB_TRACKS"
 mapfile -t S < <(drive "tracks 0" "udev DEVNAME=/dev/sr0")

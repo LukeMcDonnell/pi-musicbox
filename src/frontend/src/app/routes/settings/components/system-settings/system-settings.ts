@@ -15,6 +15,9 @@ import { SettingSwitch } from '../setting-switch/setting-switch';
  * at it, and you want to change it from the sofa — so these live in the box's
  * database and arrive here over the same SSE stream as everything else.
  */
+/** The two CD switches: both booleans, both on unless turned off. */
+type CdSwitch = 'cdAutoPlay' | 'cdLookup';
+
 @Component({
     selector: 'app-system-settings',
     imports: [SettingSelect, SettingSwitch, BackupRestore],
@@ -41,9 +44,18 @@ import { SettingSwitch } from '../setting-switch/setting-switch';
         <div class="flex flex-col pt-4">
             <app-setting-switch
                 label="Play CDs when inserted"
-                [checked]="cdAutoPlay()"
-                (toggled)="setCdAutoPlay($event)" />
+                [checked]="cdSwitch('cdAutoPlay')"
+                (toggled)="setCdSwitch('cdAutoPlay', $event)" />
+            <app-setting-switch
+                label="Look up CDs online"
+                [checked]="cdSwitch('cdLookup')"
+                (toggled)="setCdSwitch('cdLookup', $event)" />
         </div>
+
+        <p class="pt-3 text-[0.85rem] text-muted">
+            Track names and covers come from MusicBrainz, which is sent the disc's
+            table of contents. Off, a disc shows its track numbers and lengths only.
+        </p>
 
         @if (!isPanel) {
             <app-backup-restore />
@@ -79,21 +91,21 @@ export class SystemSettings {
         () => this.pending() ?? this.api.settings()?.panelSleepAfterMinutes ?? 0,
     );
 
-    private readonly pendingCd = signal<boolean | null>(null);
+    private readonly pendingCd = signal<Partial<Record<CdSwitch, boolean>>>({});
 
-    protected readonly cdAutoPlay = computed(
-        () => this.pendingCd() ?? this.api.settings()?.cdAutoPlay ?? true,
-    );
+    protected cdSwitch(key: CdSwitch): boolean {
+        return this.pendingCd()[key] ?? this.api.settings()?.[key] ?? true;
+    }
 
-    protected async setCdAutoPlay(on: boolean): Promise<void> {
-        this.pendingCd.set(on);
+    protected async setCdSwitch(key: CdSwitch, on: boolean): Promise<void> {
+        this.pendingCd.update((p) => ({ ...p, [key]: on }));
         this.error.set(null);
         try {
-            await this.client.patchJson('/api/settings', { cdAutoPlay: on });
+            await this.client.patchJson('/api/settings', { [key]: on });
         } catch (err) {
             this.error.set((err as Error).message);
         } finally {
-            this.pendingCd.set(null);
+            this.pendingCd.update(({ [key]: _, ...rest }) => rest);
         }
     }
 

@@ -30,6 +30,7 @@ import {
     type Snapshot,
 } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
+import { discFromState } from './cd.ts';
 import { isLoopback } from './routes.ts';
 import type { Panel } from './panel.ts';
 import { createSettings, SETTINGS_DEFAULTS, type Settings } from './settings.ts';
@@ -75,6 +76,7 @@ async function startServer(
         musicRoot?: string;
         bluetoothControl?: string;
         cdControl?: string;
+        cdArtDir?: string;
         panel?: Panel;
         settings?: Settings;
         power?: Power;
@@ -98,6 +100,7 @@ async function startServer(
         // rather than reaching a real arbiter on a developer's machine.
         bluetoothControl: opts.bluetoothControl ?? '/nonexistent-run-dir/control',
         cdControl: opts.cdControl ?? '/nonexistent-run-dir/cd-control',
+        cdArtDir: opts.cdArtDir,
         panel: opts.panel,
         settings: opts.settings,
         power: opts.power,
@@ -1761,7 +1764,7 @@ test('the CD routes refuse when there is no disc', async () => {
 test('playing a disc reaches MPD, and says so when MPD is down', async () => {
     const { app, bridge, routes, port } = await startServer();
     try {
-        await bridge.setCd({ tracks: 4 });
+        await bridge.setCd(discFromState({ tracks: 4 }, false));
         const res = await fetch(`http://127.0.0.1:${port}/api/cd/play`, { method: 'POST' });
         assert.equal(res.status, 503);
         assert.match(((await res.json()) as { error: string }).error, /MPD is not connected/);
@@ -1775,7 +1778,7 @@ test('playing a disc is allowed while a phone owns the DAC', async () => {
     const { app, bridge, routes, port } = await startServer();
     try {
         await bridge.setBluetooth(PHONE);
-        await bridge.setCd({ tracks: 4 });
+        await bridge.setCd(discFromState({ tracks: 4 }, false));
         const res = await fetch(`http://127.0.0.1:${port}/api/cd/play`, { method: 'POST' });
         // MPD's error, not a 409: the request got past the source check.
         assert.equal(res.status, 503);
@@ -1788,7 +1791,7 @@ test('playing a disc is allowed while a phone owns the DAC', async () => {
 test('eject reaches the helper, and reports honestly when it cannot', async () => {
     const { app, bridge, routes, port } = await startServer();
     try {
-        await bridge.setCd({ tracks: 4 });
+        await bridge.setCd(discFromState({ tracks: 4 }, false));
         const res = await fetch(`http://127.0.0.1:${port}/api/cd/eject`, { method: 'POST' });
         assert.equal(res.status, 503);
         assert.match(((await res.json()) as { error: string }).error, /CD helper is not running/);
@@ -1808,7 +1811,7 @@ test('eject writes one verb into the FIFO and answers 202', async () => {
         const reader = await fsOpen(fifo, fsConstants.O_RDWR | fsConstants.O_NONBLOCK);
         const { app, bridge, routes, port } = await startServer({ cdControl: fifo });
         try {
-            await bridge.setCd({ tracks: 4 });
+            await bridge.setCd(discFromState({ tracks: 4 }, false));
             const res = await fetch(`http://127.0.0.1:${port}/api/cd/eject`, { method: 'POST' });
             assert.equal(res.status, 202);
             assert.deepEqual(await res.json(), { accepted: 'eject' });
@@ -1819,6 +1822,28 @@ test('eject writes one verb into the FIFO and answers 202', async () => {
             routes.closeStreams();
             await app.close();
             await reader.close();
+        }
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test('a CD cover is served from the cache, and only for a release ID', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-cdart-'));
+    const id = '8d0bc6d4-8700-44e8-90c8-b86c23e7ff14';
+    try {
+        const { app, routes, port } = await startServer({ cdArtDir: dir });
+        try {
+            const bad = await fetch(`http://127.0.0.1:${port}/api/cd/art?release=..%2F..%2Fetc%2Fpasswd`);
+            assert.equal(bad.status, 400);
+            assert.equal((await fetch(`http://127.0.0.1:${port}/api/cd/art?release=${id}`)).status, 404);
+            await writeFile(join(dir, `${id}.jpg`), Buffer.from([0xff, 0xd8, 0xff]));
+            const ok = await fetch(`http://127.0.0.1:${port}/api/cd/art?release=${id}`);
+            assert.equal(ok.status, 200);
+            assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+        } finally {
+            routes.closeStreams();
+            await app.close();
         }
     } finally {
         await rm(dir, { recursive: true, force: true });

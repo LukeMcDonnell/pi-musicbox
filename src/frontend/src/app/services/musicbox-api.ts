@@ -111,6 +111,16 @@ export class MusicboxApi {
      */
     private readonly queueVersion = computed(() => this._snapshot()?.queueVersion ?? -1);
 
+    /**
+     * A disc's titles arriving changes the queue's rows without changing MPD's
+     * version — the backend fills them in — so this is watched beside it. A
+     * string, so it only notifies when the lookup actually moves.
+     */
+    private readonly cdQueueKey = computed(() => {
+        const cd = this._snapshot()?.cd;
+        return cd ? `${cd.discId}:${cd.lookup}:${cd.image}` : '';
+    });
+
     readonly mpdAvailable = computed(() => this._snapshot()?.status === 'ok');
 
     /**
@@ -178,6 +188,7 @@ export class MusicboxApi {
          * playing, MPD's queue is not what anyone is looking at.
          */
         effect(() => {
+            this.cdQueueKey();
             if (this.queueVersion() < 0) {
                 this.queueRequest += 1; // cancel any listing still in flight
                 this._queue.set([]);

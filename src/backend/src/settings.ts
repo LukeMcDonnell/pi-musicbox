@@ -37,6 +37,8 @@ export interface SettingsValues {
     libraryScanOnBoot: boolean;
     /** Play an audio CD as soon as it is inserted. */
     cdAutoPlay: boolean;
+    /** Look discs up on MusicBrainz; off sends nothing anywhere. */
+    cdLookup: boolean;
 }
 
 export const SETTINGS_DEFAULTS: Readonly<SettingsValues> = {
@@ -49,6 +51,7 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsValues> = {
     libraryScanOnBoot: false,
     // On: a disc going into a CD player and playing is what anyone expects.
     cdAutoPlay: true,
+    cdLookup: true,
 };
 
 /** One per key, and the only way a stored row becomes a setting. */
@@ -73,6 +76,8 @@ const GUARDS: { [K in keyof SettingsValues]: (value: string) => SettingsValues[K
     libraryScanOnBoot: (value) =>
         value === 'true' ? true : value === 'false' ? false : undefined,
     cdAutoPlay: (value) =>
+        value === 'true' ? true : value === 'false' ? false : undefined,
+    cdLookup: (value) =>
         value === 'true' ? true : value === 'false' ? false : undefined,
 };
 

@@ -122,25 +122,25 @@ describe('Home', () => {
         expect(recent.length).toBe(10);
         expect(recent[0].textContent).toContain('New 0');
         expect(recent[9].textContent).toContain('New 9');
-        // Above the favourites, and not shuffled the way they are.
+        // Favourites lead, just under the CD card; the newest albums come last.
         const headings = [...(fixture.nativeElement as HTMLElement).querySelectorAll('h2')];
         expect(headings.map((h) => h.textContent!.trim()))
-            .toEqual(['Recent Plays', 'Most Played Artists', 'Recently Added', 'From your Favourites']);
+            .toEqual(['From your Favourites', 'Recent Plays', 'Most Played Artists', 'Recently Added']);
     });
 
     it('points the newest shelf at its own screen', () => {
         const host = create(albums(40)).nativeElement as HTMLElement;
         const shelves = [...host.querySelectorAll('app-shelf')];
-        expect(shelves[2]!.querySelector('a')!.getAttribute('href')).toBe('/home/recently-added');
+        expect(shelves[3]!.querySelector('a')!.getAttribute('href')).toBe('/home/recently-added');
     });
 
-    it('leads with what was played lately, pointing at its own screen', () => {
+    it('follows the favourites with what was played lately, pointing at its own screen', () => {
         const fixture = create(albums(40));
         const host = fixture.nativeElement as HTMLElement;
         const played = shelfCards(fixture, 'Recent Plays');
         expect(played.length).toBe(10);
         expect(played[0].textContent).toContain('Played 0');
-        expect([...host.querySelectorAll('app-shelf')][0]!.querySelector('a')!.getAttribute('href'))
+        expect([...host.querySelectorAll('app-shelf')][1]!.querySelector('a')!.getAttribute('href'))
             .toBe('/home/recent-plays');
     });
 
@@ -170,7 +170,7 @@ describe('Home', () => {
 
     it('names the shelf and points at the full list', () => {
         const host = create(albums(40)).nativeElement as HTMLElement;
-        const favourites = [...host.querySelectorAll('app-shelf')][3]!;
+        const favourites = [...host.querySelectorAll('app-shelf')][0]!;
         expect(favourites.querySelector('h2')!.textContent!.trim()).toBe('From your Favourites');
         expect(favourites.querySelector('a')!.getAttribute('href')).toBe('/favourites');
     });
@@ -237,7 +237,7 @@ describe('Home', () => {
         expect(artists[0].textContent).toContain('Player 0');
         expect(artists[0].textContent).toContain('100 plays');
         expect(artists[9].textContent).toContain('Player 9');
-        expect([...host.querySelectorAll('app-shelf')][1]!.querySelector('a')!.getAttribute('href'))
+        expect([...host.querySelectorAll('app-shelf')][2]!.querySelector('a')!.getAttribute('href'))
             .toBe('/home/most-played-artists');
     });
 

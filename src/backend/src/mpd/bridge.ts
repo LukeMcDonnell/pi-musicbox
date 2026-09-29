@@ -27,6 +27,7 @@ import {
 import { artUriFor } from '../art.ts';
 import { releaseIdOf } from '../release.ts';
 import type { BluetoothState } from '../bluetooth.ts';
+import type { CdDisc } from '../cd.ts';
 
 /**
  * Subsystems worth waking up for.
@@ -120,10 +121,10 @@ function encodingOf(file: string): string | undefined {
 }
 
 /** Build a Track from an MPD tag map, dropping absent fields rather than nulling them. */
-export function trackFromTags(tags: Map<string, string>): Track | null {
+export function trackFromTags(tags: Map<string, string>, cd: CdDisc | null = null): Track | null {
     const file = tags.get('file');
     if (!file) return null;
-    if (file.startsWith(CD_URI_PREFIX)) return trackFromCd(file, tags);
+    if (file.startsWith(CD_URI_PREFIX)) return trackFromCd(file, tags, cd);
     // Derived from the path alone — no I/O here. This is the one chokepoint for
     // every Track the backend produces (snapshot, queue and find all call it),
     // so setting `image` here is what guarantees it is never missing.
@@ -154,23 +155,30 @@ export function trackFromTags(tags: Map<string, string>): Track | null {
 }
 
 /**
- * A track on the disc: no library, so no art, release or container. Titled by
- * its number until disc lookup exists.
+ * A track on the disc: no library, so no release or container. Its title and
+ * cover come from the disc's lookup when there is one, else "Track N"; its
+ * duration from the table of contents, which MPD does not know until it plays.
  */
-function trackFromCd(file: string, tags: Map<string, string>): Track {
-    const track: Track = { file, image: null };
-    const n = /^cdda:\/\/[^/]*\/(\d+)$/.exec(file)?.[1];
+function trackFromCd(file: string, tags: Map<string, string>, cd: CdDisc | null): Track {
+    const track: Track = { file, image: cd?.info.image ?? null };
+    const raw = /^cdda:\/\/[^/]*\/(\d+)$/.exec(file)?.[1];
+    const n = raw === undefined ? undefined : Number(raw);
+    const known = n === undefined ? undefined : cd?.tracks.find((t) => t.number === n);
     if (n !== undefined) {
-        track.title = `Track ${Number(n)}`;
-        track.track = String(Number(n));
+        track.title = known?.title ?? `Track ${n}`;
+        track.track = String(n);
     }
+    if (known?.artist) track.artist = known.artist;
+    if (cd?.info.album) track.album = cd.info.album;
+    if (cd?.info.artist) track.albumArtist = cd.info.artist;
+    if (cd?.info.date) track.date = cd.info.date;
     const id = num(tags.get('Id'));
     const pos = num(tags.get('Pos'));
     if (id !== undefined) track.id = id;
     if (pos !== undefined) track.position = pos;
     if (tags.get('Format')) track.format = tags.get('Format');
-    const dur = num(tags.get('duration') ?? tags.get('Time'));
-    if (dur !== undefined) track.duration = dur;
+    const dur = num(tags.get('duration') ?? tags.get('Time')) ?? known?.duration ?? undefined;
+    if (dur !== undefined && dur !== null) track.duration = dur;
     return track;
 }
 
@@ -361,8 +369,9 @@ export function buildSnapshot(
     currentSong: Reply,
     now: number,
     bt: BluetoothState | null = null,
-    cd: CdInfo | null = null,
+    disc: CdDisc | null = null,
 ): Snapshot {
+    const cd = disc?.info ?? null;
     if (bt !== null) return bluetoothSnapshot(bt, now, cd);
 
     const get = (k: string) => firstValue(status, k);
@@ -371,7 +380,7 @@ export function buildSnapshot(
         rawState === 'play' || rawState === 'pause' ? rawState : 'stop';
 
     const songGroups = groupBy(currentSong, 'file');
-    const track = songGroups.length > 0 ? trackFromTags(songGroups[0]) : null;
+    const track = songGroups.length > 0 ? trackFromTags(songGroups[0], disc) : null;
 
     return {
         apiVersion: API_VERSION,
@@ -431,8 +440,8 @@ export class MpdBridge {
      */
     private bluetooth: BluetoothState | null = null;
 
-    /** The disc in the drive, as last reported by the CD helper. */
-    private cd: CdInfo | null = null;
+    /** The disc in the drive, with whatever its lookup has found. */
+    private cd: CdDisc | null = null;
 
     // Declared explicitly rather than as a constructor parameter property:
     // those emit code, so Node's type-stripping (used by `npm test`) rejects them.
@@ -442,7 +451,7 @@ export class MpdBridge {
         this.opts = opts;
         this.commands = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
         this.idler = new MpdConnection({ replyTimeoutMs: opts.replyTimeoutMs });
-        this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth, this.cd);
+        this.snapshot = unavailableSnapshot(Date.now(), this.bluetooth, this.cd?.info ?? null);
     }
 
     get current(): Snapshot {
@@ -518,7 +527,7 @@ export class MpdBridge {
             this.unavailableTimer = null;
             if (!this.commands.connected && !this.stopped) {
                 this.opts.log('warn', 'MPD still unreachable — reporting unavailable');
-                this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
+                this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd?.info ?? null));
             }
         }, grace);
         this.timers.add(timer);
@@ -650,18 +659,23 @@ export class MpdBridge {
         if (this.commands.connected) {
             await this.refresh();
         } else {
-            this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
+            this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd?.info ?? null));
         }
     }
 
+    /** The disc in the drive, as last set. */
+    get cdDisc(): CdDisc | null {
+        return this.cd;
+    }
+
     /** Record the disc in the drive and republish; nothing in MPD wakes for it. */
-    async setCd(info: CdInfo | null): Promise<void> {
-        this.cd = info;
+    async setCd(disc: CdDisc | null): Promise<void> {
+        this.cd = disc;
         if (this.stopped) return;
         if (this.commands.connected) {
             await this.refresh();
         } else {
-            this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd));
+            this.publish(unavailableSnapshot(Date.now(), this.bluetooth, this.cd?.info ?? null));
         }
     }
 
@@ -708,7 +722,7 @@ export class MpdBridge {
         if (!this.commands.connected) throw new Error('MPD is not connected');
         const reply = await this.commands.send('playlistinfo');
         const tracks = groupBy(reply, 'file')
-            .map(trackFromTags)
+            .map((tags) => trackFromTags(tags, this.cd))
             .filter((t): t is Track => t !== null);
         return { version: this.snapshot.queueVersion, tracks };
     }
@@ -730,7 +744,7 @@ export class MpdBridge {
     async find(...pairs: Array<[string, string]>): Promise<Track[]> {
         const reply = await this.send(`find ${filterArgs(pairs)}`);
         return groupBy(reply, 'file')
-            .map(trackFromTags)
+            .map((tags) => trackFromTags(tags, this.cd))
             .filter((t): t is Track => t !== null);
     }
 
@@ -746,7 +760,7 @@ export class MpdBridge {
     async findFirst(...pairs: Array<[string, string]>): Promise<Track | null> {
         const reply = await this.send(`find ${filterArgs(pairs)} window 0:1`);
         const groups = groupBy(reply, 'file');
-        return groups.length > 0 ? trackFromTags(groups[0]) : null;
+        return groups.length > 0 ? trackFromTags(groups[0], this.cd) : null;
     }
 
     /**

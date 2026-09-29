@@ -1779,6 +1779,8 @@ wanting `hw:0,0` and would need its own leg in the Bluetooth arbiter. MPD's
 count, not a TOC. Right for every ordinary CD and for an Enhanced CD (data track
 last); wrong for the rare mixed-mode disc whose data track comes first. Accepted
 for this cut — disc lookup will need the TOC anyway, and fixes it then.
+*Superseded the same day:* the helper now reads the TOC, which flags data
+tracks, so the audio tracks keep their real numbers. See the lookup entry below.
 
 **The helper is not root.** Reading udev events needs nothing and eject needs
 only `cdrom`, so it runs as `musicbox` — unlike `musicbox-bt`, which starts units
@@ -1787,5 +1789,24 @@ and has to be.
 **`Snapshot.cd` rather than an SSE event of its own.** A disc in the drive is a
 source you can play, the same kind of fact as a connected phone, and it has to
 change the Now Playing and home screens in the same frame as `source` does.
+
+See `cd.md`.
+
+## CD lookup: an exact disc ID or nothing (2026-09-29)
+
+**No fuzzy lookup.** MusicBrainz's `?toc=` search finds discs whose TOC is close,
+which is how a different pressing's titles or a wrong album end up on screen. The
+same rule as Bluetooth covers: a missing title is obvious, a wrong one is not.
+
+**Not the local library.** *Ten* is in the library as a different release; release
+IDs never match and a release-group match would show the wrong edition's cover.
+
+**The pressing is auto-picked**, cover first then MusicBrainz's order. Tracklists
+are identical across a disc ID's releases, so a chooser would only change the
+cover — not worth the UI.
+
+**The TOC is read in python3, in the helper.** The backend cannot ioctl and has no
+`child_process`; `cd-discid` would be a package for five ioctls. python3 is already
+on the image and `musicbox-bt` already relies on it.
 
 See `cd.md`.

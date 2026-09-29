@@ -46,10 +46,25 @@ export function isCdTrack(track: { file?: string } | null | undefined): boolean 
     return track?.file?.startsWith(CD_URI_PREFIX) ?? false;
 }
 
+/**
+ * Where the online lookup has got to. `off` is the setting; `not-found` covers a
+ * disc MusicBrainz does not know and one whose table of contents was unreadable.
+ */
+export type CdLookupState = 'off' | 'pending' | 'found' | 'not-found' | 'failed';
+
 /** An audio CD in the drive. */
 export interface CdInfo {
-    /** Audio tracks on the disc, numbered 1..tracks. */
+    /** Audio tracks on the disc. */
     tracks: number;
+    /** MusicBrainz disc ID, from the table of contents; null when it could not be read. */
+    discId: string | null;
+    lookup: CdLookupState;
+    /** From MusicBrainz, when found: exact disc ID matches only, never a guess. */
+    album: string | null;
+    artist: string | null;
+    date: string | null;
+    /** `/api/cd/art?release=<mbid>`; null until the cover has been fetched. */
+    image: string | null;
 }
 
 export type PlaybackState = 'play' | 'pause' | 'stop';
@@ -659,6 +674,9 @@ export interface AlbumRef {
  *
  * Both 409 when there is no audio CD in the drive. Play takes over from a phone,
  * as any MPD play does; eject answers 503 when the CD helper is not installed.
+ *
+ *   GET /api/cd/art?release=<mbid>   a looked-up disc's cover, cached on the box;
+ *                                    400 for anything but a UUID, 404 when not fetched
  */
 
 /*
@@ -758,6 +776,8 @@ export interface SettingsResponse {
     libraryScanOnBoot: boolean;
     /** Start playing an audio CD as soon as one is inserted. */
     cdAutoPlay: boolean;
+    /** Look a disc up on MusicBrainz and the Cover Art Archive. Off sends nothing anywhere. */
+    cdLookup: boolean;
 }
 
 /**

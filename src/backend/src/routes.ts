@@ -53,6 +53,7 @@ import {
     type ControlVerb,
 } from './bluetooth.ts';
 import { CdUnavailableError, DEFAULT_CD_CONTROL_PATH, cdPlayCommands, sendCdControl } from './cd.ts';
+import { createCdArtResolver, isReleaseId } from './cd-lookup.ts';
 import type { Panel } from './panel.ts';
 import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
@@ -88,6 +89,8 @@ export interface RouteOptions {
     bluetoothControl?: string;
     /** The CD helper's control FIFO. See config.cdControl. */
     cdControl?: string;
+    /** Where looked-up CD covers are cached. See config.cdArtDir. */
+    cdArtDir?: string;
     /** The panel's backlight. Absent on a build with no panel support wired up. */
     panel?: Panel;
     /** The box's settings store. See settings.ts for what belongs in it. */
@@ -1008,10 +1011,10 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
 
     // Allowed during a Bluetooth session: MPD playing is what hands the DAC back.
     app.post('/api/cd/play', async (_req: FastifyRequest, reply: FastifyReply) => {
-        const disc = bridge.current.cd;
+        const disc = bridge.cdDisc;
         if (disc === null) return reply.code(409).send({ error: 'there is no audio CD in the drive' });
         try {
-            await bridge.runAll(cdPlayCommands(disc.tracks));
+            await bridge.runAll(cdPlayCommands(disc.tracks.map((t) => t.number)));
             return bridge.current;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -1029,6 +1032,13 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             if (err instanceof CdUnavailableError) return reply.code(503).send({ error: err.message });
             throw err;
         }
+    });
+
+    const cdArt = createArtHandler(createCdArtResolver(opts.cdArtDir ?? '/nonexistent-cd-art'), 'release');
+    app.get('/api/cd/art', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { release } = request.query as { release?: string };
+        if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
+        return cdArt(request, reply);
     });
 
     return {

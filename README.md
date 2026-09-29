@@ -601,8 +601,10 @@ returned. The timeout escalates to SIGKILL if that ever changes.
 `setup-cd.sh` makes the USB drive a source. Put in an audio CD and the home
 screen offers **Play** and **Eject**; with *Play CDs when inserted* on (System
 settings, on by default) it starts by itself, and takes over from a phone as any
-MPD playback does. Now Playing and the queue show a disc and "Track 1..N" —
-titles and covers from a disc lookup are the next step.
+MPD playback does. Track lengths come from the disc itself. With *Look up CDs
+online* on (the default) it is named from MusicBrainz — an exact disc ID match,
+never a guess — and gets its cover from the Cover Art Archive; both are cached,
+so a disc is looked up once. Unknown or offline, it is "Track 1..N".
 
 MPD reads the disc through its built-in `cdio_paranoia` input, so a CD is as
 bit-perfect as the library: nothing new touches `hw:0,0`. A small helper,

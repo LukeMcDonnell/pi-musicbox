@@ -7,6 +7,7 @@
  * path. MPD being absent is handled here, not by systemd.
  */
 
+import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net';
 import Fastify from 'fastify';
 import { loadConfig, DEFAULT_CONF_PATH } from './config.ts';
 import { MpdBridge } from './mpd/bridge.ts';
@@ -16,6 +17,8 @@ import { registerStatic } from './static.ts';
 import { createBluetoothWatcher } from './bluetooth.ts';
 import { cdPlayCommands, createCdWatcher } from './cd.ts';
 import { createCdReactor } from './cd-autoplay.ts';
+import { createCdLookup } from './cd-lookup.ts';
+import { createCdSession } from './cd-session.ts';
 import { openDb } from './db.ts';
 import { createSettings } from './settings.ts';
 import { createLibraryScanner } from './library-scan.ts';
@@ -125,6 +128,7 @@ async function main(): Promise<void> {
         musicRoot: config.musicRoot,
         bluetoothControl: config.bluetoothControl,
         cdControl: config.cdControl,
+        cdArtDir: config.cdArtDir,
         panel,
         settings,
         power: createPower(config.powerDir),
@@ -159,11 +163,31 @@ async function main(): Promise<void> {
     });
     void bluetooth.poll();
 
+    // Node gives each address 250ms before trying the next; on this wifi an IPv4
+    // connect to MusicBrainz takes ~280ms and IPv6 is unreachable, so every fetch failed.
+    setDefaultAutoSelectFamilyAttemptTimeout(2_500);
+    const cdSession = createCdSession({
+        publish: (disc) => bridge.setCd(disc),
+        lookup: createCdLookup({
+            db,
+            artDir: config.cdArtDir,
+            userAgent: `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`,
+            log: (level, msg) => app.log[level](msg),
+        }),
+        lookupEnabled: () => settings.all().cdLookup,
+        log: (level, msg) => app.log[level](msg),
+    });
+    let cdLookupWas = settings.all().cdLookup;
+    settings.onChange((values) => {
+        if (values.cdLookup === cdLookupWas) return;
+        cdLookupWas = values.cdLookup;
+        void cdSession.refresh();
+    });
     const cd = createCdWatcher({
         path: config.cdState,
         log: (level, msg) => app.log[level](msg),
         onChange: createCdReactor({
-            setCd: (info) => bridge.setCd(info),
+            setCd: (state) => cdSession.update(state),
             playCd: (tracks) => bridge.runAll(cdPlayCommands(tracks)),
             removeCdTracks: () => bridge.removeCdTracks(),
             autoPlay: () => settings.all().cdAutoPlay,
@@ -221,6 +245,7 @@ async function main(): Promise<void> {
         // event loop open, the same way the SSE streams below do.
         bluetooth.stop();
         cd.stop();
+        cdSession.stop();
         // MUST come before close(): Fastify waits for connections to finish and
         // an SSE stream never finishes, so a single connected client — the kiosk
         // always has one — would wedge shutdown until systemd's stop timeout.

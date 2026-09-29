@@ -12,6 +12,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DEFAULT_CD_CONTROL_PATH, DEFAULT_CD_STATE_PATH } from './cd.ts';
 
 export interface Config {
@@ -44,6 +45,8 @@ export interface Config {
     /** The CD helper's state file and control FIFO; see cd.ts and install/setup-cd.sh. */
     cdState: string;
     cdControl: string;
+    /** Looked-up CD covers. Beside the database by default; never under backend/. */
+    cdArtDir: string;
     /**
      * The SQLite file holding the box's own state — settings now, favourites
      * and recent plays later.
@@ -80,6 +83,7 @@ export const DEFAULTS: Config = {
     bluetoothControl: '/run/musicbox/control',
     cdState: DEFAULT_CD_STATE_PATH,
     cdControl: DEFAULT_CD_CONTROL_PATH,
+    cdArtDir: '/var/lib/musicbox/data/cd-art',
     dbPath: '/var/lib/musicbox/data/musicbox.db',
     powerDir: '/run/musicbox-power',
     mpdStateDir: '/var/lib/mpd',
@@ -149,6 +153,9 @@ export function loadConfig(
         cdState: pick('MUSICBOX_CD_STATE') ?? DEFAULTS.cdState,
         cdControl: pick('MUSICBOX_CD_CONTROL') ?? DEFAULTS.cdControl,
         dbPath: pick('MUSICBOX_DB') ?? DEFAULTS.dbPath,
+        cdArtDir:
+            pick('MUSICBOX_CD_ART_DIR') ??
+            (pick('MUSICBOX_DB') ? join(dirname(pick('MUSICBOX_DB')!), 'cd-art') : DEFAULTS.cdArtDir),
         powerDir: pick('MUSICBOX_POWER_DIR') ?? DEFAULTS.powerDir,
         mpdStateDir: pick('MUSICBOX_MPD_STATE_DIR') ?? DEFAULTS.mpdStateDir,
         restoreDir: pick('MUSICBOX_RESTORE_DIR') ?? DEFAULTS.restoreDir,
