@@ -165,6 +165,66 @@ check "an unknown verb runs nothing" "" "$(grep -v '^udevadm\|^mpc current' "$ST
 check "exit removes the state file rather than publishing none" "0" \
     "$(grep -q "trap \"rm -f '\$fifo' '\$CONTROL_FIFO' '\$STATE_FILE'\" EXIT" "$HELPER"; echo $?)"
 
+banner "mpd preloads the latency shim"
+DROPIN="$OUT/20-musicbox-cd.conf"
+lib_path="$(sed -n 's/^readonly CDIO_SHIM_LIB="\(.*\)"$/\1/p' "$SCRIPT")"
+check "drop-in written" "0" "$(if [[ -f "$DROPIN" ]]; then echo 0; else echo 1; fi)"
+check "a [Service] section" "0" "$(hasre '^\[Service\]$' "$DROPIN")"
+check "exactly one LD_PRELOAD" "1" "$(grep -c '^Environment=LD_PRELOAD=' "$DROPIN")"
+check "it preloads the installed lib" "0" "$(hasre "^Environment=LD_PRELOAD=${lib_path}\$" "$DROPIN")"
+check "numbered after setup-mpd's drop-in" "0" "$(has 'mpd.service.d/20-musicbox-cd.conf' "$SCRIPT")"
+check "revert removes the lib and drop-in" "0" "$(has 'rm -f "$MPD_DROPIN" "$CDIO_SHIM_LIB"' "$SCRIPT")"
+
+SO="$REPO/native/cdio-latency.so"
+exports="$(readelf --dyn-syms -W "$SO" 2>/dev/null | awk '$7 != "UND" && $4 == "FUNC" {print $8}' | sort | tr '\n' ' ')"
+check "the built lib is committed" "0" "$(if [[ -f "$SO" ]]; then echo 0; else echo 1; fi)"
+check "it is arm64" "0" "$(readelf -h "$SO" 2>/dev/null | grep -q 'Machine:.*AArch64'; echo $?)"
+check "it exports exactly the two, in libcdio's version nodes" \
+    "cdio_paranoia_init@@CDIO_PARANOIA_2 data_bigendianp@@CDIO_CDDA_2 " "$exports"
+
+# The same source built for this host, preloaded over a fake libcdio.
+NAT="$WORK/native"; mkdir -p "$NAT"
+cat > "$NAT/fake.c" <<'C'
+int fake_probes, fake_block = -1;
+int data_bigendianp(void *d) {
+    static const int seq[] = { -1, 0, 1 };
+    (void)d; return seq[fake_probes++ % 3];
+}
+static int paranoia;
+void *cdio_paranoia_init(void *d) { (void)d; return &paranoia; }
+int cdio_paranoia_cachemodel_size(void *p, int n) { (void)p; fake_block = n; return 1200; }
+C
+cat > "$NAT/fake.map" <<'C'
+CDIO_CDDA_2 { global: data_bigendianp; fake_probes; fake_block; local: *; };
+CDIO_PARANOIA_2 { global: cdio_paranoia_init; cdio_paranoia_cachemodel_size; };
+C
+cat > "$NAT/main.c" <<'C'
+#include <stdio.h>
+extern int fake_probes, fake_block;
+int data_bigendianp(void *d);
+void *cdio_paranoia_init(void *d);
+int main(void) {
+    for (int i = 0; i < 4; i++) printf("%d ", data_bigendianp(0));
+    printf("probes=%d ", fake_probes);
+    void *p = cdio_paranoia_init(0);
+    printf("init=%s block=%d\n", p ? "ok" : "null", fake_block);
+    return 0;
+}
+C
+if command -v gcc >/dev/null 2>&1 \
+    && gcc -shared -fPIC -Wl,--version-script="$NAT/fake.map" \
+        -o "$NAT/libfake.so" "$NAT/fake.c" 2>/dev/null \
+    && gcc -shared -fPIC -Wall -Werror -Wl,--version-script="$REPO/src/native/cdio-latency.map" \
+        -o "$NAT/shim.so" "$REPO/src/native/cdio-latency.c" -ldl 2>/dev/null \
+    && gcc -o "$NAT/main" "$NAT/main.c" -L"$NAT" -lfake -Wl,-rpath,"$NAT" 2>/dev/null; then
+    check "unpreloaded: every call probes, block untouched" "-1 0 1 -1 probes=4 init=ok block=-1" "$("$NAT/main")"
+    # -1 is not remembered; the first real answer is, and the probe never runs again.
+    check "preloaded: probes until an answer, block is 1s" "-1 0 0 0 probes=2 init=ok block=75" \
+        "$(LD_PRELOAD="$NAT/shim.so" "$NAT/main")"
+else
+    check "host gcc builds the shim test" "0" "1"
+fi
+
 banner "it configures, it does not install"
 check "no apt-get in setup-cd.sh" "1" "$(hasre '^[[:space:]]*(run )?(env .*)?apt-get ' "$SCRIPT")"
 check "install.sh installs eject" "0" "$(hasre '^[[:space:]]+eject([[:space:]]|$)' "$REPO/install/install.sh")"

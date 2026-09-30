@@ -2,17 +2,19 @@
 #
 # musicbox — build.sh
 #
-# Builds both halves into the committed output directories:
+# Builds everything into the committed output directories:
 #
 #   src/backend   --esbuild-->  backend/server.js   (one file, no node_modules)
 #   src/frontend  --ng build-->  frontend/          (Angular, content-hashed)
+#   src/native    --aarch64 gcc-->  native/*.so     (mpd's LD_PRELOAD, see cd.md)
 #
 # The Pi is never a build machine. It gets a node binary and these artifacts.
 #
 # Usage:
-#   tools/build.sh                # both
+#   tools/build.sh                # everything
 #   tools/build.sh --backend      # backend only, skips the slow Angular build
 #   tools/build.sh --frontend     # frontend only
+#   tools/build.sh --native       # native only
 #   tools/build.sh --check        # also typecheck and run unit tests
 
 set -euo pipefail
@@ -22,6 +24,7 @@ cd "$REPO"
 
 DO_BACKEND=1
 DO_FRONTEND=1
+DO_NATIVE=1
 DO_CHECK=0
 
 if [[ -t 1 ]]; then
@@ -38,17 +41,20 @@ die()   { printf '\n%sERROR:%s %s\n' "${C_RED}${C_BOLD}" "${C_RESET}" "$*" >&2; 
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --backend)  DO_FRONTEND=0 ;;
-        --frontend) DO_BACKEND=0 ;;
+        --backend)  DO_FRONTEND=0; DO_NATIVE=0 ;;
+        --frontend) DO_BACKEND=0; DO_NATIVE=0 ;;
+        --native)   DO_BACKEND=0; DO_FRONTEND=0 ;;
         --check)    DO_CHECK=1 ;;
-        -h|--help)  sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)  sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)          die "unknown option: $1" ;;
     esac
     shift
 done
 
-command -v node >/dev/null 2>&1 || die "node is not installed on this machine"
-command -v npm  >/dev/null 2>&1 || die "npm is not installed on this machine"
+if [[ "$DO_BACKEND" -eq 1 || "$DO_FRONTEND" -eq 1 ]]; then
+    command -v node >/dev/null 2>&1 || die "node is not installed on this machine"
+    command -v npm  >/dev/null 2>&1 || die "npm is not installed on this machine"
+fi
 
 # Install dependencies only when they are missing or stale, so a rebuild after
 # a source-only change does not pay for npm.
@@ -86,6 +92,21 @@ if [[ "$DO_FRONTEND" -eq 1 ]]; then
     ok "frontend/  ($(du -sh frontend | cut -f1), $(find frontend -type f | wc -l) files)"
 else
     skip "frontend skipped"
+fi
+
+if [[ "$DO_NATIVE" -eq 1 ]]; then
+    phase "Native"
+    command -v aarch64-linux-gnu-gcc >/dev/null 2>&1 \
+        || die "no arm64 cross compiler — sudo apt install gcc-aarch64-linux-gnu"
+    mkdir -p native
+    aarch64-linux-gnu-gcc -O2 -Wall -Werror -fPIC -shared \
+        -Wl,--version-script=src/native/cdio-latency.map \
+        -o native/cdio-latency.so src/native/cdio-latency.c -ldl \
+        || die "native build failed"
+    aarch64-linux-gnu-strip native/cdio-latency.so
+    ok "native/cdio-latency.so  ($(du -h native/cdio-latency.so | cut -f1))"
+else
+    skip "native skipped"
 fi
 
 printf '\n%sBuild complete.%s  Deploy with: tools/dev-push.sh\n' "${C_BOLD}" "${C_RESET}"

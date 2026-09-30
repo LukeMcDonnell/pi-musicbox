@@ -1821,3 +1821,14 @@ The drive conceals the error and playback moves on, and that is what `disable`
 does. A clean disc reads identically either way. `overlap` also kept up, but
 took about twice as long to start a track, and this drive does not need its
 jitter correction. Do not put `full` back for accuracy. See `cd.md`.
+
+## CD: an LD_PRELOAD shim for mpd, not an MPD patch (2026-09-30)
+
+A skip took ~4s to sound. Most of it was libcdio re-probing byte order on every
+track open and reading 16s blocks (see `cd.md`). Neither is reachable from
+`mpd.conf`. **A preload rather than a patched or rebuilt MPD**, because the
+Debian package stays stock and upgrades normally, and the Pi does not build
+(non-negotiable 5). It is 40 lines of C cross-compiled here and committed like
+`backend/server.js`. An upstream fix to MPD's second probe call would only have
+halved the probe. The block size is libcdio's default and would still have been
+there. `setup-cd.sh` owns it, so removing CD support still means one script.

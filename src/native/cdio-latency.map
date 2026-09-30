@@ -1,0 +1,2 @@
+CDIO_CDDA_2 { global: data_bigendianp; local: *; };
+CDIO_PARANOIA_2 { global: cdio_paranoia_init; };

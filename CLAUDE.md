@@ -8,6 +8,7 @@ phones.
 src/backend/   Fastify + TS source      ->  backend/    committed build output
 src/frontend/  Angular workspace        ->  frontend/   committed build output
 src/shared/    the API contract, imported by BOTH sides
+src/native/    mpd's LD_PRELOAD (C)     ->  native/     committed arm64 build output
 install/       setup scripts     tools/  build + dev-push     tests/
 ```
 
@@ -82,10 +83,11 @@ for whoever is editing the code.
 ## Commands
 
 Node 24+ is required: the backend imports `node:sqlite` and the tests are `.ts`
-run directly. Debian's node 20 does neither.
+run directly. Debian's node 20 does neither. `native/` needs
+`gcc-aarch64-linux-gnu`, and the tests build its source with the host `gcc`.
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 10 suites (793 asserts) + 475 node tests
+bash tests/run-all.sh          # shellcheck + 10 suites (804 asserts) + 475 node tests
 cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 406 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
@@ -114,5 +116,5 @@ not commit unless asked.
 
 **The device drifts.** Files have been edited here and `scp`'d piecemeal, and a
 stale copy on the Pi has already cost a debugging cycle. After changing a
-script, sync the whole `install/` and `tests/` directories and verify with
+script, sync the whole `install/`, `tests/` and `native/` directories and verify with
 `md5sum`, not just the one file you touched.

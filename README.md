@@ -45,7 +45,7 @@ The three scripts split by concern, and each owns its own managed block in
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf`, the `MPDCONF=` line that selects it, and the `mpd.service` drop-in that orders MPD ahead of the share |
 | `setup-server.sh` | the web server units, `/etc/musicbox/server.conf`, and `/var/lib/musicbox/data/` where the database lives |
 | `setup-bluetooth.sh` | the A2DP sink, the pairing agent and the DAC arbiter |
-| `setup-cd.sh` | the CD drive watcher, and `mpd` joining `cdrom` |
+| `setup-cd.sh` | the CD drive watcher, `mpd` joining `cdrom`, and an `mpd` drop-in preloading `native/cdio-latency.so` |
 | `install.sh` | apt packages, and the NodeSource apt source they need — nothing else |
 
 Optionally, for an image provisioned by Raspberry Pi Imager (see below):
@@ -609,7 +609,9 @@ so a disc is looked up once. Unknown or offline, it is "Track 1..N".
 MPD reads the disc through its built-in `cdio_paranoia` input, so a clean CD is
 as bit-perfect as the library: nothing new touches `hw:0,0`. Paranoia's retries
 are off, so a worn disc plays like it would in a CD player: a scratch may click,
-but playback never stalls. A small helper,
+but playback never stalls. A track starts or skips in about a second: a small
+preload for `mpd` removes libcdio's per-track drive probing and its 16-second read
+blocks without touching the audio. A small helper,
 `musicbox-cd`, tells the web server what is in the drive and ejects it. See
 `.claude/docs/cd.md`.
 

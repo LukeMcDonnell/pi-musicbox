@@ -113,6 +113,56 @@ Under full paranoia, `strace` on MPD's `decoder:pcm` thread showed a steady
 Listened to on the same disc with `disable`: a few clicks through the bad patches,
 no stalls.
 
+## Skip latency: a preload for mpd
+
+A skip took ~3s to return, and ~4s to first sound. The kernel's SCSI tracepoints
+(below) showed two causes. Both are inside libcdio, and no MPD setting reaches
+them. `native/cdio-latency.so` (source `src/native/`) is `LD_PRELOAD`ed into mpd
+by `setup-cd.sh`'s drop-in, and neither of its changes alters a byte of audio.
+
+- **The byte-order probe.** `data_bigendianp()` guesses the drive's byte order by
+  reading the start of tracks 1–5, with a 150–250ms seek each. `cdio_cddap_open()`
+  runs it and MPD then runs it again, on every track open: ~2.6s. Byte order is
+  the drive's, so the shim runs the real probe once and remembers a conclusive
+  answer (not `-1`) for the life of the mpd process. Every MMC drive returns
+  little-endian anyway. Swapping the drive needs an mpd restart.
+- **16-second read blocks.** Each paranoia read fetches `CACHEMODEL_SECTORS`
+  (1200) before returning anything, even with paranoia disabled. At the drive's
+  4x that is ~4s: a stop waited for the block in flight, and a new track for its
+  first block. The shim wraps `cdio_paranoia_init()` and sets
+  `cdio_paranoia_cachemodel_size(p, 75)`: 1s, MPD's hard-coded pre-play buffer.
+  Reads stay sequential: the cache handler only seeks when a read starts before
+  the cached span.
+
+Both calls go through the PLT (`objdump -d libcdio_cdda.so.2 | grep
+data_bigendianp@plt`), which is why a preload can take them. The map file gives
+the exports libcdio's version nodes (`CDIO_CDDA_2`, `CDIO_PARANOIA_2`) so
+versioned references bind to the shim. It looks up the real functions with
+`dlvsym(RTLD_NEXT, ...)`.
+
+Measured 2026-09-30, the same worn 17-track disc, `mpc next` 5s into a track:
+
+```
+                          mpc next returns    first audio frame
+before                    2.6-3.6s            ~3.3-4.5s
+probe cached only         2.8-3.6s            (stop still waits for a 1200-sector block)
+probe cached + 75-sector  0.34-0.48s          1.1-1.3s
+start from stopped        -                   1.3s
+```
+
+What is left of a skip: stopping the old block (≤0.25s), a 1-sector read at lba
+9157 (~0.3s: libcdio's open checks it can read the middle of track 1, inside the
+library where a preload cannot reach), the seek to the new track (~0.2-0.35s), and
+75 sectors to fill MPD's 1s buffer (~0.25s). 0 "too slow" lines while playing.
+
+```sh
+grep -c cdio-latency /proc/$(pidof mpd)/maps     # non-zero: the preload is in
+T=/sys/kernel/tracing                            # as root: every READ CD, with timing
+echo 1 > $T/events/scsi/scsi_dispatch_cmd_start/enable
+echo 1 > $T/events/scsi/scsi_dispatch_cmd_done/enable
+cat $T/trace_pipe | grep 'raw=be'                # be 00 <lba x4> <count x3>
+```
+
 ## Measured on the device (2026-09-29)
 
 ```
