@@ -11,7 +11,7 @@ A Raspberry Pi music player appliance.
 | Library | NFS/SMB network share |
 | Web UI | Angular + Fastify at `http://musicbox.local/` |
 | Bluetooth | A2DP sink — a phone pairs and plays through the DAC |
-| CD | USB drive — an audio CD plays through MPD, bit-perfect, and can start itself on insert |
+| CD | USB drive — an audio CD plays through MPD, bit-perfect when clean, never stalling when worn, and can start itself on insert |
 
 ## Run order
 
@@ -606,8 +606,10 @@ online* on (the default) it is named from MusicBrainz — an exact disc ID match
 never a guess — and gets its cover from the Cover Art Archive; both are cached,
 so a disc is looked up once. Unknown or offline, it is "Track 1..N".
 
-MPD reads the disc through its built-in `cdio_paranoia` input, so a CD is as
-bit-perfect as the library: nothing new touches `hw:0,0`. A small helper,
+MPD reads the disc through its built-in `cdio_paranoia` input, so a clean CD is
+as bit-perfect as the library: nothing new touches `hw:0,0`. Paranoia's retries
+are off, so a worn disc plays like it would in a CD player: a scratch may click,
+but playback never stalls. A small helper,
 `musicbox-cd`, tells the web server what is in the drive and ejects it. See
 `.claude/docs/cd.md`.
 

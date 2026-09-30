@@ -219,6 +219,13 @@ restore_paused      "yes"
 replaygain           "off"
 volume_normalization "no"
 
+# CD playback, not ripping: MPD's default (full paranoia) re-reads a scratch
+# until playback stalls and stop times out. See .claude/docs/cd.md.
+input {
+    plugin          "cdio_paranoia"
+    mode            "disable"
+}
+
 # audio_output_format and samplerate_converter are deliberately NOT set. Setting
 # either would make MPD convert; leaving them out is what passes the file's native
 # rate and depth straight through to hw:0,0. Verify with, during playback:

@@ -1810,3 +1810,14 @@ cover — not worth the UI.
 on the image and `musicbox-bt` already relies on it.
 
 See `cd.md`.
+
+## CD: paranoia is off for playback (2026-09-30)
+
+**`mode "disable"` in `mpd.conf`, not MPD's default of full paranoia.** Full
+paranoia is for ripping. It re-reads a damaged region up to 20 times, and on a
+worn disc it fell far behind real time: the output played silence, and `mpc stop`
+timed out after 30s, which looked like a hung MPD. A CD player never re-reads.
+The drive conceals the error and playback moves on, and that is what `disable`
+does. A clean disc reads identically either way. `overlap` also kept up, but
+took about twice as long to start a track, and this drive does not need its
+jitter correction. Do not put `full` back for accuracy. See `cd.md`.

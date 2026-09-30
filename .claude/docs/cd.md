@@ -82,6 +82,37 @@ and auto-play does not wait for it; titles arrive while it plays. The queue's ro
 change without MPD's queue version moving, so clients refetch on the disc's lookup
 state too (`musicbox-api.ts`).
 
+## Worn discs: paranoia is off
+
+MPD's `cdio_paranoia` input defaults to **full paranoia** (`mode_flags =
+PARANOIA_MODE_FULL^PARANOIA_MODE_NEVERSKIP` in 0.24.4), which re-reads a
+damaged region up to 20 times. That is ripping behaviour. `setup-mpd.sh` sets
+`input { plugin "cdio_paranoia" mode "disable" }`: plain reads, and the drive
+conceals what it cannot read, as a CD player does. A scratch may click, but
+playback never stalls.
+
+Measured 2026-09-30 on a worn 17-track disc (bad patch in track 1 near 1:16).
+Each run: restart MPD, play track 1, sample elapsed over 60s of wall clock,
+then `next` and `stop`:
+
+```
+mode       elapsed after 60s        "too slow"   next    stop
+full       0:17 (from 0:00)         4            3.5s    30s TIMEOUT
+             and earlier: 1:16 -> 1:22 over several minutes, output playing silence
+disable    0:54 (from 0:00)         0            2.6s    2.4s
+           1:05 -> 2:02 (across the bad patch)  0
+disable+speed 4  0:53               0            2.6s    2.4s   (no gain; not set)
+overlap    0:50 (from 0:00)         0            6.1s    0.5s
+           1:05 -> 1:57             0            (~7s to first audio: slower start)
+```
+
+Under full paranoia, `strace` on MPD's `decoder:pcm` thread showed a steady
+`ioctl(CDROM_SEND_PACKET)` every ~68ms, all succeeding, with no `sr0` errors in
+`dmesg`. It was the re-reading, not the drive, that stalled playback.
+
+Listened to on the same disc with `disable`: a few clicks through the bad patches,
+no stalls.
+
 ## Measured on the device (2026-09-29)
 
 ```
@@ -135,6 +166,9 @@ udevadm info -q property -n /dev/cdrom | grep ID_CDROM_MEDIA
 udevadm monitor --udev --property -s block
 id mpd                                   # must include cdrom
 mpc add cdda:///1 && mpc play            # MPD reading the disc, no UI involved
+journalctl -u mpd | grep 'too slow'      # reading slower than real time
+grep -A3 cdio_paranoia /etc/musicbox/mpd.conf   # must say mode "disable"
+sudo strace -tt -T -p <decoder:pcm tid> -e trace=ioctl   # tid: ls /proc/$(pidof mpd)/task
 curl -s localhost/api/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["cd"])'
 curl -s -A 'musicbox-triage ( you )' "https://musicbrainz.org/ws/2/discid/<ID>?fmt=json"
 sqlite3 /var/lib/musicbox/data/musicbox.db 'SELECT disc_id, status, fetched_at FROM cd_disc'

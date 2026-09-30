@@ -62,6 +62,11 @@ check "volume_normalization no"   "0" "$(hasre '^volume_normalization[[:space:]]
 check "no audio_output_format"    "1" "$(hasre '^audio_output_format' "$CONF")"
 check "no samplerate_converter"   "1" "$(hasre '^samplerate_converter' "$CONF")"
 
+banner "a worn CD plays in real time instead of stalling"
+check "cdio_paranoia input block"  "0" "$(hasre '^[[:space:]]+plugin[[:space:]]+"cdio_paranoia"$' "$CONF")"
+check "paranoia mode disable"      "0" "$(hasre '^[[:space:]]+mode[[:space:]]+"disable"$' "$CONF")"
+check "exactly one input block"    "1" "$(grep -c '^input {$' "$CONF")"
+
 banner "the DAC is pinned at unity by its own unit"
 UNITY="$OUT/musicbox-dac-unity"
 UUNIT="$OUT/musicbox-dac-unity.service"
