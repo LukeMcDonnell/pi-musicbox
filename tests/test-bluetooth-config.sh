@@ -77,6 +77,11 @@ check "the arbiter pauses MPD before waiting" "0" \
     "$(if [[ -n "$pause_at" && -n "$wait_at" && "$pause_at" -lt "$wait_at" ]]; then echo 0; else echo 1; fi)"
 check "the arbiter waits for the card before starting the audio unit" "0" \
     "$(if [[ -n "$wait_at" && -n "$start_at" && "$wait_at" -lt "$start_at" ]]; then echo 0; else echo 1; fi)"
+# A stale busy error would otherwise read as MPD asking for the card back.
+clear_at="$(sed -n '/^take_for_bluetooth()/,/^}/{/mpc clearerror/=}' "$ARBITER" | head -1)"
+tfb_pause_at="$(sed -n '/^take_for_bluetooth()/,/^}/{/mpc pause/=}' "$ARBITER" | head -1)"
+check "connecting clears MPD's error after pausing it" "0" \
+    "$(if [[ -n "$tfb_pause_at" && -n "$clear_at" && "$tfb_pause_at" -lt "$clear_at" ]]; then echo 0; else echo 1; fi)"
 
 # The reverse handoff.
 disc_at="$(grep -n 'bluetoothctl disconnect "\$addr"' "$ARBITER" | head -1 | cut -d: -f1)"
@@ -414,6 +419,7 @@ STUB
 cat > "$BIN/mpc" <<'STUB'
 #!/usr/bin/env bash
 printf 'mpc %s\n' "$*" >> "$STUB_CALLS"
+[[ "$1" == status && -n "${STUB_MPC_STATUS:-}" ]] && cat "$STUB_MPC_STATUS"
 exit 0
 STUB
 # Nothing is holding the card, and no player of ours is running.
@@ -478,6 +484,42 @@ check "the takeover is logged by name" "0" \
 # It named $ACTIVE_ADDR for an event about another device before this.
 check "the disconnect log names the phone that actually left" "1" \
     "$(grep -qF 'disconnected: AA:BB:CC:DD:EE:FF' "$ARB_LOG"; echo $?)"
+
+banner "MPD asking for the card back"
+cat > "$DRIVEDIR/drive-mpd.sh" <<'DRIVE'
+#!/usr/bin/env bash
+# shellcheck source=/dev/null
+source "$ARB_LIB"
+STATE_FILE="$ARB_STATE"
+RUN_DIR="$(dirname "$ARB_STATE")"
+PCM_STATUS="$ARB_PCM_STATUS"
+ACTIVE_ADDR="$1"; ACTIVE_NAME="Phone"
+handle_mpd >> "$ARB_LOG" 2>&1
+DRIVE
+export STUB_MPC_STATUS="$WORK/mpc-status"
+BUSY='ERROR: Failed to open "HiFiBerry DAC+" (alsa); Failed to open ALSA device "hw:0,0": Device or resource busy'
+# took <addr> <status...>: 0 if handle_mpd handed the card to MPD.
+took() {
+    local addr="$1"; shift
+    printf '%s\n' "$@" > "$STUB_MPC_STATUS"
+    : > "$STUB_CALLS"
+    PATH="$BIN:$PATH" bash "$DRIVEDIR/drive-mpd.sh" "$addr"
+    grep -qF 'bluetoothctl disconnect AA:BB:CC:DD:EE:FF' "$STUB_CALLS" && grep -qx 'mpc play' "$STUB_CALLS"
+    echo $?
+}
+check "playing takes the card" "0" \
+    "$(took AA:BB:CC:DD:EE:FF 'cdda:///1' '[playing] #1/12   0:01/5:32 (0%)' 'volume: n/a')"
+# THE REGRESSION: a CD's play event arrives after MPD has failed on the card and paused.
+check "paused on a busy card takes the card" "0" \
+    "$(took AA:BB:CC:DD:EE:FF 'cdda:///1' '[paused]  #1/12   0:00/5:32 (0%)' 'volume: n/a' "$BUSY")"
+check "paused with no error leaves the phone alone" "1" \
+    "$(took AA:BB:CC:DD:EE:FF 'cdda:///1' '[paused]  #1/12   0:00/5:32 (0%)' 'volume: n/a')"
+check "paused with some other error leaves the phone alone" "1" \
+    "$(took AA:BB:CC:DD:EE:FF 'x.flac' '[paused]  #1/12   0:00/5:32 (0%)' 'volume: n/a' 'ERROR: Failed to decode x.flac')"
+check "stopped leaves the phone alone" "1" "$(took AA:BB:CC:DD:EE:FF 'volume: n/a')"
+check "nothing connected: nothing to take" "1" \
+    "$(took '' 'cdda:///1' '[paused]  #1/12   0:00/5:32 (0%)' 'volume: n/a' "$BUSY")"
+unset STUB_MPC_STATUS
 
 banner "AVRCP metadata"
 check "the player path is discovered, not assumed to be player0" "0" \

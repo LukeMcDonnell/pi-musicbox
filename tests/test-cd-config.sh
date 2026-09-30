@@ -151,11 +151,32 @@ printf 'Artist/Album/01.flac\n' > "$STUB_CURRENT"
 drive "ctl eject" >/dev/null
 check "a library track is not stopped by an eject" "1" "$(grep -q '^mpc -q stop' "$STUB_CALLS"; echo $?)"
 
-# The physical button: udev's own rule ejects, so we only stop MPD.
+# The physical button, renamed by our rule: the same stop-then-eject as the UI.
+: > "$STUB_CALLS"; printf 'cdda:///1\n' > "$STUB_CURRENT"
+drive "udev MUSICBOX_EJECT_REQUEST=1" >/dev/null
+stop_at="$(grep -n '^mpc -q stop' "$STUB_CALLS" | head -1 | cut -d: -f1)"
+eject_at="$(grep -n '^eject ' "$STUB_CALLS" | head -1 | cut -d: -f1)"
+check "the button stops MPD before the tray opens" "0" \
+    "$(if [[ -n "$stop_at" && -n "$eject_at" && "$stop_at" -lt "$eject_at" ]]; then echo 0; else echo 1; fi)"
+: > "$STUB_CALLS"; : > "$STUB_CURRENT"
+drive "udev MUSICBOX_EJECT_REQUEST=1" >/dev/null
+check "the button still ejects with nothing playing" "0" "$(grep -qx 'eject /dev/cdrom' "$STUB_CALLS"; echo $?)"
+check "and stops nothing" "1" "$(grep -q '^mpc -q stop' "$STUB_CALLS"; echo $?)"
+# The stock rule's name never reaches us once ours renames it.
 : > "$STUB_CALLS"; printf 'cdda:///1\n' > "$STUB_CURRENT"
 drive "udev DISK_EJECT_REQUEST=1" >/dev/null
-check "the eject button stops MPD on the disc" "0" "$(grep -q '^mpc -q stop' "$STUB_CALLS"; echo $?)"
-check "and leaves the eject to udev" "1" "$(grep -q '^eject ' "$STUB_CALLS"; echo $?)"
+check "the stock property is not acted on" "1" "$(grep -qE '^(eject |mpc -q stop)' "$STUB_CALLS"; echo $?)"
+
+banner "the eject rule"
+RULE="$OUT/59-musicbox-cd-eject.rules"
+check "rule written" "0" "$(if [[ -f "$RULE" ]]; then echo 0; else echo 1; fi)"
+check "sorts before the stock 60-cdrom_id.rules" "0" "$(has '/etc/udev/rules.d/59-musicbox-cd-eject.rules' "$SCRIPT")"
+check "optical drives only" "0" "$(has 'KERNEL=="sr[0-9]*"' "$RULE")"
+check "renames the request" "0" "$(has 'ENV{DISK_EJECT_REQUEST}=="?*", ENV{MUSICBOX_EJECT_REQUEST}="1", ENV{DISK_EJECT_REQUEST}=""' "$RULE")"
+check "runs nothing itself" "1" "$(hasre 'RUN' "$RULE")"
+check "one rule line" "1" "$(grep -cv '^#' "$RULE")"
+check "apply reloads udev" "0" "$(has 'udevadm control --reload' "$SCRIPT")"
+check "revert removes it" "0" "$(hasre 'rm -f .*"\$EJECT_RULE"' "$SCRIPT")"
 
 : > "$STUB_CALLS"
 drive "ctl reboot" >/dev/null
@@ -179,8 +200,8 @@ SO="$REPO/native/cdio-latency.so"
 exports="$(readelf --dyn-syms -W "$SO" 2>/dev/null | awk '$7 != "UND" && $4 == "FUNC" {print $8}' | sort | tr '\n' ' ')"
 check "the built lib is committed" "0" "$(if [[ -f "$SO" ]]; then echo 0; else echo 1; fi)"
 check "it is arm64" "0" "$(readelf -h "$SO" 2>/dev/null | grep -q 'Machine:.*AArch64'; echo $?)"
-check "it exports exactly the two, in libcdio's version nodes" \
-    "cdio_paranoia_init@@CDIO_PARANOIA_2 data_bigendianp@@CDIO_CDDA_2 " "$exports"
+check "it exports exactly the three, in libcdio's version nodes" \
+    "cdio_paranoia_init@@CDIO_PARANOIA_2 cdio_read_audio_sectors@@CDIO_19 data_bigendianp@@CDIO_CDDA_2 " "$exports"
 
 # The same source built for this host, preloaded over a fake libcdio.
 NAT="$WORK/native"; mkdir -p "$NAT"
@@ -193,21 +214,41 @@ int data_bigendianp(void *d) {
 static int paranoia;
 void *cdio_paranoia_init(void *d) { (void)d; return &paranoia; }
 int cdio_paranoia_cachemodel_size(void *p, int n) { (void)p; fake_block = n; return 1200; }
+#include <errno.h>
+#include <string.h>
+int fake_errno; /* 0: the read succeeds */
+int cdio_read_audio_sectors(const void *c, void *buf, int lsn, unsigned n) {
+    (void)c; (void)lsn;
+    memset(buf, 0x55, n * 2352);   /* whatever the drive left in the buffer */
+    if (!fake_errno) return 0;
+    errno = fake_errno; return -1;
+}
 C
 cat > "$NAT/fake.map" <<'C'
 CDIO_CDDA_2 { global: data_bigendianp; fake_probes; fake_block; local: *; };
 CDIO_PARANOIA_2 { global: cdio_paranoia_init; cdio_paranoia_cachemodel_size; };
+CDIO_19 { global: cdio_read_audio_sectors; fake_errno; };
 C
 cat > "$NAT/main.c" <<'C'
 #include <stdio.h>
-extern int fake_probes, fake_block;
+#include <errno.h>
+extern int fake_probes, fake_block, fake_errno;
 int data_bigendianp(void *d);
 void *cdio_paranoia_init(void *d);
+int cdio_read_audio_sectors(const void *c, void *buf, int lsn, unsigned n);
+static unsigned char buf[2 * 2352];
+static void read_as(int e) {
+    fake_errno = e;
+    int rc = cdio_read_audio_sectors(0, buf, 100, 2);
+    printf(" %d/%02x%02x", rc, buf[0], buf[sizeof buf - 1]);
+}
 int main(void) {
     for (int i = 0; i < 4; i++) printf("%d ", data_bigendianp(0));
     printf("probes=%d ", fake_probes);
     void *p = cdio_paranoia_init(0);
-    printf("init=%s block=%d\n", p ? "ok" : "null", fake_block);
+    printf("init=%s block=%d reads", p ? "ok" : "null", fake_block);
+    read_as(0); read_as(EIO); read_as(ENOMEDIUM);
+    printf("\n");
     return 0;
 }
 C
@@ -217,10 +258,16 @@ if command -v gcc >/dev/null 2>&1 \
     && gcc -shared -fPIC -Wall -Werror -Wl,--version-script="$REPO/src/native/cdio-latency.map" \
         -o "$NAT/shim.so" "$REPO/src/native/cdio-latency.c" -ldl 2>/dev/null \
     && gcc -o "$NAT/main" "$NAT/main.c" -L"$NAT" -lfake -Wl,-rpath,"$NAT" 2>/dev/null; then
-    check "unpreloaded: every call probes, block untouched" "-1 0 1 -1 probes=4 init=ok block=-1" "$("$NAT/main")"
+    unshimmed="$("$NAT/main")"; shimmed="$(LD_PRELOAD="$NAT/shim.so" "$NAT/main")"
+    check "unpreloaded: every call probes, block untouched" "-1 0 1 -1 probes=4 init=ok block=-1" \
+        "${unshimmed%% reads*}"
+    check "unpreloaded: a failed read is an error" " 0/5555 -1/5555 -1/5555" "${unshimmed#* reads}"
     # -1 is not remembered; the first real answer is, and the probe never runs again.
-    check "preloaded: probes until an answer, block is 1s" "-1 0 0 0 probes=2 init=ok block=75" \
-        "$(LD_PRELOAD="$NAT/shim.so" "$NAT/main")"
+    check "preloaded: probes until an answer, block is one read" "-1 0 0 0 probes=2 init=ok block=25" \
+        "${shimmed%% reads*}"
+    # Good data untouched; an unreadable chunk is silence and success, so nothing
+    # retries it; a missing disc is still an error.
+    check "preloaded: bad read is silence, missing disc an error" " 0/5555 0/0000 -1/5555" "${shimmed#* reads}"
 else
     check "host gcc builds the shim test" "0" "1"
 fi

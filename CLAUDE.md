@@ -87,7 +87,7 @@ run directly. Debian's node 20 does neither. `native/` needs
 `gcc-aarch64-linux-gnu`, and the tests build its source with the host `gcc`.
 
 ```sh
-bash tests/run-all.sh          # shellcheck + 10 suites (804 asserts) + 475 node tests
+bash tests/run-all.sh          # shellcheck + 10 suites (823 asserts) + 475 node tests
 cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 406 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle

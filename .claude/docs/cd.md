@@ -118,7 +118,8 @@ no stalls.
 A skip took ~3s to return, and ~4s to first sound. The kernel's SCSI tracepoints
 (below) showed two causes. Both are inside libcdio, and no MPD setting reaches
 them. `native/cdio-latency.so` (source `src/native/`) is `LD_PRELOAD`ed into mpd
-by `setup-cd.sh`'s drop-in, and neither of its changes alters a byte of audio.
+by `setup-cd.sh`'s drop-in. The first two changes below alter no audio. The third
+turns sectors the drive cannot read into silence (see "Bad sectors").
 
 - **The byte-order probe.** `data_bigendianp()` guesses the drive's byte order by
   reading the start of tracks 1–5, with a 150–250ms seek each. `cdio_cddap_open()`
@@ -130,9 +131,9 @@ by `setup-cd.sh`'s drop-in, and neither of its changes alters a byte of audio.
   (1200) before returning anything, even with paranoia disabled. At the drive's
   4x that is ~4s: a stop waited for the block in flight, and a new track for its
   first block. The shim wraps `cdio_paranoia_init()` and sets
-  `cdio_paranoia_cachemodel_size(p, 75)`: 1s, MPD's hard-coded pre-play buffer.
-  Reads stay sequential: the cache handler only seeks when a read starts before
-  the cached span.
+  `cdio_paranoia_cachemodel_size(p, 25)`: one drive read (it was 75, 1s, until
+  bad sectors showed a stop waiting on three slow reads). Reads stay sequential:
+  the cache handler only seeks when a read starts before the cached span.
 
 Both calls go through the PLT (`objdump -d libcdio_cdda.so.2 | grep
 data_bigendianp@plt`), which is why a preload can take them. The map file gives
@@ -148,6 +149,7 @@ before                    2.6-3.6s            ~3.3-4.5s
 probe cached only         2.8-3.6s            (stop still waits for a 1200-sector block)
 probe cached + 75-sector  0.34-0.48s          1.1-1.3s
 start from stopped        -                   1.3s
+probe cached + 25-sector  0.21-0.31s          (not re-measured)
 ```
 
 What is left of a skip: stopping the old block (≤0.25s), a 1-sector read at lba
@@ -155,12 +157,49 @@ What is left of a skip: stopping the old block (≤0.25s), a 1-sector read at lb
 library where a preload cannot reach), the seek to the new track (~0.2-0.35s), and
 75 sectors to fill MPD's 1s buffer (~0.25s). 0 "too slow" lines while playing.
 
+## Bad sectors: silence, not retries
+
+Pressing eject while a worn track sat paused froze MPD for 64s. While paused, the
+decoder still reads ahead. It was inside a read of a bad patch, and MPD's `stop`
+waits for the decoder. Tracing the drive on that track (a 12-track disc, track 5,
+lba ~97200-97800, ~0:25 in) showed three layers of retry:
+
+- **The drive** takes ~0.75s to fail a read, or runs into libcdio's 6s MMC
+  timeout (`6.01s` in the trace). Lowering its read-retry count (mode page 01h,
+  15 -> 1, which it accepts) changed nothing for audio reads.
+- **libcdio's `read_blocks()`** retries a failed read 8 more times at the same
+  sector, shrinking it (25, 18, 13, 9). One 25-sector chunk took 37s.
+- **paranoia**, even disabled, re-reads a block that returned nothing up to 20
+  times before skipping it (`retry_count`/`max_retries` in
+  `cdio_paranoia_read_limited`).
+
+The shim wraps `cdio_read_audio_sectors()` (a PLT call from `libcdio_cdda` into
+`libcdio`, version node `CDIO_19`). A failed read returns **success with the
+chunk zeroed**, so nothing above it retries. That is what a CD player does with
+an uncorrectable patch: mute and move on. The one exception is `ENOMEDIUM`, which
+is still an error, so a vanished disc stops MPD instead of playing silence.
+
+Measured on the same patch, `mpc stop` issued 3s into it:
+
+```
+                               track 5 across the bad patch        stop in the patch
+before                         stuck at 0:27 for 2+ minutes        up to 64s
+libcdio retries cut only       stuck: paranoia re-read the block   -
+silence, 75-sector blocks      plays on, 1 "too slow"              2.6-8.2s
+silence, 25-sector blocks      plays on, ~4s stall, 3 "too slow"   0.4-5.2s
+```
+
+What is left is one read: up to the 6s MMC timeout (`mmc_timeout_ms`, exported by
+libcdio, deliberately not lowered, since an aborted command on this USB bridge is
+what needed a bus reset during the eject race).
+
 ```sh
 grep -c cdio-latency /proc/$(pidof mpd)/maps     # non-zero: the preload is in
 T=/sys/kernel/tracing                            # as root: every READ CD, with timing
 echo 1 > $T/events/scsi/scsi_dispatch_cmd_start/enable
 echo 1 > $T/events/scsi/scsi_dispatch_cmd_done/enable
 cat $T/trace_pipe | grep 'raw=be'                # be 00 <lba x4> <count x3>
+# A READ CD that takes 0.7s or 6.01s is a bad sector; each lba should appear once.
 ```
 
 ## Measured on the device (2026-09-29)
@@ -174,11 +213,32 @@ tray close            `change` at once (no media yet), then ~8.6s later a
 eject while held open succeeds (rc 0) — eject falls back to a SCSI command the
                       door lock does not stop
 physical button       stock 60-cdrom_id.rules: DISK_EJECT_REQUEST ->
-                      `cdrom_id --eject-media`. So the helper only stops MPD.
+                      `cdrom_id --eject-media`. No longer used: see below.
 ```
 
 Because eject works through an open handle, stopping MPD first is not needed to
-make the tray open — it is there so MPD is not left reading a disc that has gone.
+make the tray open. It is needed so the eject never lands in the middle of a read.
+
+**The eject button goes through the helper, like the UI's Eject.** At first the
+stock rule ejected while the helper stopped MPD, both reacting to the same event.
+Sometimes the eject reached the drive during one of MPD's `READ CD`s, and the
+USB bridge wedged until the kernel reset it. MPD's decoder was stuck in the
+ioctl, so its `stop` blocked the main thread and nothing could reach MPD for a
+minute (2026-09-30, 1 of 3 presses):
+
+```
+14:56:24 musicbox-cd: stopping MPD: it is playing the disc
+14:56:50 server: MPD did not answer 'ping' within 10000ms
+14:57:25 systemd-udevd: sr0: Worker ... is taking a long time
+14:57:25 kernel: usb 2-2: reset SuperSpeed USB device
+```
+
+`59-musicbox-cd-eject.rules` renames `DISK_EJECT_REQUEST` to
+`MUSICBOX_EJECT_REQUEST` before the stock rule sees it, and the helper answers
+with `do_eject`: stop MPD, which returns once the decoder has let go, then eject.
+The stock rule is otherwise untouched. Its `--lock-media` is what makes the drive
+report the button at all. Clearing the stock `RUN` instead was tried: udev 257
+ignores `RUN-=`, and `RUN=""` leaves an empty entry and logs `Invalid value`.
 
 After `setup-cd.sh`, on the device:
 
@@ -204,7 +264,11 @@ unreachable. So Node gave up on the one address that would have answered.
 `server.ts` raises the attempt timeout to 2.5s; measured afterwards, a lookup takes
 1.1–1.3s. Any future outbound `fetch` from the server benefits the same way.
 
-**NOT YET MEASURED:** time from insert to sound, and a CD taking over from a phone.
+**NOT YET MEASURED:** time from insert to sound.
+
+**A CD taking over from a phone** never happened at first: the arbiter waited for
+MPD to say `playing`, and a CD fails on the busy card before that is visible.
+Fixed in the arbiter. See `bluetooth.md`, "The handoff, both directions".
 Record them here when exercised.
 
 ## Triage
@@ -213,7 +277,7 @@ Record them here when exercised.
 musicbox-cd status                       # what the server is being told
 journalctl -u musicbox-cd -f
 udevadm info -q property -n /dev/cdrom | grep ID_CDROM_MEDIA
-udevadm monitor --udev --property -s block
+udevadm monitor --udev --property -s block   # the button shows MUSICBOX_EJECT_REQUEST=1
 id mpd                                   # must include cdrom
 mpc add cdda:///1 && mpc play            # MPD reading the disc, no UI involved
 journalctl -u mpd | grep 'too slow'      # reading slower than real time

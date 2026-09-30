@@ -148,6 +148,24 @@ user presses play, gets silence, and the UI shows paused.
 That `mpc play` is not a violation of the no-auto-resume rule below: that rule is
 about a phone wandering off on its own. Here the user explicitly asked to play.
 
+**The play event can arrive after MPD has already failed**, so "paused, with
+`Device or resource busy` in MPD's error" counts as MPD asking for the card, the
+same as `playing`. A CD buffers ~1s before MPD opens the output. Measured
+2026-09-30, `POST /api/cd/play` with a phone connected:
+
+```
+16.804 POST /api/cd/play
+16.871 player event  <- from `clear`: queue empty, no state
+16.939 playing       <- decoder buffering, no event yet
+17.758 paused, ERROR: ... "hw:0,0": Device or resource busy
+17.768 player event  <- the play, delivered only now
+```
+
+Checking for `playing` alone never saw it, and CD play and autoplay stayed silent
+while a phone was connected. A connecting phone runs `mpc clearerror` after its
+pause, so a busy error left over from before the session cannot later read as a
+request and pull the speaker back.
+
 **`pause`, not `stop`.** It keeps the queue position, so the panel's play button
 resumes in place rather than restarting the track.
 

@@ -813,6 +813,8 @@ take_for_bluetooth() {
     # pause, not stop: it keeps the queue position, so the panel's play button
     # resumes in place. Failure here is normal — MPD may be stopped already.
     mpc pause >/dev/null 2>&1
+    # A busy error left from before the session would read as MPD asking to play.
+    mpc clearerror >/dev/null 2>&1
 
     wait_for_dac || log "starting ${AUDIO_UNIT} anyway; it may fail to open the card"
     systemctl start "$AUDIO_UNIT" >/dev/null 2>&1 || log "failed to start ${AUDIO_UNIT}"
@@ -872,7 +874,8 @@ take_over_from() {
     wait_for_pcm_gone "$old" || log "WARNING: handing ${ALSA_DEVICE} over anyway"
 }
 
-# MPD started playing while a phone held the card. Bluetooth loses.
+# MPD started playing while a phone held the card, or tried and failed on it.
+# Bluetooth loses.
 #
 # BY THE TIME THIS RUNS, MPD HAS ALREADY FAILED. It was told to play, found the
 # card held by bluealsa-aplay, logged "exception: Failed to open audio output" and
@@ -962,11 +965,19 @@ handle_bt() {
     esac
 }
 
+# A slow start (a CD buffers ~1s) fails on the busy card and pauses before its
+# play event arrives, so that failure counts as asking to play too.
+mpd_wants_card() {
+    local status state
+    status="$(mpc status 2>/dev/null)" || return 1
+    state="$(sed -n 's/^\[\([a-z]*\)\].*/\1/p' <<<"$status" | head -1)"
+    [[ "$state" == "playing" ]] && return 0
+    [[ "$state" == "paused" ]] && grep -q '^ERROR: .*Device or resource busy' <<<"$status"
+}
+
 handle_mpd() {
     [[ -n "$ACTIVE_ADDR" ]] || return 0
-    local state
-    state="$(mpc status 2>/dev/null | sed -n 's/^\[\([a-z]*\)\].*/\1/p' | head -1)"
-    [[ "$state" == "playing" ]] || return 0
+    mpd_wants_card || return 0
     take_for_mpd
 }
 

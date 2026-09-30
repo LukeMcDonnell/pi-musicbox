@@ -1832,3 +1832,10 @@ Debian package stays stock and upgrades normally, and the Pi does not build
 `backend/server.js`. An upstream fix to MPD's second probe call would only have
 halved the probe. The block size is libcdio's default and would still have been
 there. `setup-cd.sh` owns it, so removing CD support still means one script.
+
+**An unreadable sector becomes silence** (added the same day). libcdio and
+paranoia retry it for up to minutes while MPD cannot be stopped. Returning a
+zeroed chunk as a successful read is what a CD player does, and it ends every
+retry layer at once. The alternative, poking `cdrom_drive_t.error_retry` by
+offset, would have removed only one of the three layers and tied the shim to a
+struct layout.
