@@ -31,6 +31,7 @@ import { createFavourites } from './favourites.ts';
 import { createPlays } from './plays.ts';
 import { createPlayWatch } from './play-watch.ts';
 import { createThumbRequests } from './thumbs.ts';
+import { createSystemStatus } from './system-status.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -150,6 +151,7 @@ async function main(): Promise<void> {
         favourites: createFavourites(db),
         plays,
         notes,
+        systemStatus: createSystemStatus(thumbs.status),
     });
     registerStatic(app, config.webRoot);
 

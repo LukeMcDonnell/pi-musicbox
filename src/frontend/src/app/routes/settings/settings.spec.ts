@@ -21,10 +21,10 @@ function panelText(fixture: ReturnType<typeof create>): string {
 }
 
 describe('Settings', () => {
-    it('offers the three sections, Interface first', () => {
+    it('offers the four sections, Interface first', () => {
         const fixture = create();
         expect(tabs(fixture).map((tab) => tab.textContent!.trim()))
-            .toEqual(['Interface', 'Library', 'System']);
+            .toEqual(['Interface', 'Library', 'System', 'Status']);
         expect(tabs(fixture)[0].getAttribute('aria-selected')).toBe('true');
         expect(panelText(fixture)).toContain('Interface');
     });
@@ -45,8 +45,8 @@ describe('Settings', () => {
         const list = (fixture.nativeElement as HTMLElement).querySelector('[role="tablist"]')!;
         list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
         fixture.detectChanges();
-        expect(fixture.componentInstance.active()).toBe('system');
-        expect(tabs(fixture)[2].tabIndex).toBe(0);
+        expect(fixture.componentInstance.active()).toBe('status');
+        expect(tabs(fixture)[3].tabIndex).toBe(0);
         expect(tabs(fixture)[0].tabIndex).toBe(-1);
 
         list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));

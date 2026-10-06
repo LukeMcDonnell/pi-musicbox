@@ -2,31 +2,33 @@ import { ChangeDetectionStrategy, Component, ElementRef, signal, viewChildren } 
 import { InterfaceSettings } from './components/interface-settings/interface-settings';
 import { LibrarySettings } from './components/library-settings/library-settings';
 import { PowerButton } from './components/power-button/power-button';
+import { StatusSettings } from './components/status-settings/status-settings';
 import { SystemSettings } from './components/system-settings/system-settings';
 
 /*
-  The Settings screen: a header carrying the power control, three tabs, and one
+  The Settings screen: a header carrying the power control, four tabs, and one
   panel.
 
   THE TAB IS NOT A ROUTE. Child routes would put it in the URL, which buys a
   bookmark nobody makes — the panel has no address bar — at the cost of a nested
-  outlet and three more entries in app.routes. The tabs are plain components
+  outlet and four more entries in app.routes. The tabs are plain components
   under components/, switched by a signal.
 
-  All three are eager, like the routes are: the whole bundle comes off the Pi's
+  All four are eager, like the routes are: the whole bundle comes off the Pi's
   own disk, so a lazy tab would only add a fetch to the first tap.
 */
 export const TABS = [
     { id: 'interface', label: 'Interface' },
     { id: 'library', label: 'Library' },
     { id: 'system', label: 'System' },
+    { id: 'status', label: 'Status' },
 ] as const;
 
 export type TabId = (typeof TABS)[number]['id'];
 
 @Component({
     selector: 'app-settings',
-    imports: [PowerButton, InterfaceSettings, LibrarySettings, SystemSettings],
+    imports: [PowerButton, InterfaceSettings, LibrarySettings, SystemSettings, StatusSettings],
     templateUrl: './settings.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })

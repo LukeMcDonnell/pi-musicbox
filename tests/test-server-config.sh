@@ -356,6 +356,7 @@ cat > "$TT/bin/gm" <<'STUB'
 src="$7"; dest="${*: -1}"; dest="${dest#jpg:}"
 if [[ -f "$STUB_DIR/gm-fail" ]] && grep -qxF "$src" "$STUB_DIR/gm-fail"; then echo "Corrupt JPEG data" >&2; exit 1; fi
 echo "thumb of $src" > "$dest"
+cp "$STUB_DIR/req/status" "$STUB_DIR/status-seen" 2>/dev/null || true
 STUB
 chmod +x "$TT/bin/"*
 run_thumbs() { # run_thumbs <library|cd>
@@ -372,6 +373,12 @@ check "CD covers too"                     "0" "$(if [[ -f "$T/$CD_HASH.jpg" ]]; 
 check "junk directories are never walked" "0" "$(grep -c . <(ls "$T"/*.jpg 2>/dev/null) | grep -qx 3; echo $?)"
 check "the request is consumed"           "1" "$(if [[ -e "$TT/req/library" ]]; then echo 0; else echo 1; fi)"
 check "a full pass marks itself complete" "0" "$(if [[ -f "$T/.complete" ]]; then echo 0; else echo 1; fi)"
+# Parsed by thumbStatus() in src/backend/src/thumbs.ts.
+check "and leaves an idle status line for the server" "0" \
+    "$(grep -qE '^idle [0-9]+ 3 0 2 0 library$' "$TT/req/status"; echo $?)"
+check "replaced whole, with no temp file left"  "1" "$(if [[ -e "$TT/req/.status.tmp" ]]; then echo 0; else echo 1; fi)"
+check "while it runs, the status says how far it has to go" "0" \
+    "$(grep -qE '^running [0-9]+ [0-9]+ 0 5 library$' "$TT/status-seen"; echo $?)"
 check "a second pass converts nothing" "0" \
     "$(run_thumbs library | grep -qF '0 built, 3 current'; echo $?)"
 

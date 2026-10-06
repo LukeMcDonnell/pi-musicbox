@@ -519,14 +519,25 @@ readonly EDGE=280
 # The same names in the same order as ART_FILENAMES in src/backend/src/art.ts.
 readonly NAMES=(cover.jpg cover.jpeg cover.png folder.jpg folder.jpeg folder.png front.jpg front.png)
 
-full=0
-[[ -e "${REQ_DIR}/library" ]] && full=1
+full=0 what="cd"
+[[ -e "${REQ_DIR}/library" ]] && full=1 what="library"
 # Removed before working, so a request made during this pass starts another.
 rm -f "${REQ_DIR}/library" "${REQ_DIR}/cd"
 mkdir -p "$THUMB_DIR"
 
-built=0 current=0 without=0 failed=0 pruned=0 library=0
+built=0 current=0 without=0 failed=0 pruned=0 library=0 progress=0 total=0
 declare -A keep=()
+started="$(date +%s)"
+
+# One line the server reads for the Status tab: replaced whole, never appended to.
+status() {
+    { printf '%s\n' "$*" > "${REQ_DIR}/.status.tmp" && mv -f "${REQ_DIR}/.status.tmp" "${REQ_DIR}/status"; } 2>/dev/null || true
+}
+
+step() {
+    progress=$((progress + 1))
+    if (( progress % 50 == 0 )); then status running $$ "$started" "$progress" "$total" "$what"; fi
+}
 
 # thumb <kind> <key> <cover file, or empty>
 thumb() {
@@ -568,24 +579,34 @@ cover_in() {
     done
 }
 
+dirs=()
 if [[ "$full" -eq 1 ]]; then
     # Every directory a cover URI can name: each song's directory, and each top-level one.
     listing="$(mpc listall 2>/dev/null)" || listing=""
-    while IFS= read -r dir; do
-        library=$((library + 1))
-        thumb album "$dir" "$(cover_in "$dir")"
-    done < <(printf '%s\n' "$listing" | awk -F/ '
+    mapfile -t dirs < <(printf '%s\n' "$listing" | awk -F/ '
         NF == 0 { next }
         NF == 1 { print ""; next }
         { dir = $1; for (i = 2; i < NF; i++) dir = dir "/" $i; print dir; print $1 }' \
         | grep -v -e '@eaDir' -e '#recycle' | sort -u)
 fi
+shopt -s nullglob
+covers=("$CD_ART_DIR"/*.jpg)
+shopt -u nullglob
+total=$(( ${#dirs[@]} + ${#covers[@]} ))
+status running $$ "$started" 0 "$total" "$what"
 
-for cover in "$CD_ART_DIR"/*.jpg; do
-    [[ -e "$cover" ]] || continue
+for dir in "${dirs[@]}"; do
+    library=$((library + 1))
+    thumb album "$dir" "$(cover_in "$dir")"
+    step
+done
+
+for cover in "${covers[@]}"; do
     id="$(basename "$cover" .jpg)"
-    [[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || continue
-    thumb release "$id" "$cover"
+    if [[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        thumb release "$id" "$cover"
+    fi
+    step
 done
 
 # Only a full pass knows what has left the library, and an empty listing is MPD down.
@@ -600,8 +621,7 @@ if [[ "$full" -eq 1 && "$library" -gt 0 ]]; then
     if [[ $((built + current)) -gt 0 ]]; then date -Is > "${THUMB_DIR}/.complete"; fi
 fi
 
-what="cd"
-[[ "$full" -eq 1 ]] && what="library"
+status idle "$(date +%s)" "$built" "$current" "$without" "$failed" "$what"
 echo "thumbnails (${what}): ${built} built, ${current} current, ${without} without art, ${failed} failed, ${pruned} pruned, in ${SECONDS}s"
 BODY
 }

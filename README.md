@@ -674,6 +674,15 @@ contradict the whole point of the lazy automount.
 The script does not run the first scan. 49,711 files over NFS takes minutes, and
 burying that in a config script makes a re-run look hung.
 
+### Settings → Status
+
+A read-only page of how the box is doing: uptime, CPU and load, the CPU
+temperature (amber from 80 °C, where the Pi 4 throttles), the firmware's
+under-voltage alarm, memory, SD card use, whether a library scan is running,
+what the library holds, and how far a cover-thumbnail build has got. It polls
+`GET /api/system/status` every 3s while open, and only then. Everything comes
+from `/proc` and `/sys`: the server still runs no processes.
+
 ### Scanning, from the screen
 
 Because `auto_update` is off, the box has to be told when to look. Settings →

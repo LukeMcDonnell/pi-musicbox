@@ -8,10 +8,11 @@
  * See .claude/docs/decisions.md, "Cover thumbnails".
  */
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { access, stat, writeFile } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { access, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { ThumbnailStatus } from '../../shared/api.ts';
 import { ART_MAX_AGE_S, etagFor } from './art.ts';
 
 /** `album` is a library directory (albums and artists alike), `release` a CD's MusicBrainz id. */
@@ -21,6 +22,9 @@ export const DEFAULT_THUMB_REQUEST_DIR = '/run/musicbox-thumbs';
 
 /** The helper writes this after a full pass that produced anything. */
 export const THUMBS_COMPLETE_MARKER = '.complete';
+
+/** The helper's one-line progress report, in the request directory (tmpfs). */
+export const THUMBS_STATUS_FILE = 'status';
 
 /** The cache file stem. MUST match the helper's `printf '%s:%s' kind key | sha1sum`. */
 export function thumbName(kind: ThumbKind, key: string): string {
@@ -35,7 +39,41 @@ export interface ThumbRequests {
     request: (what: ThumbRequest) => Promise<void>;
     /** Whether a full build has ever completed. */
     built: () => Promise<boolean>;
+    /** What the helper is doing, or last did. */
+    status: () => Promise<ThumbnailStatus>;
 }
+
+const NO_STATUS: ThumbnailStatus = {
+    state: 'never', scope: null, progress: null, total: null,
+    startedAt: null, finishedAt: null, built: null, failed: null,
+};
+
+/**
+ * Parse the helper's status line. MUST match `status` in setup-server.sh's helper:
+ * `running <pid> <started> <progress> <total> <scope>` or
+ * `idle <finished> <built> <current> <without> <failed> <scope>`, times in epoch seconds.
+ */
+export function parseThumbStatus(line: string, alive: (pid: number) => boolean): ThumbnailStatus | null {
+    const f = line.trim().split(' ');
+    const n = (i: number) => Number(f[i]);
+    const scope = f.at(-1) === 'library' || f.at(-1) === 'cd' ? (f.at(-1) as 'library' | 'cd') : null;
+    if (f[0] === 'running' && f.length === 6 && [1, 2, 3, 4].every((i) => Number.isInteger(n(i)))) {
+        return {
+            ...NO_STATUS,
+            state: alive(n(1)) ? 'running' : 'interrupted',
+            scope,
+            progress: n(3),
+            total: n(4),
+            startedAt: n(2) * 1000,
+        };
+    }
+    if (f[0] === 'idle' && f.length === 7 && [1, 2, 3, 4, 5].every((i) => Number.isInteger(n(i)))) {
+        return { ...NO_STATUS, state: 'done', scope, finishedAt: n(1) * 1000, built: n(2), failed: n(5) };
+    }
+    return null;
+}
+
+const processAlive = (pid: number): boolean => existsSync(`/proc/${pid}`);
 
 export function createThumbRequests(requestDir: string, thumbDir: string): ThumbRequests {
     return {
@@ -52,6 +90,20 @@ export function createThumbRequests(requestDir: string, thumbDir: string): Thumb
                 return true;
             } catch {
                 return false;
+            }
+        },
+        status: async () => {
+            try {
+                const parsed = parseThumbStatus(await readFile(join(requestDir, THUMBS_STATUS_FILE), 'utf8'), processAlive);
+                if (parsed) return parsed;
+            } catch {
+                // No pass since boot: the status file lives on tmpfs.
+            }
+            try {
+                const marker = await stat(join(thumbDir, THUMBS_COMPLETE_MARKER));
+                return { ...NO_STATUS, state: 'done', scope: 'library', finishedAt: marker.mtimeMs };
+            } catch {
+                return NO_STATUS;
             }
         },
     };

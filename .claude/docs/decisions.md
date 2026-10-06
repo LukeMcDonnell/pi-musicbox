@@ -1976,3 +1976,25 @@ Library list re-decodes rows it destroyed.
   in the `.src` sidecar). A cover that cannot be read, e.g. while the share is
   down, keeps its existing thumbnail. Pruning only removes thumbnails whose source
   has left MPD's index, and never when that list comes back empty.
+
+## Settings → Status polls, and the thumbnail helper reports progress through a file (2026-10-06)
+
+- **Polled, not on the stream.** CPU, memory and temperature change all the
+  time, and they matter only while someone has the tab open. Pushing them would
+  send a frame every few seconds to every client, the panel included, for a
+  screen nobody is looking at. The tab polls `GET /api/system/status` every 3s
+  and stops when it closes. Library scan state does still come from the stream,
+  as `LibraryState` already does.
+- **CPU % is the delta from the previous poll.** If there is no sample under 30s
+  old, the request takes two samples 250ms apart, so the first poll still gets a
+  real number.
+- **There is no `get_throttled` on this kernel** (checked on the box). The
+  firmware's under-voltage alarm is the `rpi_volt` hwmon's `in0_lcrit_alarm`. It
+  is current state only: there are no "since boot" bits as `vcgencmd` has.
+- **Thumbnail progress is a one-line file, `/run/musicbox-thumbs/status`.** The
+  helper replaces it whole (tmp + `mv`): at the start, every 50 covers, and at
+  the end. The server checks `/proc/<pid>` to tell a dead pass from a running
+  one. The path unit watches only `library` and `cd`, so writing `status` never
+  starts a pass. It lives on tmpfs, so after a reboot the tab falls back to the
+  `.complete` marker's mtime.
+

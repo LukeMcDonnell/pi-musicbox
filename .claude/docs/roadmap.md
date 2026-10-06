@@ -25,6 +25,9 @@ Last updated 2026-09-16.
   the library holds and when it was last scanned. `auto_update` stays off — see
   `decisions.md` for why the schedule is a tick rather than an armed timer, and
   why the scan edge is read from `refresh()`. Scan history is schema v2.
+- **Settings → Status**: uptime, CPU, temperature, under-voltage, memory, SD card,
+  scan state, library counts and cover-thumbnail build progress. Read-only, and
+  polled only while the tab is open.
 - A **Bluetooth A2DP sink** at aptX HD: a phone pairs with no prompt and plays
   through the DAC, MPD pauses and releases the card. The now-playing screen and
   the transport buttons follow whichever source is active, over AVRCP, and a

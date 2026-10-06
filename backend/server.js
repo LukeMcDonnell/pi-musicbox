@@ -7990,7 +7990,7 @@ var require_thread_stream = __commonJS({
     var { version } = require_package();
     var { EventEmitter } = __require("events");
     var { Worker } = __require("worker_threads");
-    var { join: join9 } = __require("path");
+    var { join: join10 } = __require("path");
     var { pathToFileURL } = __require("url");
     var { wait } = require_wait();
     var {
@@ -8041,7 +8041,7 @@ var require_thread_stream = __commonJS({
     function createWorker(stream, opts) {
       const { filename, workerData } = opts;
       const bundlerOverrides = "__bundlerPathsOverrides" in globalThis ? globalThis.__bundlerPathsOverrides : {};
-      const toExecute = bundlerOverrides["thread-stream-worker"] || join9(__dirname, "lib", "worker.js");
+      const toExecute = bundlerOverrides["thread-stream-worker"] || join10(__dirname, "lib", "worker.js");
       const worker = new Worker(toExecute, {
         ...opts.workerOpts,
         name: opts.workerOpts?.name || "thread-stream",
@@ -8507,9 +8507,9 @@ var require_transport = __commonJS({
   "node_modules/pino/lib/transport.js"(exports, module) {
     "use strict";
     var { createRequire } = __require("module");
-    var { existsSync } = __require("node:fs");
+    var { existsSync: existsSync2 } = __require("node:fs");
     var getCallers = require_caller();
-    var { join: join9, isAbsolute, sep: sep2 } = __require("node:path");
+    var { join: join10, isAbsolute, sep: sep2 } = __require("node:path");
     var { fileURLToPath } = __require("node:url");
     var sleep = require_atomic_sleep();
     var onExit = require_on_exit_leak_free();
@@ -8581,7 +8581,7 @@ var require_transport = __commonJS({
           return false;
         }
       }
-      return isAbsolute(path) && !existsSync(path);
+      return isAbsolute(path) && !existsSync2(path);
     }
     function stripQuotes(value) {
       const first = value[0];
@@ -8662,7 +8662,7 @@ var require_transport = __commonJS({
         throw new Error("only one of target or targets can be specified");
       }
       if (targets) {
-        target = bundlerOverrides["pino-worker"] || join9(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join10(__dirname, "worker.js");
         options.targets = targets.filter((dest) => dest.target).map((dest) => {
           return {
             ...dest,
@@ -8680,7 +8680,7 @@ var require_transport = __commonJS({
           });
         });
       } else if (pipeline) {
-        target = bundlerOverrides["pino-worker"] || join9(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join10(__dirname, "worker.js");
         options.pipelines = [pipeline.map((dest) => {
           return {
             ...dest,
@@ -8703,7 +8703,7 @@ var require_transport = __commonJS({
           return origin;
         }
         if (origin === "pino/file") {
-          return join9(__dirname, "..", "file.js");
+          return join10(__dirname, "..", "file.js");
         }
         let fixTarget2;
         for (const filePath of callers) {
@@ -9683,7 +9683,7 @@ var require_safe_stable_stringify = __commonJS({
               return circularValue;
             }
             let res = "";
-            let join9 = ",";
+            let join10 = ",";
             const originalIndentation = indentation;
             if (Array.isArray(value)) {
               if (value.length === 0) {
@@ -9697,7 +9697,7 @@ var require_safe_stable_stringify = __commonJS({
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join9 = `,
+                join10 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9705,13 +9705,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join9;
+                res += join10;
               }
               const tmp = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join9}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join10}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9732,7 +9732,7 @@ ${originalIndentation}`;
             let separator = "";
             if (spacer !== "") {
               indentation += spacer;
-              join9 = `,
+              join10 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9746,13 +9746,13 @@ ${indentation}`;
               const tmp = stringifyFnReplacer(key2, value, stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join9;
+                separator = join10;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...":${whitespace}"${getItemCount(removedKeys)} not stringified"`;
-              separator = join9;
+              separator = join10;
             }
             if (spacer !== "" && separator.length > 1) {
               res = `
@@ -9793,7 +9793,7 @@ ${originalIndentation}`;
             }
             const originalIndentation = indentation;
             let res = "";
-            let join9 = ",";
+            let join10 = ",";
             if (Array.isArray(value)) {
               if (value.length === 0) {
                 return "[]";
@@ -9806,7 +9806,7 @@ ${originalIndentation}`;
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join9 = `,
+                join10 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9814,13 +9814,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join9;
+                res += join10;
               }
               const tmp = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join9}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join10}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9833,7 +9833,7 @@ ${originalIndentation}`;
             let whitespace = "";
             if (spacer !== "") {
               indentation += spacer;
-              join9 = `,
+              join10 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9842,7 +9842,7 @@ ${indentation}`;
               const tmp = stringifyArrayReplacer(key2, value[key2], stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join9;
+                separator = join10;
               }
             }
             if (spacer !== "" && separator.length > 1) {
@@ -9900,20 +9900,20 @@ ${originalIndentation}`;
               indentation += spacer;
               let res2 = `
 ${indentation}`;
-              const join10 = `,
+              const join11 = `,
 ${indentation}`;
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
               let i = 0;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyIndent(String(i), value[i], stack, spacer, indentation);
                 res2 += tmp2 !== void 0 ? tmp2 : "null";
-                res2 += join10;
+                res2 += join11;
               }
               const tmp = stringifyIndent(String(i), value[i], stack, spacer, indentation);
               res2 += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res2 += `${join10}"... ${getItemCount(removedKeys)} not stringified"`;
+                res2 += `${join11}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               res2 += `
 ${originalIndentation}`;
@@ -9929,16 +9929,16 @@ ${originalIndentation}`;
               return '"[Object]"';
             }
             indentation += spacer;
-            const join9 = `,
+            const join10 = `,
 ${indentation}`;
             let res = "";
             let separator = "";
             let maximumPropertiesToStringify = Math.min(keyLength, maximumBreadth);
             if (isTypedArrayWithEntries(value)) {
-              res += stringifyTypedArray(value, join9, maximumBreadth);
+              res += stringifyTypedArray(value, join10, maximumBreadth);
               keys = keys.slice(value.length);
               maximumPropertiesToStringify -= value.length;
-              separator = join9;
+              separator = join10;
             }
             if (deterministic) {
               keys = sort(keys, comparator);
@@ -9949,13 +9949,13 @@ ${indentation}`;
               const tmp = stringifyIndent(key2, value[key2], stack, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}: ${tmp}`;
-                separator = join9;
+                separator = join10;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...": "${getItemCount(removedKeys)} not stringified"`;
-              separator = join9;
+              separator = join10;
             }
             if (separator !== "") {
               res = `
@@ -38520,13 +38520,44 @@ async function collectRecent(bridge, limit) {
 
 // src/thumbs.ts
 import { createHash as createHash2 } from "node:crypto";
-import { createReadStream as createReadStream3 } from "node:fs";
-import { access, stat as stat4, writeFile } from "node:fs/promises";
+import { createReadStream as createReadStream3, existsSync } from "node:fs";
+import { access, readFile as readFile2, stat as stat4, writeFile } from "node:fs/promises";
 import { join as join3 } from "node:path";
 var THUMBS_COMPLETE_MARKER = ".complete";
+var THUMBS_STATUS_FILE = "status";
 function thumbName(kind, key) {
   return createHash2("sha1").update(`${kind}:${key}`).digest("hex");
 }
+var NO_STATUS = {
+  state: "never",
+  scope: null,
+  progress: null,
+  total: null,
+  startedAt: null,
+  finishedAt: null,
+  built: null,
+  failed: null
+};
+function parseThumbStatus(line, alive) {
+  const f = line.trim().split(" ");
+  const n = (i) => Number(f[i]);
+  const scope = f.at(-1) === "library" || f.at(-1) === "cd" ? f.at(-1) : null;
+  if (f[0] === "running" && f.length === 6 && [1, 2, 3, 4].every((i) => Number.isInteger(n(i)))) {
+    return {
+      ...NO_STATUS,
+      state: alive(n(1)) ? "running" : "interrupted",
+      scope,
+      progress: n(3),
+      total: n(4),
+      startedAt: n(2) * 1e3
+    };
+  }
+  if (f[0] === "idle" && f.length === 7 && [1, 2, 3, 4, 5].every((i) => Number.isInteger(n(i)))) {
+    return { ...NO_STATUS, state: "done", scope, finishedAt: n(1) * 1e3, built: n(2), failed: n(5) };
+  }
+  return null;
+}
+var processAlive = (pid) => existsSync(`/proc/${pid}`);
 function createThumbRequests(requestDir, thumbDir) {
   return {
     request: async (what) => {
@@ -38541,6 +38572,19 @@ function createThumbRequests(requestDir, thumbDir) {
         return true;
       } catch {
         return false;
+      }
+    },
+    status: async () => {
+      try {
+        const parsed = parseThumbStatus(await readFile2(join3(requestDir, THUMBS_STATUS_FILE), "utf8"), processAlive);
+        if (parsed) return parsed;
+      } catch {
+      }
+      try {
+        const marker = await stat4(join3(thumbDir, THUMBS_COMPLETE_MARKER));
+        return { ...NO_STATUS, state: "done", scope: "library", finishedAt: marker.mtimeMs };
+      } catch {
+        return NO_STATUS;
       }
     }
   };
@@ -39275,7 +39319,7 @@ function createLibraryScanner(opts) {
 }
 
 // src/backup.ts
-import { access as access3, mkdir as mkdir2, mkdtemp, readdir, readFile as readFile2, rename as rename2, rm, writeFile as writeFile4, constants as fsConstants3 } from "node:fs/promises";
+import { access as access3, mkdir as mkdir2, mkdtemp, readdir, readFile as readFile3, rename as rename2, rm, writeFile as writeFile4, constants as fsConstants3 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname as dirname4, join as join6 } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -39603,7 +39647,7 @@ function backupFilename(now) {
 }
 async function readOptional(path) {
   try {
-    return await readFile2(path);
+    return await readFile3(path);
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
@@ -39673,7 +39717,7 @@ function createBackups(opts) {
         };
         entries.push(
           { name: MANIFEST_MEMBER, data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n") },
-          { name: DB_MEMBER, data: await readFile2(dbCopy) }
+          { name: DB_MEMBER, data: await readFile3(dbCopy) }
         );
       } finally {
         await rm(scratch, { recursive: true, force: true });
@@ -40337,6 +40381,10 @@ function registerRoutes(app, opts) {
     if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
     return cdThumb(request, reply);
   });
+  app.get("/api/system/status", async (_request, reply) => {
+    if (!opts.systemStatus) return reply.code(503).send({ error: "system status is unavailable" });
+    return opts.systemStatus.read();
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -40693,7 +40741,7 @@ function createPanel(options = {}) {
 }
 
 // src/cd-art-backup.ts
-import { mkdir as mkdir3, readdir as readdir2, readFile as readFile3, rename as rename3, writeFile as writeFile5 } from "node:fs/promises";
+import { mkdir as mkdir3, readdir as readdir2, readFile as readFile4, rename as rename3, writeFile as writeFile5 } from "node:fs/promises";
 import { join as join8 } from "node:path";
 import { gunzipSync as gunzipSync2, gzipSync as gzipSync2 } from "node:zlib";
 var CD_ART_BACKUP_FORMAT = 1;
@@ -40755,7 +40803,7 @@ function createCdArtBackups(opts) {
         const name = `cd-art/${file}`;
         if (coverRelease(name) === null) continue;
         try {
-          entries.push({ name, data: await readFile3(join8(opts.artDir, file)) });
+          entries.push({ name, data: await readFile4(join8(opts.artDir, file)) });
         } catch (err) {
           if (err.code !== "ENOENT") throw err;
         }
@@ -40977,8 +41025,125 @@ function createPlayWatch(plays) {
   };
 }
 
+// src/system-status.ts
+import { readFileSync as readFileSync3, readdirSync as readdirSync2, statfsSync } from "node:fs";
+import { loadavg } from "node:os";
+import { join as join9 } from "node:path";
+var defaultSystemStatusDeps = {
+  root: "",
+  readFile: (path) => readFileSync3(path, "utf8"),
+  listDir: (path) => readdirSync2(path),
+  statfs: (path) => statfsSync(path),
+  loadavg,
+  now: Date.now,
+  sleep: (ms) => new Promise((resolve2) => setTimeout(resolve2, ms))
+};
+var CPU_SAMPLE_MAX_AGE_MS = 3e4;
+var CPU_SAMPLE_GAP_MS = 250;
+function parseCpuLine(stat8) {
+  const line = stat8.split("\n").find((l) => l.startsWith("cpu "));
+  if (!line) return null;
+  const v = line.trim().split(/\s+/).slice(1, 9).map(Number);
+  if (v.length < 5 || v.some((x) => !Number.isFinite(x))) return null;
+  const total = v.reduce((a, b) => a + b, 0);
+  return { busy: total - v[3] - v[4], total };
+}
+function parseMeminfo(meminfo) {
+  const kb = (key) => {
+    const m = new RegExp(`^${key}:\\s+(\\d+) kB`, "m").exec(meminfo);
+    return m ? Number(m[1]) * 1024 : null;
+  };
+  const total = kb("MemTotal");
+  const available = kb("MemAvailable");
+  if (total === null || available === null) return null;
+  return { usedBytes: total - available, totalBytes: total };
+}
+function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps) {
+  const path = (p) => join9(deps.root || "/", p);
+  let last = null;
+  const tryRead = (p) => {
+    try {
+      return deps.readFile(path(p));
+    } catch {
+      return null;
+    }
+  };
+  const sampleCpu = () => {
+    const text = tryRead("proc/stat");
+    const cpu = text === null ? null : parseCpuLine(text);
+    return cpu && { at: deps.now(), ...cpu };
+  };
+  const cpuPercent = async () => {
+    let before = last;
+    if (before === null || deps.now() - before.at > CPU_SAMPLE_MAX_AGE_MS) {
+      before = sampleCpu();
+      await deps.sleep(CPU_SAMPLE_GAP_MS);
+    }
+    const after = sampleCpu();
+    if (after === null) return null;
+    last = after;
+    if (before === null || after.total <= before.total) return null;
+    const percent = (after.busy - before.busy) / (after.total - before.total) * 100;
+    return Math.round(Math.min(100, Math.max(0, percent)));
+  };
+  const temperatures = () => {
+    let zones;
+    try {
+      zones = deps.listDir(path("sys/class/thermal")).filter((z) => z.startsWith("thermal_zone")).sort();
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const zone of zones) {
+      const name = tryRead(`sys/class/thermal/${zone}/type`)?.trim();
+      const milli = Number(tryRead(`sys/class/thermal/${zone}/temp`) ?? NaN);
+      if (name && Number.isFinite(milli)) out.push({ name, celsius: Math.round(milli / 100) / 10 });
+    }
+    return out;
+  };
+  const underVoltage = () => {
+    let hwmons;
+    try {
+      hwmons = deps.listDir(path("sys/class/hwmon"));
+    } catch {
+      return null;
+    }
+    for (const h of hwmons) {
+      if (tryRead(`sys/class/hwmon/${h}/name`)?.trim() !== "rpi_volt") continue;
+      const alarm = tryRead(`sys/class/hwmon/${h}/in0_lcrit_alarm`)?.trim();
+      return alarm === void 0 ? null : alarm !== "0";
+    }
+    return null;
+  };
+  const disk = () => {
+    try {
+      const fs = deps.statfs(path(""));
+      return { usedBytes: (fs.blocks - fs.bfree) * fs.bsize, totalBytes: fs.blocks * fs.bsize };
+    } catch {
+      return null;
+    }
+  };
+  return {
+    read: async () => {
+      const [cpu, thumbs] = await Promise.all([cpuPercent(), thumbnails()]);
+      const meminfo = tryRead("proc/meminfo");
+      const [l1 = 0, l5 = 0, l15 = 0] = deps.loadavg();
+      return {
+        uptimeSeconds: Math.round(Number(tryRead("proc/uptime")?.split(" ")[0]) || 0),
+        cpuPercent: cpu,
+        load: [l1, l5, l15],
+        memory: meminfo === null ? null : parseMeminfo(meminfo),
+        disk: disk(),
+        temperatures: temperatures(),
+        underVoltage: underVoltage(),
+        thumbnails: thumbs
+      };
+    }
+  };
+}
+
 // src/server.ts
-var BUILD = true ? "2026-10-06T06:55:25Z" : "dev";
+var BUILD = true ? "2026-10-06T07:25:13Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -41062,7 +41227,8 @@ async function main() {
     cdArtBackups: createCdArtBackups({ artDir: config.cdArtDir, build: BUILD }),
     favourites: createFavourites(db),
     plays,
-    notes
+    notes,
+    systemStatus: createSystemStatus(thumbs.status)
   });
   registerStatic(app, config.webRoot);
   const bluetooth = createBluetoothWatcher({

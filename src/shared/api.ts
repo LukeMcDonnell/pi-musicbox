@@ -1094,3 +1094,53 @@ export interface MostPlayedArtist {
 export interface MostPlayedArtistsResponse {
     artists: MostPlayedArtist[];
 }
+
+/*
+ * GET /api/system/status — the Settings → Status tab, polled while it is open.
+ * Not on the stream: nobody needs CPU load unless they are looking at it.
+ */
+
+export interface Temperature {
+    /** The thermal zone's `type`, e.g. `cpu-thermal`. */
+    name: string;
+    celsius: number;
+}
+
+/** Bytes in use and in all. */
+export interface Usage {
+    usedBytes: number;
+    totalBytes: number;
+}
+
+/** `never` built, a pass `running`, the last pass `done`, or one that died part way. */
+export type ThumbnailState = 'never' | 'running' | 'done' | 'interrupted';
+
+export interface ThumbnailStatus {
+    state: ThumbnailState;
+    /** A full pass over the library, or the CD covers only. Null when not known. */
+    scope: 'library' | 'cd' | null;
+    /** Covers looked at so far and to look at, while running. */
+    progress: number | null;
+    total: number | null;
+    startedAt: number | null;
+    finishedAt: number | null;
+    /** Of the last finished pass. Null when only the completion marker survives. */
+    built: number | null;
+    failed: number | null;
+}
+
+export interface SystemStatus {
+    /** Since the box booted, not since this server started. */
+    uptimeSeconds: number;
+    /** All cores, 0–100, over the last few seconds. Null if /proc/stat is unreadable. */
+    cpuPercent: number | null;
+    /** 1, 5 and 15 minute load averages. */
+    load: [number, number, number];
+    memory: Usage | null;
+    /** The root filesystem: the SD card on the box. */
+    disk: Usage | null;
+    temperatures: Temperature[];
+    /** The Pi's under-voltage alarm; null where there is none (any dev machine). */
+    underVoltage: boolean | null;
+    thumbnails: ThumbnailStatus;
+}

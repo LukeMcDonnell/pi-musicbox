@@ -65,6 +65,7 @@ import { BackupError, type Backups } from './backup.ts';
 import type { CdArtBackups } from './cd-art-backup.ts';
 import type { Favourites } from './favourites.ts';
 import type { Plays } from './plays.ts';
+import type { SystemStatusReader } from './system-status.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
@@ -115,6 +116,8 @@ export interface RouteOptions {
     plays?: Plays;
     /** Ratings and biographies read off the share. See library-notes.ts. */
     notes?: LibraryNotes;
+    /** Uptime, temperatures and the like for Settings → Status. See system-status.ts. */
+    systemStatus?: SystemStatusReader;
 }
 
 /** Handle returned by registerRoutes so the server can shut down cleanly. */
@@ -1089,6 +1092,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         const { release } = request.query as { release?: string };
         if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
         return cdThumb(request, reply);
+    });
+
+    // Polled by Settings → Status while it is open; nothing here is pushed.
+    app.get('/api/system/status', async (_request: FastifyRequest, reply: FastifyReply) => {
+        if (!opts.systemStatus) return reply.code(503).send({ error: 'system status is unavailable' });
+        return opts.systemStatus.read();
     });
 
     return {

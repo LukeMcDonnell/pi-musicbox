@@ -44,6 +44,7 @@ import { createFavourites, type Favourites } from './favourites.ts';
 import { releaseFilter } from './release.ts';
 import { createPlays, type Plays, type TrackPlay } from './plays.ts';
 import type { LibrarySong } from './mpd/bridge.ts';
+import type { SystemStatusReader } from './system-status.ts';
 
 /** A phone that is connected and playing, as the arbiter would report it. */
 const PHONE: BluetoothState = {
@@ -88,6 +89,7 @@ async function startServer(
         cdArtBackups?: CdArtBackups;
         favourites?: Favourites;
         plays?: Plays;
+        systemStatus?: SystemStatusReader;
     } = {},
 ) {
     const app = Fastify({
@@ -114,6 +116,7 @@ async function startServer(
         cdArtBackups: opts.cdArtBackups,
         favourites: opts.favourites,
         plays: opts.plays,
+        systemStatus: opts.systemStatus,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
     registerStatic(app, '/nonexistent-web-root');
@@ -1962,5 +1965,25 @@ test('a built thumbnail is served with an etag; an unbuilt one is a 404 nobody c
         }
     } finally {
         await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test('system status is 503 without a reader, and its answer with one', async () => {
+    const status = {
+        uptimeSeconds: 60, cpuPercent: 5, load: [0.1, 0.2, 0.3] as [number, number, number],
+        memory: null, disk: null, temperatures: [], underVoltage: null,
+        thumbnails: { state: 'never' as const, scope: null, progress: null, total: null,
+            startedAt: null, finishedAt: null, built: null, failed: null },
+    };
+    for (const [reader, code] of [[undefined, 503], [{ read: async () => status }, 200]] as const) {
+        const { app, routes, port } = await startServer({ systemStatus: reader });
+        try {
+            const res = await fetch(`http://127.0.0.1:${port}/api/system/status`);
+            assert.equal(res.status, code);
+            if (code === 200) assert.deepEqual(await res.json(), status);
+        } finally {
+            routes.closeStreams();
+            await app.close();
+        }
     }
 });

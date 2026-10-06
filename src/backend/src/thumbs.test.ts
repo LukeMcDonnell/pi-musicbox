@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { thumbUriFor } from '../../shared/api.ts';
-import { THUMBS_COMPLETE_MARKER, createThumbRequests, thumbName } from './thumbs.ts';
+import { THUMBS_COMPLETE_MARKER, THUMBS_STATUS_FILE, createThumbRequests, parseThumbStatus, thumbName } from './thumbs.ts';
 
 const ID = '8d0bc6d4-8700-44e8-90c8-b86c23e7ff14';
 
@@ -44,6 +44,37 @@ test('built() follows the marker the helper writes after a full pass', async () 
         assert.equal(await requests.built(), false);
         await writeFile(join(dir, THUMBS_COMPLETE_MARKER), '');
         assert.equal(await requests.built(), true);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+// The lines are pinned in tests/test-server-config.sh against the helper that writes them.
+test('parseThumbStatus reads the helper, and a running pass whose process is gone was interrupted', () => {
+    assert.deepEqual(parseThumbStatus('running 42 1700000000 150 3812 library\n', () => true), {
+        state: 'running', scope: 'library', progress: 150, total: 3812,
+        startedAt: 1_700_000_000_000, finishedAt: null, built: null, failed: null,
+    });
+    assert.equal(parseThumbStatus('running 42 1700000000 150 3812 library', () => false)?.state, 'interrupted');
+    assert.deepEqual(parseThumbStatus('idle 1700000100 3 10 2 1 cd', () => false), {
+        state: 'done', scope: 'cd', progress: null, total: null,
+        startedAt: null, finishedAt: 1_700_000_100_000, built: 3, failed: 1,
+    });
+    assert.equal(parseThumbStatus('running 42', () => true), null);
+    assert.equal(parseThumbStatus('', () => true), null);
+});
+
+test('status() falls back to the completion marker, then to never', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-thumbs-'));
+    try {
+        const req = join(dir, 'req');
+        await mkdir(req);
+        const requests = createThumbRequests(req, dir);
+        assert.equal((await requests.status()).state, 'never');
+        await writeFile(join(dir, THUMBS_COMPLETE_MARKER), '');
+        assert.equal((await requests.status()).state, 'done');
+        await writeFile(join(req, THUMBS_STATUS_FILE), `running ${process.pid} 1700000000 1 2 library\n`);
+        assert.equal((await requests.status()).state, 'running');
     } finally {
         await rm(dir, { recursive: true, force: true });
     }

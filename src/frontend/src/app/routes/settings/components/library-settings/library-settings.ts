@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { LIBRARY_SCAN_HOURS, type LibraryScan } from '@musicbox/shared';
+import { LIBRARY_SCAN_HOURS, type LibraryScan, type LibraryStats } from '@musicbox/shared';
 import { ago, clockLabel } from '../../../../services/ago';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
@@ -21,6 +21,13 @@ export function duration(ms: number): string {
     if (h > 0) return `${h}h ${m}m`;
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
+}
+
+/** '37,289 songs, 3,104 albums, …'. The Status tab says it too. */
+export function libraryStatsLabel(stats: LibraryStats | null): string {
+    if (stats === null) return 'Nothing indexed yet.';
+    const hours = Math.round(stats.playtimeSeconds / 3600);
+    return `${stats.songs.toLocaleString()} songs, ${stats.albums.toLocaleString()} albums, ${stats.artists.toLocaleString()} artists, ${hours.toLocaleString()} hours`;
 }
 
 /**
@@ -186,10 +193,7 @@ export class LibrarySettings {
     }
 
     protected statsLabel(): string {
-        const stats = this.state()?.stats ?? null;
-        if (stats === null) return 'Nothing indexed yet.';
-        const hours = Math.round(stats.playtimeSeconds / 3600);
-        return `${stats.songs.toLocaleString()} songs, ${stats.albums.toLocaleString()} albums, ${stats.artists.toLocaleString()} artists, ${hours.toLocaleString()} hours`;
+        return libraryStatsLabel(this.state()?.stats ?? null);
     }
 
     protected nextScanLabel(): string | null {
