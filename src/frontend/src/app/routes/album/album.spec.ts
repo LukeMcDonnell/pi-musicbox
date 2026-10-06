@@ -47,6 +47,7 @@ function fakeStore(data: AlbumResponse = response()) {
         queueAlbum: jasmine.createSpy('queueAlbum').and.resolveTo(undefined),
         queueTrack: jasmine.createSpy('queueTrack').and.resolveTo(undefined),
         playTrackNext: jasmine.createSpy('playTrackNext').and.resolveTo(undefined),
+        playAlbumNext: jasmine.createSpy('playAlbumNext').and.resolveTo(undefined),
         resolve: (path: string) => path,
     };
 }
@@ -436,6 +437,35 @@ describe('Album', () => {
         fixture.detectChanges();
         expect(fixture.componentInstance.menuTrack()?.file).toBe('a/2.flac');
         expect(el.querySelector('[role="dialog"]')!.textContent).toContain('Add to Playlist');
+    });
+
+    it("keeps Queue in the header and adds a ⋮ beside it with the album's four actions", async () => {
+        const store = fakeStore();
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+        const el = fixture.nativeElement as HTMLElement;
+        const items = () => [...el.querySelectorAll('app-album-menu [role="dialog"] button')];
+        const whole = { albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' };
+        expect([...el.querySelectorAll('button')].some((b) => b.textContent!.trim() === 'Queue')).toBeTrue();
+
+        const dots = el.querySelector('[aria-label="More for the album Kid A"]') as HTMLButtonElement;
+        dots.click();
+        fixture.detectChanges();
+        expect(items().map((b) => b.textContent!.trim())).toEqual([
+            'Play',
+            'Add to Queue',
+            'Play Next',
+            'Add to Playlist',
+            'Cancel',
+        ]);
+        (items().find((b) => b.textContent!.trim() === 'Play Next') as HTMLButtonElement).click();
+        await fixture.whenStable();
+        // The whole album, with no disc key.
+        expect(store.playAlbumNext).toHaveBeenCalledWith(whole);
+        fixture.detectChanges();
+        expect(el.querySelector('app-album-menu [role="dialog"]')).toBeNull();
     });
 
     it('plays the whole album from the chosen track', async () => {

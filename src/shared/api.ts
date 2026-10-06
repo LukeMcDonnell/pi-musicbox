@@ -713,8 +713,10 @@ export interface AlbumRef {
  *   POST /api/library/queue   appends it
  *   POST /api/library/play    clears the queue, adds it, starts playing —
  *                             at `start` when an AlbumPlayRequest names one
+ *   POST /api/library/next    inserts it straight after the current track;
+ *                             into an empty queue it also starts playing
  *
- * Both take an AlbumRef and answer with a Snapshot, and both act on ONE DISC
+ * All take an AlbumRef and answer with a Snapshot, and all act on ONE DISC
  * when the ref names one — `play` still replaces the queue, with that disc.
  *
  * TWO ROUTES RATHER THAN ONE WITH A FLAG, because they are two different verbs:
@@ -778,8 +780,10 @@ export interface PlaylistResponse {
  *   POST   /api/playlist/queue   {name}      append it to the queue
  *   POST   /api/playlist/add     {name, file, pos?} append one library song, or insert
  *                                       it at `pos`; 404 when absent, never creating it
+ *   POST   /api/playlist/add-album {name, ...AlbumRef}   append an album's tracks; 404 as above
  *   POST   /api/playlist/move    {name, from, to, file}  a PlaylistResponse
  *   POST   /api/playlist/remove  {name, pos, file}       a PlaylistResponse
+ *   POST   /api/playlist/shuffle {name}                  a PlaylistResponse, in a random order
  *
  * A stored playlist has no song ids, so move and remove name the `file` they
  * expect at the position. Anything else there is a 409 — someone else edited

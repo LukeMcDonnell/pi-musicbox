@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucideListPlus, LucidePlay } from '@lucide/angular';
-import type { AlbumRef, AlbumResponse, Track } from '@musicbox/shared';
+import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucideListEnd, LucidePlay } from '@lucide/angular';
+import type { AlbumRef, AlbumResponse, AlbumSummary, Track } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 import { MusicboxApi } from '../../services/musicbox-api';
@@ -12,6 +12,7 @@ import { clock } from '../../components/now-playing/now-playing';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 import { CoverArt } from '../../components/cover-art/cover-art';
 import { TrackMenu } from '../../components/track-menu/track-menu';
+import { AlbumMenu } from '../../components/album-menu/album-menu';
 
 /*
   One album: its cover as a hero, two buttons, and the tracks.
@@ -35,18 +36,20 @@ import { TrackMenu } from '../../components/track-menu/track-menu';
 
   Each track row's ⋮ opens TrackMenu: Play (the album, from that track), Add to
   Queue, Play Next, Add to Playlist. Into an empty queue Queue and Play Next
-  start playback, so they are treated as a Play.
+  start playback, so they are treated as a Play. The header's ⋮ opens AlbumMenu,
+  the same four for the whole album.
 */
 @Component({
     selector: 'app-album',
     imports: [
+        AlbumMenu,
         CoverArt,
         FavouriteButton,
         Rating,
         RouterLink,
         LucideChevronLeft,
         LucideDisc3,
-        LucideListPlus,
+        LucideListEnd,
         LucideEllipsisVertical,
         LucidePlay,
         TrackMenu,
@@ -78,6 +81,8 @@ export class Album {
 
     /** The track whose ⋮ menu is open, or null. */
     readonly menuTrack = signal<Track | null>(null);
+    /** The album, while the header's ⋮ menu is open. */
+    readonly menuAlbum = signal<AlbumSummary | null>(null);
     /** A quiet line after something worked that has nothing else to show for it. */
     readonly notice = signal<string | null>(null);
 
@@ -231,12 +236,20 @@ export class Album {
         return this.addTrack(track, (file) => this.library.playTrackNext(file));
     }
 
-    private async addTrack(track: Track, add: (file: string) => Promise<void>): Promise<void> {
+    /** The whole album, straight after the current track. */
+    playAlbumNext(): Promise<void> {
+        return this.insert(() => this.library.playAlbumNext(this.ref()));
+    }
+
+    private addTrack(track: Track, add: (file: string) => Promise<void>): Promise<void> {
         const file = track.file;
-        if (!file) return;
+        return file ? this.insert(() => add(file)) : Promise.resolve();
+    }
+
+    private async insert(action: () => Promise<void>): Promise<void> {
         // Read before sending: the server starts playback only into an empty queue.
         const starts = this.api.snapshot()?.queueLength === 0;
-        await this.send(() => add(file));
+        await this.send(action);
         if (this.error() !== null) return;
         if (starts) {
             if (this.prefs.openNowPlayingOnPlay()) this.sheet.show();

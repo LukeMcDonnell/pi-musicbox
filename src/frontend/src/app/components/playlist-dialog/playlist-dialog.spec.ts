@@ -7,6 +7,7 @@ function fakeStore() {
         create: jasmine.createSpy('create').and.resolveTo(undefined),
         rename: jasmine.createSpy('rename').and.resolveTo(undefined),
         remove: jasmine.createSpy('remove').and.resolveTo(undefined),
+        shuffle: jasmine.createSpy('shuffle').and.resolveTo(undefined),
     };
 }
 
@@ -96,6 +97,18 @@ describe('PlaylistDialog', () => {
         await fixture.whenStable();
         expect(store.remove).toHaveBeenCalledWith('Mix');
         expect(results).toEqual([{ kind: 'deleted', name: 'Mix' }]);
+    });
+
+    it('asks before a reshuffle, with Cancel focused, then shuffles', async () => {
+        const { fixture, store, results, el } = create({ kind: 'shuffle', name: 'Mix' });
+        expect(el.textContent).toContain('Track order will be randomised. This cannot be undone. Continue?');
+        expect(document.activeElement!.textContent!.trim()).toBe('Cancel');
+        const confirm = [...el.querySelectorAll('button')].find((b) => b.textContent!.trim() === 'Reshuffle')!;
+        confirm.click();
+        await fixture.whenStable();
+        expect(store.shuffle).toHaveBeenCalledWith('Mix');
+        expect(results).toEqual([{ kind: 'shuffled', name: 'Mix' }]);
+        expect(fixture.componentInstance.view()).toBeNull();
     });
 
     it('closes on the backdrop and on Escape', () => {

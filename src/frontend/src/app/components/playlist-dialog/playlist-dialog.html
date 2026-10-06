@@ -17,6 +17,10 @@
           </h2>
           <p class="pt-1 text-[0.9rem] text-muted">The songs stay in the library.</p>
         }
+        @case ('shuffle') {
+          <h2 id="playlist-dialog-title" class="text-lg font-bold">Reshuffle</h2>
+          <p class="pt-1 text-[0.9rem] text-muted">Track order will be randomised. This cannot be undone. Continue?</p>
+        }
         @case ('actions') {
           <h2 id="playlist-dialog-title" class="text-lg font-bold [overflow-wrap:anywhere]">{{ v.name }}</h2>
         }
@@ -65,6 +69,15 @@
                            select-none active:bg-raised disabled:opacity-40"
                     [disabled]="busy()" (click)="submit()">
               Delete
+            </button>
+          }
+          @case ('shuffle') {
+            <button type="button"
+                    class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center justify-center
+                           rounded-lg bg-accent px-4 text-[1.05rem] font-semibold text-on-accent
+                           select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" (click)="submit()">
+              Reshuffle
             </button>
           }
           @default {

@@ -13,21 +13,22 @@ import {
 import { LucidePencil, LucideTrash2 } from '@lucide/angular';
 import { PlaylistsStore } from '../../services/playlists-store';
 
-/** Which face the dialog shows; null is closed. `actions` offers Rename and Delete. */
+/** Which face the dialog shows; null is closed. `actions` offers Rename and Delete; `shuffle` confirms one. */
 export type PlaylistDialogView =
     | { kind: 'create' }
     | { kind: 'actions'; name: string }
     | { kind: 'rename'; name: string }
-    | { kind: 'delete'; name: string };
+    | { kind: 'delete'; name: string }
+    | { kind: 'shuffle'; name: string };
 
 /** What was done, once the server agreed. `name` is the playlist's name afterwards. */
 export interface PlaylistDialogResult {
-    kind: 'created' | 'renamed' | 'deleted';
+    kind: 'created' | 'renamed' | 'deleted' | 'shuffled';
     name: string;
     previous?: string;
 }
 
-/** Create, rename and delete for playlists, as one modal. The server's refusals show inline. */
+/** Create, rename, delete and shuffle for playlists, as one modal. The server's refusals show inline. */
 @Component({
     selector: 'app-playlist-dialog',
     imports: [LucidePencil, LucideTrash2],
@@ -77,7 +78,7 @@ export class PlaylistDialog {
         const view = this.view();
         if (view === null || view.kind === 'actions' || this.busy()) return;
         const name = this.draft().trim();
-        if (view.kind !== 'delete' && name === '') return;
+        if ((view.kind === 'create' || view.kind === 'rename') && name === '') return;
         if (view.kind === 'rename' && name === view.name) {
             this.close();
             return;
@@ -91,6 +92,9 @@ export class PlaylistDialog {
             } else if (view.kind === 'rename') {
                 await this.store.rename(view.name, name);
                 this.done.emit({ kind: 'renamed', name, previous: view.name });
+            } else if (view.kind === 'shuffle') {
+                await this.store.shuffle(view.name);
+                this.done.emit({ kind: 'shuffled', name: view.name });
             } else {
                 await this.store.remove(view.name);
                 this.done.emit({ kind: 'deleted', name: view.name });

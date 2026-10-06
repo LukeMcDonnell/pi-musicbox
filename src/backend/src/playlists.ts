@@ -38,6 +38,8 @@ export interface Playlists {
     moveTrack(name: string, from: number, to: number, file: string): Promise<PlaylistResponse>;
     /** Remove the track at `pos`, provided `file` is still there. */
     removeTrack(name: string, pos: number, file: string): Promise<PlaylistResponse>;
+    /** Put the tracks in a random order, in place. */
+    shuffle(name: string): Promise<PlaylistResponse>;
     onChange(listener: PlaylistsListener): () => void;
 }
 
@@ -73,6 +75,16 @@ export function coversOf(files: readonly string[]): string[] {
         if (covers.size === 4) break;
     }
     return [...covers];
+}
+
+/** A Fisher–Yates shuffled copy. */
+export function shuffled<T>(items: readonly T[], random: () => number = Math.random): T[] {
+    const out = [...items];
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
 }
 
 /** `missing` is the name an ACK [50] is about, `taken` the one an ACK [56] is. */
@@ -275,6 +287,11 @@ export function createPlaylists(bridge: PlaylistBridge): Playlists {
         async removeTrack(name, pos, file) {
             expectAt(await filesOf(name), pos, file);
             await write([`playlistdelete ${quoteArg(name)} ${pos}`], name);
+            return getPlaylist(name);
+        },
+        async shuffle(name) {
+            // As a replace, so a failure part-way leaves the old order whole.
+            await saveFiles(name, shuffled(await filesOf(name)), 'replace');
             return getPlaylist(name);
         },
         onChange(listener) {

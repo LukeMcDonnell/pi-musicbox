@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { LucideDisc3, LucideListPlus, LucidePlay } from '@lucide/angular';
+import { LucideDisc3, LucideListEnd, LucidePlay } from '@lucide/angular';
 import { CoverArt } from '../cover-art/cover-art';
 import type { AlbumIdentity } from '@musicbox/shared';
 
@@ -28,7 +28,7 @@ export const ALBUM_ROW_HEIGHT = 64;
 */
 @Component({
     selector: 'app-album-row',
-    imports: [CoverArt, LucideDisc3, LucideListPlus, LucidePlay],
+    imports: [CoverArt, LucideDisc3, LucideListEnd, LucidePlay],
     template: `
         <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
                        gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised"
@@ -47,7 +47,7 @@ export const ALBUM_ROW_HEIGHT = 64;
                        rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
                 [disabled]="busy()" [attr.aria-label]="'Add ' + album().album + ' to the queue'"
                 (click)="queue.emit()">
-            <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+            <svg lucideListEnd class="size-5" aria-hidden="true"></svg>
         </button>
         <button type="button"
                 class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay, LucideUserRound } from '@lucide/angular';
+import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucidePlay, LucideUserRound } from '@lucide/angular';
 import type { AlbumSummary } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
@@ -9,6 +9,8 @@ import { Preferences } from '../../services/preferences';
 import { Rating } from '../../components/rating/rating';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 import { CoverArt } from '../../components/cover-art/cover-art';
+import { AlbumMenu } from '../../components/album-menu/album-menu';
+import { MusicboxApi } from '../../services/musicbox-api';
 
 /*
   One artist: their picture as a hero, then their albums oldest first.
@@ -24,12 +26,13 @@ import { CoverArt } from '../../components/cover-art/cover-art';
 @Component({
     selector: 'app-artist',
     imports: [
+        AlbumMenu,
         CoverArt,
         FavouriteButton,
         Rating,
         LucideChevronLeft,
         LucideDisc3,
-        LucideListPlus,
+        LucideEllipsisVertical,
         LucidePlay,
         LucideUserRound,
     ],
@@ -42,6 +45,7 @@ export class Artist {
     private readonly history = inject(AppHistory);
     private readonly sheet = inject(NowPlayingSheet);
     private readonly prefs = inject(Preferences);
+    private readonly api = inject(MusicboxApi);
 
     /** Bound from `?name=` by withComponentInputBinding(). */
     readonly name = input<string>('');
@@ -51,6 +55,10 @@ export class Artist {
 
     /** True while a Play or Queue request is in flight, so it cannot be double-sent. */
     readonly busy = signal(false);
+
+    /** The album whose ⋮ menu is open, or null. */
+    readonly menuAlbum = signal<AlbumSummary | null>(null);
+    readonly notice = signal<string | null>(null);
 
     readonly loading = computed(() => this.albums() === null && this.error() === null);
 
@@ -117,6 +125,7 @@ export class Artist {
             this.biography.set(null);
             this.bioOpen.set(false);
             this.error.set(null);
+            this.notice.set(null);
             if (name !== '') void this.load(name);
         });
     }
@@ -174,7 +183,7 @@ export class Artist {
         return year === '—' ? this.tracksLabel(album) : `${this.tracksLabel(album)} · ${year}`;
     }
 
-    /** Play and Queue as on the album screen, including whether now-playing is raised. */
+    /** Play, Queue and Play next as on the album screen, including whether now-playing is raised. */
     async play(album: AlbumSummary): Promise<void> {
         const ok = await this.send(() => this.library.playAlbum(refOf(album)));
         if (ok && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
@@ -185,10 +194,22 @@ export class Artist {
         if (ok && this.prefs.openQueueOnAdd()) this.sheet.showQueue();
     }
 
+    async playNext(album: AlbumSummary): Promise<void> {
+        // Read before sending: the server starts playback only into an empty queue.
+        const starts = this.api.snapshot()?.queueLength === 0;
+        if (!(await this.send(() => this.library.playAlbumNext(refOf(album))))) return;
+        if (starts) {
+            if (this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+        } else if (this.prefs.openQueueOnAdd()) {
+            this.sheet.showQueue();
+        }
+    }
+
     private async send(action: () => Promise<void>): Promise<boolean> {
         if (this.busy()) return false;
         this.busy.set(true);
         this.error.set(null);
+        this.notice.set(null);
         try {
             await action();
             return true;

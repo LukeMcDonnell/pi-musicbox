@@ -179,6 +179,11 @@ export class LibraryStore {
         await this.api.post('/api/library/queue', ref);
     }
 
+    /** Insert an album after the current track; into an empty queue it also starts playing. */
+    async playAlbumNext(ref: AlbumRef): Promise<void> {
+        await this.api.post('/api/library/next', ref);
+    }
+
     /** Replace the queue with an album and start playing it — at `start`, a track's file, if given. */
     async playAlbum(ref: AlbumRef, start?: string): Promise<void> {
         const body: AlbumPlayRequest = start === undefined ? ref : { ...ref, start };

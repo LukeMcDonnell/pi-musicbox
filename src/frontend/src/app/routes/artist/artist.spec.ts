@@ -28,6 +28,7 @@ function fakeStore(albums: AlbumSummary[] = [], artists: ArtistSummary[] | null 
         artists: state.asReadonly(),
         playAlbum: jasmine.createSpy('playAlbum').and.resolveTo(undefined),
         queueAlbum: jasmine.createSpy('queueAlbum').and.resolveTo(undefined),
+        playAlbumNext: jasmine.createSpy('playAlbumNext').and.resolveTo(undefined),
         fetchAlbums: jasmine
             .createSpy('fetchAlbums')
             .and.resolveTo({ albumArtist: 'Radiohead', image: '/api/art?album=Radiohead', albums }),
@@ -110,7 +111,7 @@ describe('Artist', () => {
         expect(rows[1]!.textContent).not.toContain('·  ');
     });
 
-    it('plays and queues an album from its row, raising the sheet as preferred', async () => {
+    it('plays from its row, and queues and plays next from its ⋮ menu', async () => {
         localStorage.removeItem(PREFERENCES_KEY);
         const store = fakeStore([album({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' })]);
         const fixture = create(store, 'AC/DC');
@@ -120,24 +121,43 @@ describe('Artist', () => {
         const sheet = TestBed.inject(NowPlayingSheet);
         const show = spyOn(sheet, 'show');
         const showQueue = spyOn(sheet, 'showQueue');
-        const button = (label: string) =>
-            fixture.nativeElement.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
+        const el = fixture.nativeElement as HTMLElement;
+        const button = (label: string) => el.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
+        const item = (text: string) =>
+            [...el.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent!.trim() === text) as HTMLButtonElement;
+        const ref = { albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' };
 
-        // Queue, then Play last at the row's edge.
-        const labels = [...fixture.nativeElement.querySelectorAll('li > button')].map((b) =>
-            (b as HTMLElement).getAttribute('aria-label'),
-        );
-        expect(labels).toEqual([null, 'Add Back in Black to the queue', 'Play Back in Black']);
+        // No Queue button on the row: Play, then ⋮ at the row's edge.
+        const labels = [...el.querySelectorAll('li > button')].map((b) => b.getAttribute('aria-label'));
+        expect(labels).toEqual([null, 'Play Back in Black', 'More for Back in Black']);
 
         button('Play Back in Black').click();
         await fixture.whenStable();
-        expect(store.playAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' });
+        expect(store.playAlbum).toHaveBeenCalledWith(ref);
         expect(show).toHaveBeenCalled();
 
-        button('Add Back in Black to the queue').click();
+        button('More for Back in Black').click();
+        fixture.detectChanges();
+        expect([...el.querySelectorAll('[role="dialog"] button')].map((b) => b.textContent!.trim())).toEqual([
+            'Play',
+            'Add to Queue',
+            'Play Next',
+            'Add to Playlist',
+            'Cancel',
+        ]);
+        item('Add to Queue').click();
         await fixture.whenStable();
-        expect(store.queueAlbum).toHaveBeenCalledWith({ albumArtist: 'AC/DC', album: 'Back in Black', release: 'mb:kid-a' });
+        expect(store.queueAlbum).toHaveBeenCalledWith(ref);
         expect(showQueue).not.toHaveBeenCalled();
+        fixture.detectChanges();
+
+        button('More for Back in Black').click();
+        fixture.detectChanges();
+        item('Play Next').click();
+        await fixture.whenStable();
+        expect(store.playAlbumNext).toHaveBeenCalledWith(ref);
+        fixture.detectChanges();
+        expect(el.querySelector('[role="dialog"]')).toBeNull();
     });
 
     it('hides the row star below 40rem, where phones get their layout', async () => {

@@ -41,7 +41,7 @@
                 [disabled]="busy() || playlist.trackCount === 0"
                 [attr.aria-label]="'Add ' + playlist.name + ' to the queue'"
                 (click)="queue(playlist)">
-          <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+          <svg lucideListEnd class="size-5" aria-hidden="true"></svg>
         </button>
         <button type="button"
                 class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center

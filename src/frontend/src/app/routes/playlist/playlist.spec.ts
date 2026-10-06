@@ -58,7 +58,7 @@ describe('Playlist', () => {
         const rows = [...el.querySelectorAll('ol li')].map((li) =>
             [...li.querySelectorAll('span')].filter((s) => s.children.length === 0).map((s) => s.textContent!.trim()),
         );
-        expect(rows[0]).toEqual(['1.', 'Everything', 'Radiohead · Kid A', '4:27']);
+        expect(rows[0]).toEqual(['Everything', 'Radiohead · Kid A', '4:27']);
         // A song gone from the library still shows, by its file.
         expect(rows[1]).toContain('gone.flac');
         expect(el.textContent).toContain('2 tracks · 8:51');
@@ -129,6 +129,25 @@ describe('Playlist', () => {
         expect(TestBed.inject(NowPlayingSheet).open()).toBeTrue();
     });
 
+    it('offers Reshuffle beside Edit, confirmed by the dialog, and reloads after', async () => {
+        const { fixture, store, el } = create();
+        await settle(fixture);
+        const page = fixture.componentInstance;
+        const reshuffle = [...el.querySelectorAll('button')].find((b) => b.textContent!.trim() === 'Reshuffle')!;
+        reshuffle.click();
+        expect(page.dialog()).toEqual({ kind: 'shuffle', name: 'Road trip' });
+        page.onDialogDone({ kind: 'shuffled', name: 'Road trip' });
+        await settle(fixture);
+        expect(store.fetchPlaylist).toHaveBeenCalledTimes(2);
+    });
+
+    it('cannot reshuffle a single track', async () => {
+        const { fixture, el } = create(response({ tracks: [{ file: 'a.flac', title: 'A', image: null }] }));
+        await settle(fixture);
+        const reshuffle = [...el.querySelectorAll('button')].find((b) => b.textContent!.trim() === 'Reshuffle')!;
+        expect(reshuffle.disabled).toBeTrue();
+    });
+
     it('goes back to the list after a delete, and follows a rename in the URL', async () => {
         const { fixture } = create();
         await settle(fixture);
@@ -177,10 +196,12 @@ describe('Playlist', () => {
             expect(el.querySelectorAll('[cdkDragHandle]').length).toBe(0);
         });
 
-        it('offers no Edit for an empty playlist', async () => {
+        it('offers no Edit or Reshuffle for an empty playlist', async () => {
             const { fixture, el } = create(response({ tracks: [], playlist: { ...SUMMARY, trackCount: 0 } }));
             await settle(fixture);
-            expect([...el.querySelectorAll('button')].some((b) => b.textContent!.trim() === 'Edit')).toBeFalse();
+            const labels = [...el.querySelectorAll('button')].map((b) => b.textContent!.trim());
+            expect(labels).not.toContain('Edit');
+            expect(labels).not.toContain('Reshuffle');
         });
 
         it('moves the row at once, sends the file it moved, and takes the answer', async () => {

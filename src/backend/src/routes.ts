@@ -83,8 +83,12 @@ import type { SystemStatusReader } from './system-status.ts';
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
 
-// An empty queue has nothing to follow, so both verbs add and play. With no
-// current song, position 0 is where `play` starts — so that is "next".
+// With no current song MPD refuses a relative position, and 0 is where `play` starts.
+function nextPosition(current: Pick<Snapshot, 'queuePosition'>): string {
+    return quoteArg(current.queuePosition === null ? '0' : '+0');
+}
+
+// An empty queue has nothing to follow, so both verbs add and play.
 export function trackAddCommands(
     file: string,
     next: boolean,
@@ -93,7 +97,16 @@ export function trackAddCommands(
     const add = `add ${quoteArg(file)}`;
     if (current.queueLength === 0) return [add, 'play'];
     if (!next) return [add];
-    return [`${add} ${quoteArg(current.queuePosition === null ? '0' : '+0')}`];
+    return [`${add} ${nextPosition(current)}`];
+}
+
+/** An album's `findadd` straight after the current track; into an empty queue, it plays. */
+export function albumNextCommands(
+    findadd: string,
+    current: Pick<Snapshot, 'queueLength' | 'queuePosition'>,
+): string[] {
+    if (current.queueLength === 0) return [findadd, 'play'];
+    return [`${findadd} position ${nextPosition(current)}`];
 }
 
 /**
@@ -568,6 +581,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             : `${album} ${quoteArg('disc')} ${quoteArg(ref.disc)}`;
     }
 
+    /** The same filter as findaddFor, for a `find`. */
+    function albumPairs(ref: AlbumRef): Array<[string, string]> {
+        const release = releaseFilter(ref.release);
+        return ref.disc === undefined ? [release] : [release, ['disc', ref.disc]];
+    }
+
     /** Only a library path: a URL would have MPD stream it, an absolute path read the disk. */
     function trackRefFrom(body: unknown): TrackRef | string {
         const { file } = (body ?? {}) as { file?: unknown };
@@ -694,6 +713,22 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
     });
 
+    // Touches no queue either. Its files are found here, so the playlist gets the same tracks as the queue would.
+    app.post('/api/playlist/add-album', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        const ref = albumRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        try {
+            const files = (await bridge.find(...albumPairs(ref))).flatMap((t) => t.file ?? []);
+            if (files.length === 0) return reply.code(404).send({ error: 'no such album in the library' });
+            const body: PlaylistsResponse = { playlists: await playlists.saveQueue(name, files, 'append') };
+            return body;
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
     // Each names the file it expects at the position, so a stale screen gets a 409, not the wrong track.
     app.post('/api/playlist/move', async (request: FastifyRequest, reply: FastifyReply) => {
         const name = playlistName(request.body, 'name');
@@ -720,6 +755,16 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         if (typeof pos !== 'number') return reply.code(400).send(pos);
         try {
             return await playlists.removeTrack(name, pos, ref.file);
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    app.post('/api/playlist/shuffle', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        try {
+            return await playlists.shuffle(name);
         } catch (err) {
             return playlistFailure(reply, err);
         }
@@ -792,6 +837,22 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
         try {
             await bridge.runAll([findaddFor(ref)]);
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    app.post('/api/library/next', async (request: FastifyRequest, reply: FastifyReply) => {
+        const ref = albumRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({
+                error: 'cannot queue an album while a phone owns the DAC',
+            });
+        }
+        try {
+            await bridge.runAll(albumNextCommands(findaddFor(ref), bridge.current));
             return bridge.current;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });

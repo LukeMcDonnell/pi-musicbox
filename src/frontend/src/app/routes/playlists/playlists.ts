@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import {
     LucideEllipsisVertical,
     LucideListMusic,
-    LucideListPlus,
+    LucideListEnd,
     LucidePlay,
     LucidePlus,
 } from '@lucide/angular';
@@ -26,7 +26,7 @@ import { runtime } from '../album/album';
         CoverGrid,
         LucideEllipsisVertical,
         LucideListMusic,
-        LucideListPlus,
+        LucideListEnd,
         LucidePlay,
         LucidePlus,
         PlaylistDialog,

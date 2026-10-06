@@ -10,6 +10,7 @@ import {
     coversOf,
     createPlaylists,
     playlistNameError,
+    shuffled,
 } from './playlists.ts';
 
 /** An in-memory MPD holding stored playlists of song files. */
@@ -285,4 +286,23 @@ test('positions past the end are refused, and a missing playlist is not-found', 
     await playlists.addTrack('mix', 'z', 2);
     assert.deepEqual(bridge.stored.get('mix'), ['a', 'b', 'z']);
     await assert.rejects(playlists.removeTrack('nope', 0, 'a'), PlaylistNotFoundError);
+});
+
+test('a shuffle reorders every track in place, keeping duplicates, and leaves nothing behind', async () => {
+    const files = ['a', 'b', 'a', 'c', 'd', 'e', 'f', 'g'];
+    const bridge = fakeBridge({ mix: [...files] });
+    const playlists = createPlaylists(asBridge(bridge));
+    const after = await playlists.shuffle('mix');
+    assert.deepEqual(after.tracks.map((t) => t.file).sort(), [...files].sort());
+    assert.deepEqual(bridge.stored.get('mix'), after.tracks.map((t) => t.file));
+    assert.deepEqual([...bridge.stored.keys()], ['mix']);
+    await assert.rejects(playlists.shuffle('nope'), PlaylistNotFoundError);
+});
+
+test('the shuffle is a Fisher–Yates over a copy', () => {
+    const items = [1, 2, 3, 4];
+    assert.deepEqual(shuffled(items, () => 0), [2, 3, 4, 1]);
+    assert.deepEqual(shuffled(items, () => 0.999), [1, 2, 3, 4]);
+    assert.deepEqual(items, [1, 2, 3, 4]);
+    assert.deepEqual(shuffled([]), []);
 });

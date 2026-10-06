@@ -1000,6 +1000,7 @@ GET  /api/library/albums?artist=<name>
 GET  /api/library/album?artist=<name>&album=<title>&release=<release>
 POST /api/library/queue    {albumArtist, album, release}   append an album
 POST /api/library/play     {albumArtist, album, release, start?}   replace the queue and play, from `start`
+POST /api/library/next     {albumArtist, album, release}   insert an album after the current track
 POST /api/library/track/queue  {file}   append one track
 POST /api/library/track/next   {file}   insert one track after the current one
 
@@ -1008,7 +1009,9 @@ POST   /api/playlists        {name}      create an empty playlist
 POST   /api/playlist/rename  {from, to}  DELETE /api/playlist?name=
 POST   /api/playlist/play    {name}      POST /api/playlist/queue  {name}
 POST   /api/playlist/add     {name, file, pos?}   append one song, or insert at pos; 404 rather than create
+POST   /api/playlist/add-album {name, albumArtist, album, release}   append an album's tracks
 POST   /api/playlist/move    {name, from, to, file}   POST /api/playlist/remove {name, pos, file}
+POST   /api/playlist/shuffle {name}      put the tracks in a random order, in place
 POST   /api/queue/save{,/append,/replace}  {name}   the queue (less CD tracks) as a playlist
 
 GET   /api/panel                                   is there a backlight, is it on
@@ -1286,9 +1289,11 @@ to Artist and Go to Album. A playlist's Edit button gives each row a grip to dra
 it, with Undo for five seconds after. A stored playlist has no song ids, only
 positions, so a move or removal names the file it expects at that position; if
 the playlist was changed elsewhere in the meantime, that is a 409 and the screen
-reloads rather than moving the wrong track.
+reloads rather than moving the wrong track. Reshuffle, opposite Edit, randomises
+the stored order after a confirmation; it is saved the same way as a replace
+(below), so a failure leaves the old order whole.
 
-Tracks are added from the ⋮ menu on the album screen, and the whole queue can be
+Tracks are added from the ⋮ menu on the album screen, whole albums from the one in the album header or on each artist-screen row, and the whole queue can be
 saved from the button beside the queue's tabs: as a new playlist, onto the end of
 one, or in place of one. Audio CD tracks are left out, since a `cdda://` entry is
 dead once the disc is out — so the server builds the playlist from the queue's

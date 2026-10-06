@@ -49,11 +49,19 @@
                        text-muted select-none active:bg-raised disabled:opacity-40"
                 [disabled]="busy() || tracks().length === 0"
                 (click)="queue()">
-          <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+          <svg lucideListEnd class="size-5" aria-hidden="true"></svg>
           Queue
         </button>
         <app-favourite-button variant="pill" [albumArtist]="artist()" [album]="album()"
                               [release]="release()" (failed)="error.set($event)" />
+        <button type="button"
+                class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                       rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy() || tracks().length === 0" aria-haspopup="dialog"
+                [attr.aria-label]="'More for the album ' + album()"
+                (click)="menuAlbum.set(data()?.album ?? null)">
+          <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -96,7 +104,7 @@
                     [disabled]="busy()"
                     (click)="queue(disc)"
                     [attr.aria-label]="'Add disc ' + disc + ' to the queue'">
-              <svg lucideListPlus class="size-4" aria-hidden="true"></svg>
+              <svg lucideListEnd class="size-4" aria-hidden="true"></svg>
               Queue
             </button>
           </li>
@@ -128,4 +136,6 @@
 
   <app-track-menu [(track)]="menuTrack" (play)="playFrom($event)" (queue)="queueTrack($event)"
                   (playNext)="playNext($event)" (added)="notice.set('Added to “' + $event + '”')" />
+  <app-album-menu [(album)]="menuAlbum" (play)="play()" (queue)="queue()"
+                  (playNext)="playAlbumNext()" (added)="notice.set('Added to “' + $event + '”')" />
 </section>

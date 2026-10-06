@@ -32,7 +32,7 @@ import {
 } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
 import { discFromState } from './cd.ts';
-import { isLoopback, trackAddCommands } from './routes.ts';
+import { albumNextCommands, isLoopback, trackAddCommands } from './routes.ts';
 import type { Panel } from './panel.ts';
 import { createSettings, SETTINGS_DEFAULTS, type Settings } from './settings.ts';
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
@@ -757,7 +757,7 @@ test('queueing and playing an album are refused while a phone owns the DAC', asy
     const { app, bridge, routes, port } = await startServer();
     try {
         await bridge.setBluetooth(PHONE);
-        for (const path of ['/api/library/queue', '/api/library/play']) {
+        for (const path of ['/api/library/queue', '/api/library/next', '/api/library/play']) {
             const res = await fetch(`http://127.0.0.1:${port}${path}`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
@@ -801,7 +801,7 @@ test('an album reference is validated as strings before it can reach a command l
             { albumArtist: 'Radiohead', album: 'Kid A', disc: null },
         ];
         for (const body of bodies) {
-            for (const path of ['/api/library/queue', '/api/library/play']) {
+            for (const path of ['/api/library/queue', '/api/library/next', '/api/library/play']) {
                 const res = await fetch(`http://127.0.0.1:${port}${path}`, {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
@@ -848,7 +848,7 @@ test('playing an album clears the queue first, and queueing does not', async () 
 test('a valid disc is accepted, and reaches MPD rather than being rejected', async () => {
     const { app, bridge, routes, port } = await startServer();
     try {
-        for (const path of ['/api/library/queue', '/api/library/play']) {
+        for (const path of ['/api/library/queue', '/api/library/next', '/api/library/play']) {
             const res = await fetch(`http://127.0.0.1:${port}${path}`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
@@ -2005,6 +2005,13 @@ test('a track added to an empty queue starts playing, whichever button', () => {
     }
 });
 
+test('an album plays next by findadd at a position, and into an empty queue it plays', () => {
+    const findadd = 'findadd "MUSICBRAINZ_ALBUMID" "x"';
+    assert.deepEqual(albumNextCommands(findadd, { queueLength: 5, queuePosition: 2 }), [`${findadd} position "+0"`]);
+    assert.deepEqual(albumNextCommands(findadd, { queueLength: 5, queuePosition: null }), [`${findadd} position "0"`]);
+    assert.deepEqual(albumNextCommands(findadd, { queueLength: 0, queuePosition: null }), [findadd, 'play']);
+});
+
 test('queueing a track is refused while a phone owns the DAC', async () => {
     const { app, bridge, routes, port } = await startServer();
     try {
@@ -2212,6 +2219,28 @@ test('saving the queue leaves out disc tracks', () => {
     assert.match(save, /tracks\.filter\(\(t\) => !isCdTrack\(t\)/);
 });
 
+test('adding an album to a playlist validates the name and the album, and is allowed under Bluetooth', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const post = (body: unknown) =>
+            fetch(`http://127.0.0.1:${port}/api/playlist/add-album`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        const album = { albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' };
+        assert.equal((await post({ ...album, name: 'a/b' })).status, 400);
+        assert.equal((await post({ name: 'Mix', albumArtist: 'Radiohead', album: 'Kid A' })).status, 400);
+        assert.equal((await post({ ...album, name: 'Mix', disc: 2 })).status, 400);
+        await bridge.setBluetooth(PHONE);
+        assert.equal((await post({ ...album, name: 'Mix' })).status, 503, 'a good request reaches MPD');
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
 test('moving and removing playlist tracks validate positions and the file', async () => {
     const { app, bridge, routes, port } = await startServer();
     try {
@@ -2230,10 +2259,12 @@ test('moving and removing playlist tracks validate positions and the file', asyn
         }
         assert.equal((await post('/api/playlist/remove', { name: 'Mix', pos: 0, file: 'http://x' })).status, 400);
         assert.equal((await post('/api/playlist/move', { name: 'a/b', from: 0, to: 1, file: 'a' })).status, 400);
+        assert.equal((await post('/api/playlist/shuffle', { name: 'a/b' })).status, 400);
         // Valid, and not refused under Bluetooth: they touch no queue.
         await bridge.setBluetooth(PHONE);
         assert.equal((await post('/api/playlist/move', { ...ok, from: 0, to: 1 })).status, 503);
         assert.equal((await post('/api/playlist/remove', { ...ok, pos: 0 })).status, 503);
+        assert.equal((await post('/api/playlist/shuffle', { name: 'Mix' })).status, 503);
     } finally {
         bridge.stop();
         routes.closeStreams();

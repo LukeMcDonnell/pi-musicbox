@@ -39837,6 +39837,14 @@ function coversOf(files) {
   }
   return [...covers];
 }
+function shuffled(items, random = Math.random) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 function mapPlaylistAck(err, missing, taken = missing) {
   if (!(err instanceof MpdError)) return err;
   if (err.message.startsWith("ACK [50@")) return new PlaylistNotFoundError(`no playlist named '${missing}'`);
@@ -40018,6 +40026,10 @@ function createPlaylists(bridge) {
       await write([`playlistdelete ${quoteArg(name)} ${pos}`], name);
       return getPlaylist(name);
     },
+    async shuffle(name) {
+      await saveFiles(name, shuffled(await filesOf(name)), "replace");
+      return getPlaylist(name);
+    },
     onChange(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -40027,11 +40039,18 @@ function createPlaylists(bridge) {
 
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
+function nextPosition(current) {
+  return quoteArg(current.queuePosition === null ? "0" : "+0");
+}
 function trackAddCommands(file, next, current) {
   const add = `add ${quoteArg(file)}`;
   if (current.queueLength === 0) return [add, "play"];
   if (!next) return [add];
-  return [`${add} ${quoteArg(current.queuePosition === null ? "0" : "+0")}`];
+  return [`${add} ${nextPosition(current)}`];
+}
+function albumNextCommands(findadd, current) {
+  if (current.queueLength === 0) return [findadd, "play"];
+  return [`${findadd} position ${nextPosition(current)}`];
 }
 function isLoopback(ip) {
   return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
@@ -40260,6 +40279,10 @@ function registerRoutes(app, opts) {
     const album = `findadd ${quoteArg(tag)} ${quoteArg(value)}`;
     return ref.disc === void 0 ? album : `${album} ${quoteArg("disc")} ${quoteArg(ref.disc)}`;
   }
+  function albumPairs(ref) {
+    const release = releaseFilter(ref.release);
+    return ref.disc === void 0 ? [release] : [release, ["disc", ref.disc]];
+  }
   function trackRefFrom(body) {
     const { file } = body ?? {};
     if (typeof file !== "string" || file === "") return "missing 'file'";
@@ -40369,6 +40392,20 @@ function registerRoutes(app, opts) {
       return playlistFailure(reply, err);
     }
   });
+  app.post("/api/playlist/add-album", async (request, reply) => {
+    const name = playlistName(request.body, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    const ref = albumRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    try {
+      const files = (await bridge.find(...albumPairs(ref))).flatMap((t) => t.file ?? []);
+      if (files.length === 0) return reply.code(404).send({ error: "no such album in the library" });
+      const body = { playlists: await playlists.saveQueue(name, files, "append") };
+      return body;
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
   app.post("/api/playlist/move", async (request, reply) => {
     const name = playlistName(request.body, "name");
     if (typeof name !== "string") return reply.code(400).send(name);
@@ -40393,6 +40430,15 @@ function registerRoutes(app, opts) {
     if (typeof pos !== "number") return reply.code(400).send(pos);
     try {
       return await playlists.removeTrack(name, pos, ref.file);
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.post("/api/playlist/shuffle", async (request, reply) => {
+    const name = playlistName(request.body, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    try {
+      return await playlists.shuffle(name);
     } catch (err) {
       return playlistFailure(reply, err);
     }
@@ -40452,6 +40498,21 @@ function registerRoutes(app, opts) {
     }
     try {
       await bridge.runAll([findaddFor(ref)]);
+      return bridge.current;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.post("/api/library/next", async (request, reply) => {
+    const ref = albumRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    if (bridge.current.source === "bluetooth") {
+      return reply.code(409).send({
+        error: "cannot queue an album while a phone owns the DAC"
+      });
+    }
+    try {
+      await bridge.runAll(albumNextCommands(findaddFor(ref), bridge.current));
       return bridge.current;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
@@ -41613,7 +41674,7 @@ function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-06T09:41:30Z" : "dev";
+var BUILD = true ? "2026-10-06T13:02:12Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

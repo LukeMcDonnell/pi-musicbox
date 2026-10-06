@@ -32,18 +32,9 @@
                        text-muted select-none active:bg-raised disabled:opacity-40"
                 [disabled]="busy() || tracks().length === 0"
                 (click)="queue()">
-          <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+          <svg lucideListEnd class="size-5" aria-hidden="true"></svg>
           Queue
         </button>
-        @if (tracks().length > 0 || editing()) {
-          <button type="button"
-                  class="flex min-h-8 cursor-pointer touch-manipulation items-center rounded-full px-4
-                         text-[0.95rem] font-semibold select-none active:bg-raised"
-                  [class]="editing() ? 'bg-raised text-text' : 'text-muted'"
-                  [attr.aria-pressed]="editing()" (click)="toggleEditing()">
-            {{ editing() ? 'Done' : 'Edit' }}
-          </button>
-        }
         <button type="button"
                 class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
                        rounded-full text-muted select-none active:bg-raised"
@@ -56,6 +47,25 @@
   </div>
 
   <div class="px-4 py-3">
+    @if (tracks().length > 0 || editing()) {
+      <div class="flex items-center justify-between gap-2 pt-1">
+        <button type="button"
+                class="-ms-4 flex min-h-11 cursor-pointer touch-manipulation items-center gap-2 rounded-full px-4
+                       text-[0.95rem] font-semibold text-muted select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy() || tracks().length < 2" aria-haspopup="dialog"
+                (click)="dialog.set({ kind: 'shuffle', name: name() })">
+          <svg lucideShuffle class="size-5" aria-hidden="true"></svg>
+          Reshuffle
+        </button>
+        <button type="button"
+                class="-me-4 flex min-h-11 cursor-pointer touch-manipulation items-center rounded-full px-4
+                       text-[0.95rem] font-semibold select-none active:bg-raised"
+                [class]="editing() ? 'bg-raised text-text' : 'text-muted'"
+                [attr.aria-pressed]="editing()" (click)="toggleEditing()">
+          {{ editing() ? 'Done' : 'Edit' }}
+        </button>
+      </div>
+    }
     @if (error(); as message) {
       <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
     }
@@ -85,8 +95,6 @@
                   cdkDragHandle [attr.aria-label]="'Drag ' + titleOf(track) + ' to reorder'">
               <svg lucideGripVertical class="size-5" aria-hidden="true"></svg>
             </span>
-          } @else {
-            <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ $index + 1 }}.</span>
           }
           <!-- Lazy, with the box fixed: a long playlist is mostly off screen. -->
           <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="artOf(track)"

@@ -16,9 +16,10 @@ import {
     LucideEllipsisVertical,
     LucideGripVertical,
     LucideListMusic,
-    LucideListPlus,
+    LucideListEnd,
     LucideMusic,
     LucidePlay,
+    LucideShuffle,
     LucideX,
 } from '@lucide/angular';
 import type { PlaylistResponse, Track } from '@musicbox/shared';
@@ -54,9 +55,10 @@ const UNDO_MS = 5000;
         LucideEllipsisVertical,
         LucideGripVertical,
         LucideListMusic,
-        LucideListPlus,
+        LucideListEnd,
         LucideMusic,
         LucidePlay,
+        LucideShuffle,
         LucideX,
         PlaylistDialog,
         TrackMenu,
@@ -252,6 +254,10 @@ export class Playlist {
             void this.router.navigate(['/playlists'], { replaceUrl: true });
         } else if (result.kind === 'renamed') {
             void this.router.navigate([], { queryParams: { name: result.name }, replaceUrl: true });
+        } else if (result.kind === 'shuffled') {
+            // Undo's position means nothing in the new order.
+            this.removed.set(null);
+            void this.load(result.name);
         }
     }
 

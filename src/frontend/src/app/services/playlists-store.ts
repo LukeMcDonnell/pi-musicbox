@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import type { PlaylistResponse, PlaylistsResponse } from '@musicbox/shared';
+import type { AlbumRef, PlaylistResponse, PlaylistsResponse } from '@musicbox/shared';
 import { ApiClient } from './api-client';
 import { MusicboxApi } from './musicbox-api';
 
@@ -43,6 +43,12 @@ export class PlaylistsStore {
         this.box.setPlaylists(playlists);
     }
 
+    /** Append a library album's tracks. */
+    async addAlbum(name: string, ref: AlbumRef): Promise<void> {
+        const { playlists } = await this.api.postJson<PlaylistsResponse>('/api/playlist/add-album', { name, ...ref });
+        this.box.setPlaylists(playlists);
+    }
+
     /** Move a track, naming the file at `from` so a stale screen is refused. */
     moveTrack(name: string, from: number, to: number, file: string): Promise<PlaylistResponse> {
         return this.api.postJson<PlaylistResponse>('/api/playlist/move', { name, from, to, file });
@@ -51,6 +57,11 @@ export class PlaylistsStore {
     /** Remove a track, naming the file at `pos` so a stale screen is refused. */
     removeTrack(name: string, pos: number, file: string): Promise<PlaylistResponse> {
         return this.api.postJson<PlaylistResponse>('/api/playlist/remove', { name, pos, file });
+    }
+
+    /** Put the playlist in a random order. */
+    shuffle(name: string): Promise<PlaylistResponse> {
+        return this.api.postJson<PlaylistResponse>('/api/playlist/shuffle', { name });
     }
 
     /** The queue, less any CD tracks, as a new playlist. */
