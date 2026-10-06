@@ -39,7 +39,7 @@ The three scripts split by concern, and each owns its own managed block in
 | Script | Owns |
 |---|---|
 | `setup.sh` | OS cleanup and boot tuning — **no hardware** |
-| `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression |
+| `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression, ramoops |
 | `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
 | `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf`, the `MPDCONF=` line that selects it, and the `mpd.service` drop-in that orders MPD ahead of the share |
@@ -79,7 +79,7 @@ It is safe to re-run; a second run reports no changes.
 |---|---|
 | 0 | Preflight; records a boot baseline — `systemd-analyze` **and** `vclog` firmware timings — to `/var/log/musicbox-setup/` before changing anything |
 | 1 | Purges `triggerhappy`, `modemmanager`, `rpi-connect*`, `cups*`, `unattended-upgrades` — only if actually installed |
-| 2 | Disables cloud-init (only once it reports `done`); masks `NetworkManager-wait-online`; disables `rpi-eeprom-update`, `man-db.timer`, apt timers |
+| 2 | Disables cloud-init (only once it reports `done`); shadows Debian's ondemand governor rule; makes a task hung for 2 minutes panic and reboot the box; masks `NetworkManager-wait-online`; disables `rpi-eeprom-update`, `man-db.timer`, apt timers |
 | 3 | `config.txt`: `disable_splash`, `boot_delay=0`, `camera_auto_detect=0`, `disable_poe_fan=1`, `initial_turbo=30` |
 | 4 | `cmdline.txt`: adds `quiet`, `logo.nologo`, and `cpufreq.default_governor=performance` (a deadlock fix — see below) |
 | 5 | EEPROM: `BOOT_UART=0`, `NET_INSTALL_*=0`. `BOOT_ORDER` left at the bootloader default unless the tunable is set |
@@ -1546,6 +1546,17 @@ get_throttled` reads `0x0`.
 Do not switch the governor back to save power. The full trace, the reasoning and
 the triage commands for telling this fault apart from the wifi one are in
 `.claude/docs/clock-deadlock.md`.
+
+**It came back, or something like it, on 2026-10-06** after 43 hours up: the panel
+dark and ignoring touch, the box off the network, and the journal silent from one
+second to the next with no kernel message at all. Nothing survived to say why. So
+the box now gets itself out of it rather than waiting for someone to pull the
+plug. `setup.sh` sets `kernel.hung_task_panic=1` and `kernel.panic=10`: any task
+stuck in the kernel for 2 minutes panics it, and the panic reboots the board 10
+seconds later. That needs no help from the wedged clock path, unlike `reboot`.
+`setup-hardware.sh` adds `dtoverlay=ramoops-pi4`, so the panic's own log survives
+the reboot, in `/var/lib/systemd/pstore/`, even when the SD card was part of what hung.
+Playback stops for about two and a half minutes instead of indefinitely.
 
 A second, independent bug surfaced alongside it and is also fixed: the backend's
 MPD client had a connect timeout but no **reply** timeout, so a wedged MPD — one

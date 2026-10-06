@@ -77,6 +77,7 @@ check "firmware touch overlay pinned"  "1" "$(active 'dtoverlay=rpi-ft5406$' "$O
 check "no disable_touchscreen in firmware mode" "0" "$(active 'disable_touchscreen=' "$OUT")"
 check "hdmi_ignore_edid set"     "1" "$(active 'hdmi_ignore_edid=' "$OUT")"
 check "hdmi_ignore_hotplug set"  "1" "$(active 'hdmi_ignore_hotplug=' "$OUT")"
+check "ramoops keeps the panic log" "1" "$(active 'dtoverlay=ramoops-pi4$' "$OUT")"
 
 banner "ordering trap: base overlay must precede the panel overlay"
 v3d=$(grep -n '^dtoverlay=vc4-kms-v3d' "$OUT" | cut -d: -f1)
@@ -133,6 +134,7 @@ check "skip-display omits DSI overlay"    "0" "$(active 'dtoverlay=vc4-kms-dsi-7
 check "skip-display omits touch overlays" "0" "$(active 'dtoverlay=rpi-ft5406' "$OUTNS")"
 check "skip-display leaves vc4 untouched" "1" "$(active 'dtoverlay=vc4-kms-v3d$' "$OUTNS")"
 check "skip-display still does DAC"       "1" "$(active 'dtoverlay=hifiberry-dacplus-std$' "$OUTNS")"
+check "ramoops is independent of the skips" "11" "$(active 'dtoverlay=ramoops-pi4$' "$OUTND")$(active 'dtoverlay=ramoops-pi4$' "$OUTNS")"
 
 banner "both skips is refused"
 bash "$SCRIPT" --skip-dac --skip-display --emit-config "$SRC" "$WORK/x.txt" >/dev/null 2>&1

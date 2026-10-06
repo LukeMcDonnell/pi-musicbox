@@ -13,7 +13,7 @@ trap 'rm -rf "$WORK"' EXIT
 # Load the helpers: drop the final `main "$@"`, and un-readonly the path
 # constants so we can point them at fixtures. Function bodies are untouched.
 sed -e '$ d' \
-    -e 's/^readonly \(BOOT_DIR\|CONFIG_TXT\|CMDLINE_TXT\|FSTAB\|JOURNALD_DROPIN\|ONDEMAND_RULE\|STATE_DIR\|LOG_DIR\|BOOTREPORT\|CLOUD_INIT_DISABLED\)=/\1=/' \
+    -e 's/^readonly \(BOOT_DIR\|CONFIG_TXT\|CMDLINE_TXT\|FSTAB\|JOURNALD_DROPIN\|ONDEMAND_RULE\|RECOVERY_SYSCTL\|STATE_DIR\|LOG_DIR\|BOOTREPORT\|CLOUD_INIT_DISABLED\)=/\1=/' \
     "$SRC" > "$WORK/harness.sh"
 # shellcheck source=/dev/null
 source "$WORK/harness.sh"
@@ -165,6 +165,33 @@ CHANGED=0
 mask_ondemand_rule >/dev/null 2>&1
 check "second run is a no-op" "$before_rule" "$(cat "$ONDEMAND_RULE")"
 check "and reports no change" "0" "$CHANGED"
+
+# ---------------------------------------------------------------------------
+banner "hung-task panic reboots a wedged box"
+# ---------------------------------------------------------------------------
+# The clock deadlock leaves tasks in D forever and `reboot` cannot complete.
+RECOVERY_SYSCTL="$WORK/90-musicbox-recovery.conf"
+CHANGED=0
+
+enable_hang_recovery >/dev/null 2>&1
+check "sysctl drop-in created" "0" "$(exists "$RECOVERY_SYSCTL")"
+check "hung tasks panic" "0" "$(grep -qx 'kernel.hung_task_panic = 1' "$RECOVERY_SYSCTL"; echo $?)"
+check "a panic reboots rather than halting" "0" "$(grep -qx 'kernel.panic = 10' "$RECOVERY_SYSCTL"; echo $?)"
+check "the hung-task timeout is explicit" "0" \
+    "$(grep -qx 'kernel.hung_task_timeout_secs = 120' "$RECOVERY_SYSCTL"; echo $?)"
+check "first run reports one change" "1" "$CHANGED"
+
+before_sysctl="$(cat "$RECOVERY_SYSCTL")"
+CHANGED=0
+enable_hang_recovery >/dev/null 2>&1
+check "second run is a no-op" "$before_sysctl" "$(cat "$RECOVERY_SYSCTL")"
+check "and reports no change" "0" "$CHANGED"
+
+rm -f "$RECOVERY_SYSCTL"
+DRY_RUN=1
+enable_hang_recovery >/dev/null 2>&1
+check "--dry-run writes nothing" "1" "$(exists "$RECOVERY_SYSCTL")"
+DRY_RUN=0
 
 # ---------------------------------------------------------------------------
 banner "fstab — noatime and tmpfs"

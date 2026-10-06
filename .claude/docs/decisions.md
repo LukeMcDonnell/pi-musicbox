@@ -1849,3 +1849,21 @@ panel reloads itself"): `location.reload()` would get the cached old
 nothing. If a worker is ever added, it must never cache `index.html`, `/api`
 or the SSE stream. The foreground reconnect in `musicbox-api.ts` covers what an
 installed app actually needs: its stream can die while it is suspended.
+
+## A hung kernel task reboots the box (2026-10-06)
+
+`setup.sh` sets `kernel.hung_task_panic=1` and `kernel.panic=10`. Any task in
+uninterruptible sleep for 120s panics the kernel, and the panic reboots it.
+
+The clock deadlock leaves tasks in `D` forever, and `reboot` cannot complete
+through it, so a person pulling the plug was the only recovery. The 1-minute
+hardware watchdog does not help, because PID 1 keeps petting it while the rest
+of the system is wedged (2026-10-06: 35 minutes hung, no reset). A panic needs
+nothing from the wedged path. On an appliance whose job is to keep playing,
+rebooting by itself in about 2.5 minutes is better than waiting for someone.
+
+False positives are bounded: NFS is `soft,timeo=50,retrans=3` (well under
+120s), and idle kworkers park in `TASK_IDLE`, which the detector ignores. That
+is also why `instrument-wifi-debug.sh` no longer drops the timeout to 30s.
+Together with `dtoverlay=ramoops-pi4`, the panic is also how the trace survives
+a hang that takes the SD card with it. See `clock-deadlock.md`.

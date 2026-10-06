@@ -1,5 +1,9 @@
 # The clock/firmware deadlock — diagnosed 2026-09-12
 
+> **2026-10-06:** a hang with no evidence at all, after 43h up and with the
+> governor fix active. The box now reboots itself after a 2-minute hang, and
+> ramoops keeps the trace. See "The 2026-10-06 silent hang" at the end.
+
 **Status: root cause captured; fix applied, verified across a reboot, and soaked
 4 hours clean (56 track changes, zero hung tasks). Not called closed — the fault
 was intermittent, so keep the instrumentation until it has run for days.**
@@ -268,13 +272,14 @@ journalctl -t netwatch -b -1 | grep DOWN   # network fault -> wifi-instability.m
 
 ### Telling the two faults apart
 
-| | clock deadlock (this file) | wifi dropout (`wifi-instability.md`) |
-|---|---|---|
-| Network | **up** | **down** |
-| Panel/kiosk | **frozen** | **still rendering** |
-| `vcgencmd` | **hangs** | answers |
-| D-state tasks | many, on `clk_prepare_lock` | none of note |
-| ssh | works | dead |
+| | clock deadlock (this file) | wifi dropout (`wifi-instability.md`) | 2026-10-06 silent hang (below) |
+|---|---|---|---|
+| Network | **up** | **down** | **down** — no ARP reply |
+| Panel/kiosk | **frozen** | **still rendering** | dark (backlight sleep), touch ignored |
+| `vcgencmd` | **hangs** | answers | unknown |
+| D-state tasks | many, on `clk_prepare_lock` | none of note | unknown |
+| ssh | works | dead | dead |
+| Journal | hung-task reports land | keeps writing | **stops dead**, mid-sample |
 
 A previous incident was attributed to the display driver because the one trace
 captured then showed `vc4_atomic_commit_tail` holding the lock. This capture shows
@@ -343,3 +348,49 @@ exits the moment it sees either signature. Its one important design rule is that
 **an unreachable box is not a failure** — this box drops off the network on its
 own, and the deadlock leaves the network *up*, so "reachable but `vcgencmd` hangs"
 is the decisive test.
+
+## The 2026-10-06 silent hang — unattributed
+
+After about 43h of uptime (boot 2026-10-04 14:49), with `performance` confirmed
+active, the box hung. The frontend would not load, there was no mDNS and no ARP
+reply, and the panel was dark and ignored touch. A dark panel says little: it
+sleeps by backlight and only the backend wakes it, so any hang that takes out
+the backend looks like this. Power cycled about 35 minutes later.
+
+What the persistent journal shows, and does not:
+
+- **Every writer stopped at once at 10:21:34**: netwatch (every 10s), cron,
+  the server. No hung-task report, no OOM, no brcmfmac error, no kernel
+  warning of any kind. Nothing at all for the 35 minutes before the power cycle.
+- Until then it looked healthy: `gw=up nas=up nm=connected`, −72 dBm. The last
+  sample arrived 2s late with `gw=DOWN`. That is the only sign anything was wrong.
+- The 1-min hardware watchdog **did not fire**, so PID 1 kept petting it. This
+  was not a hard lockup of the whole kernel.
+
+It fits neither row of the table above. The network **and** the SD card stopped
+together, which is what this deadlock would look like if it reached the mmc
+hosts (SD and the SDIO wifi chip): both set clocks through the same firmware
+path. Memory exhaustion is equally consistent: chromium creeping into the 2 GB
+zram over two days and livelocking it. Nothing logged memory, so it cannot be
+ruled out. **No cause is claimed.** A record written to disk cannot survive a
+hang that includes the disk.
+
+What changed in response:
+
+| | Where | Why |
+|---|---|---|
+| `kernel.hung_task_panic=1`, `kernel.panic=10`, timeout 120s | `setup.sh` → `/etc/sysctl.d/90-musicbox-recovery.conf` | A task stuck in D for 2 min panics; the panic reboots. Needs nothing from the clock path, unlike `reboot`. |
+| `dtoverlay=ramoops-pi4` | `setup-hardware.sh` | The panic writes its log to RAM, and the warm reboot keeps it. Stock `systemd-pstore.service` then moves it to `/var/lib/systemd/pstore/` on boot. |
+| netwatch logs `avail`, `swap`, `load`, `chromium` RSS, `D=[...]` | `tools/instrument-wifi-debug.sh` | Next time, memory can be ruled in or out from the last samples. |
+
+The panic fires only if something is genuinely stuck in D. If the next one is
+memory exhaustion instead, the netwatch fields will show `avail` falling, and
+the fix goes elsewhere.
+
+After any unexplained reboot, read the evidence in this order:
+
+```sh
+sudo ls -R /var/lib/systemd/pstore/           # anything here => it panicked
+sudo cat /var/lib/systemd/pstore/dmesg-ramoops-*     # the hung-task stacks
+journalctl -b -1 -t netwatch -n 30 --no-pager # memory and D-state just before
+```

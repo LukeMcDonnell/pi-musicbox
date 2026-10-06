@@ -27,6 +27,7 @@ readonly CMDLINE_TXT="${BOOT_DIR}/cmdline.txt"
 readonly FSTAB="/etc/fstab"
 readonly JOURNALD_DROPIN="/etc/systemd/journald.conf.d/musicbox.conf"
 readonly ONDEMAND_RULE="/etc/udev/rules.d/60-ondemand-governor.rules"
+readonly RECOVERY_SYSCTL="/etc/sysctl.d/90-musicbox-recovery.conf"
 readonly STATE_DIR="/var/lib/musicbox"
 readonly LOG_DIR="/var/log/musicbox-setup"
 readonly BOOTREPORT="/usr/local/bin/musicbox-bootreport"
@@ -523,11 +524,38 @@ mask_ondemand_rule() {
     fi
 }
 
+# Pure generator, like gen_ondemand_shadow.
+gen_recovery_sysctl() {
+    cat <<'CONF'
+# musicbox: a task stuck in D for 2 minutes panics the kernel, which reboots 10s later.
+# The clock deadlock wedges `reboot` itself; this is the only unattended way out.
+# See .claude/docs/clock-deadlock.md. Delete this file to restore stock behaviour.
+kernel.hung_task_timeout_secs = 120
+kernel.hung_task_panic = 1
+kernel.panic = 10
+CONF
+}
+
+enable_hang_recovery() {
+    local tmp
+    tmp="$(mktemp)"
+    gen_recovery_sysctl > "$tmp"
+    if install_if_changed "$tmp" "$RECOVERY_SYSCTL" 0644; then
+        dry || sysctl -q -p "$RECOVERY_SYSCTL" >/dev/null 2>&1 \
+            || warn "could not apply ${RECOVERY_SYSCTL} now — it takes effect at next boot"
+        ok "hung-task panic and auto-reboot enabled (${RECOVERY_SYSCTL})"
+        note "A kernel task blocked for 2 minutes now reboots the box instead of waiting for a power cycle — see .claude/docs/clock-deadlock.md."
+    else
+        skip "hung-task auto-reboot already enabled"
+    fi
+}
+
 phase_services() {
     phase "Phase 2 — services and timers"
 
     disable_cloud_init
     mask_ondemand_rule
+    enable_hang_recovery
 
     # The single biggest win on this image. Safe here only because the NFS/SMB
     # mount must be declared with x-systemd.automount (install.sh's job) so that

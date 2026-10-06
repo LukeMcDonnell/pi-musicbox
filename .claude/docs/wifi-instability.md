@@ -203,9 +203,9 @@ so a fresh image will not have it — and a re-run of `setup.sh` will not remove
 | Artifact | Purpose |
 |---|---|
 | `/etc/systemd/journald.conf.d/zz-musicbox-diagnostic.conf` | `Storage=persistent`, overriding `setup.sh`'s `Storage=volatile`. **This is the single thing that makes the fault diagnosable** — every earlier failure erased the evidence of its own cause. |
-| `/usr/local/bin/musicbox-netwatch` | Samples gateway/NAS reachability, link, signal, rx/tx bytes and MPD state every 10s **into the journal**, so it survives a hard power cycle. |
+| `/usr/local/bin/musicbox-netwatch` | Samples gateway/NAS reachability, link, signal, rx/tx bytes, MPD state, and (since 2026-10-06) available memory, swap, load, chromium RSS and D-state tasks every 10s **into the journal**, so it survives a hard power cycle. |
 | `/etc/systemd/system/musicbox-netwatch.service` | Runs the above. |
-| `kernel.hung_task_timeout_secs=30` | Runtime only, reverts on reboot. Reports blocked tasks sooner, so a warning lands before the box goes unreachable. |
+| ~~`kernel.hung_task_timeout_secs=30`~~ | **Removed 2026-10-06.** `setup.sh` now makes a hung task panic and reboot, so lowering the timeout here would turn a slow NFS read into a reboot. |
 
 Reading it back after a failure:
 

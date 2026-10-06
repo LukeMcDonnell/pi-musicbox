@@ -40,19 +40,24 @@ cat > /usr/local/bin/musicbox-netwatch <<'WATCH'
 #!/bin/bash
 # Samples network + MPD + NFS health every 10s into the journal (persistent).
 # Journal rather than a file, so timestamps line up with kernel messages.
-prev_dmesg=""
 while true; do
-    link=$(iw dev wlan0 link 2>/dev/null | sed -n '1p;/signal/p' | tr '\n' ' ')
-    nm=$(nmcli -t -f STATE general 2>/dev/null)
+    link=$(timeout 3 iw dev wlan0 link 2>/dev/null | sed -n '1p;/signal/p' | tr '\n' ' ')
+    nm=$(timeout 3 nmcli -t -f STATE general 2>/dev/null)
     gw=$(timeout 3 ping -c1 -W2 192.168.1.1 >/dev/null 2>&1 && echo up || echo DOWN)
     nas=$(timeout 3 ping -c1 -W2 synonas.local >/dev/null 2>&1 && echo up || echo DOWN)
-    mnt=$(findmnt -no FSTYPE /srv/music 2>/dev/null | tr '\n' ',')
+    mnt=$(timeout 3 findmnt -no FSTYPE /srv/music 2>/dev/null | tr '\n' ',')
     mpd=$(timeout 4 mpc status 2>/dev/null | sed -n 2p)
     err=$(timeout 4 mpc status 2>&1 | grep -i '^ERROR' || true)
     rx=$(cat /sys/class/net/wlan0/statistics/rx_bytes 2>/dev/null)
     tx=$(cat /sys/class/net/wlan0/statistics/tx_bytes 2>/dev/null)
-    printf 'NETWATCH gw=%s nas=%s nm=%s mnt=%s rx=%s tx=%s link=[%s] mpd=[%s] %s\n' \
-        "$gw" "$nas" "$nm" "$mnt" "$rx" "$tx" "$link" "$mpd" "$err"
+    # Memory and D-state, so the next silent hang can be told from exhaustion.
+    avail=$(awk '/^MemAvailable:/ { print int($2/1024) }' /proc/meminfo)
+    swap=$(awk 'NR > 1 { u += $4 } END { print int(u/1024) }' /proc/swaps)
+    load=$(cut -d' ' -f1 /proc/loadavg)
+    chrome=$(timeout 3 ps -C chromium -o rss= 2>/dev/null | awk '{ s += $1 } END { print int(s/1024) }')
+    dstate=$(timeout 3 ps -eo stat=,comm= 2>/dev/null | awk '$1 ~ /^D/ { printf "%s,", $2 }')
+    printf 'NETWATCH gw=%s nas=%s nm=%s mnt=%s rx=%s tx=%s avail=%sM swap=%sM load=%s chromium=%sM D=[%s] link=[%s] mpd=[%s] %s\n' \
+        "$gw" "$nas" "$nm" "$mnt" "$rx" "$tx" "$avail" "$swap" "$load" "$chrome" "$dstate" "$link" "$mpd" "$err"
     sleep 10
 done
 WATCH
@@ -79,6 +84,5 @@ systemctl daemon-reload
 systemctl enable --now musicbox-netwatch >/dev/null 2>&1
 echo "netwatch: $(systemctl is-active musicbox-netwatch)"
 
-# 3. Report hung tasks sooner, so a warning lands before the box is unreachable.
-sysctl -w kernel.hung_task_timeout_secs=30 >/dev/null
-echo "hung_task_timeout_secs=$(sysctl -n kernel.hung_task_timeout_secs)"
+# setup.sh owns kernel.hung_task_timeout_secs now: a hung task panics and reboots,
+# so lowering it here would turn a slow NFS read into a reboot.
