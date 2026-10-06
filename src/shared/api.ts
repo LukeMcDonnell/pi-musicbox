@@ -1094,6 +1094,43 @@ export interface RecentlyAddedResponse {
 }
 
 /*
+ * SEARCH: GET /api/library/search?q=
+ *
+ * Artists, albums and tracks whose name contains the query. The groups arrive
+ * in display order — each best match first, the groups ordered by their best
+ * match — and an empty group is left out.
+ */
+
+/** Shorter queries are refused: one letter matches most of the library. */
+export const SEARCH_MIN_LENGTH = 2;
+
+export interface SearchAlbum extends AlbumIdentity {
+    /** `OriginalDate` where the tracks have it, else `Date`. See AlbumSummary.date. */
+    date: string | null;
+    image: string | null;
+}
+
+export type SearchGroup =
+    | { kind: 'artist'; items: ArtistSummary[] }
+    | { kind: 'album'; items: SearchAlbum[] }
+    | { kind: 'track'; items: Track[] };
+
+export interface SearchResponse {
+    query: string;
+    groups: SearchGroup[];
+}
+
+/** `Sigur Rós` -> `sigur ros`. Shared so the server ranks as the screens filter. */
+export function fold(text: string): string {
+    return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/** `ac/dc` -> `acdc` */
+export function squeeze(text: string): string {
+    return text.replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/*
  * RECENT PLAYS: GET /api/plays/recent?limit=, and the `plays` SSE event.
  *
  * The albums the box has played, most recent first. `limit` behaves exactly as

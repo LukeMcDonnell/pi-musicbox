@@ -185,7 +185,7 @@ export function albumsFromSongs(
  * library, and visibly so: the year on screen would contradict the year in the
  * folder name on disk.
  */
-function releaseDateOf(track: Track): string | null {
+export function releaseDateOf(track: Track): string | null {
     return track.originalDate ?? track.date ?? null;
 }
 

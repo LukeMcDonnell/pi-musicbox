@@ -1,59 +1,63 @@
 <section aria-label="Home" class="px-4 py-3">
-  <app-cd-card />
+  <app-home-search [query]="query()" (queryChange)="setQuery($event)" />
 
-  @if (loading()) {
-    <app-shelf heading="From your Favourites" link="/favourites">
-      <app-shelf-skeleton />
-    </app-shelf>
-  } @else if (empty()) {
-    <p class="py-6 text-[0.95rem] text-muted">
-      No favourites yet. Tap the star on an album to add it here.
-    </p>
-  } @else {
-    <app-shelf heading="From your Favourites" link="/favourites">
-      @for (album of albums(); track trackKey(album)) {
-        <app-album-card [album]="album" [cover]="coverOf(album)"
-                        (failed)="onCoverError($event)" (open)="open(album)" />
-      }
-    </app-shelf>
-  }
+  @if (!searching()) {
+    <app-cd-card />
 
-  @if (playedLoading()) {
-    <app-shelf heading="Recent Plays" link="/home/recent-plays">
-      <app-shelf-skeleton />
-    </app-shelf>
-  } @else if (played().length) {
-    <app-shelf heading="Recent Plays" link="/home/recent-plays">
-      @for (album of played(); track trackKey(album)) {
-        <app-album-card [album]="album" [cover]="coverOf(album)"
-                        (failed)="onCoverError($event)" (open)="open(album)" />
-      }
-    </app-shelf>
-  }
+    @if (loading()) {
+      <app-shelf heading="From your Favourites" link="/favourites">
+        <app-shelf-skeleton />
+      </app-shelf>
+    } @else if (empty()) {
+      <p class="py-6 text-[0.95rem] text-muted">
+        No favourites yet. Tap the star on an album to add it here.
+      </p>
+    } @else {
+      <app-shelf heading="From your Favourites" link="/favourites">
+        @for (album of albums(); track trackKey(album)) {
+          <app-album-card [album]="album" [cover]="coverOf(album)"
+                          (failed)="onCoverError($event)" (open)="open(album)" />
+        }
+      </app-shelf>
+    }
 
-  @if (artistsLoading()) {
-    <app-shelf heading="Most Played Artists" link="/home/most-played-artists">
-      <app-shelf-skeleton [round]="true" />
-    </app-shelf>
-  } @else if (artists().length) {
-    <app-shelf heading="Most Played Artists" link="/home/most-played-artists">
-      @for (artist of artists(); track artist.name) {
-        <app-artist-card [artist]="artist" [cover]="coverOf(artist)"
-                         (failed)="onCoverError($event)" (open)="openArtist(artist)" />
-      }
-    </app-shelf>
-  }
+    @if (playedLoading()) {
+      <app-shelf heading="Recent Plays" link="/home/recent-plays">
+        <app-shelf-skeleton />
+      </app-shelf>
+    } @else if (played().length) {
+      <app-shelf heading="Recent Plays" link="/home/recent-plays">
+        @for (album of played(); track trackKey(album)) {
+          <app-album-card [album]="album" [cover]="coverOf(album)"
+                          (failed)="onCoverError($event)" (open)="open(album)" />
+        }
+      </app-shelf>
+    }
 
-  @if (recentLoading()) {
-    <app-shelf heading="Recently Added" link="/home/recently-added">
-      <app-shelf-skeleton />
-    </app-shelf>
-  } @else if (recent().length) {
-    <app-shelf heading="Recently Added" link="/home/recently-added">
-      @for (album of recent(); track trackKey(album)) {
-        <app-album-card [album]="album" [cover]="coverOf(album)"
-                        (failed)="onCoverError($event)" (open)="open(album)" />
-      }
-    </app-shelf>
+    @if (artistsLoading()) {
+      <app-shelf heading="Most Played Artists" link="/home/most-played-artists">
+        <app-shelf-skeleton [round]="true" />
+      </app-shelf>
+    } @else if (artists().length) {
+      <app-shelf heading="Most Played Artists" link="/home/most-played-artists">
+        @for (artist of artists(); track artist.name) {
+          <app-artist-card [artist]="artist" [cover]="coverOf(artist)"
+                           (failed)="onCoverError($event)" (open)="openArtist(artist)" />
+        }
+      </app-shelf>
+    }
+
+    @if (recentLoading()) {
+      <app-shelf heading="Recently Added" link="/home/recently-added">
+        <app-shelf-skeleton />
+      </app-shelf>
+    } @else if (recent().length) {
+      <app-shelf heading="Recently Added" link="/home/recently-added">
+        @for (album of recent(); track trackKey(album)) {
+          <app-album-card [album]="album" [cover]="coverOf(album)"
+                          (failed)="onCoverError($event)" (open)="open(album)" />
+        }
+      </app-shelf>
+    }
   }
 </section>

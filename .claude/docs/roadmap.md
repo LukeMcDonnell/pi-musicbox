@@ -207,6 +207,13 @@ backlight is off.** The digitizer is a separate device so it should, and a dead
 panel stream restores the backlight anyway, but nobody has put a finger on a dark
 screen yet. Worth thirty seconds next time you are at the box.
 
+## Landed: library search (2026-10-06)
+
+A field at the top of Home; results replace the shelves, grouped Artists, Albums,
+Tracks and ordered by best match. `GET /api/library/search?q=` ranks on the
+server from its own index, because MPD's `search` does not fold accents —
+`decisions.md` has the measurements. Not yet tried on the panel itself.
+
 ## Landed: Recently Added (2026-09-18)
 
 The Home shelf and `/home/recently-added`: the 100 newest albums, newest first,
@@ -223,24 +230,18 @@ Not yet checked on the panel itself.
 
 ## Next
 
-1. **Library search.** Browse landed: artists -> albums -> tracks, with Play and
-   Queue on the album screen (`POST /api/library/{play,queue}`). Artist pictures
-   come from the existing `/api/art` keyed by the artist directory — 97% coverage,
-   no new code. See the "Browsing the library" section of `README.md` for the
-   measurements that shaped it, and `decisions.md` for what they ruled out.
-   Search is the remaining half and the API is shaped for it.
-2. **USB CD, the rest.** Playback, durations and MusicBrainz lookup landed
+1. **USB CD, the rest.** Playback, durations and MusicBrainz lookup landed
    (`cd.md`). Left: CD-Text as an offline fallback for discs MusicBrainz does not
    know, then ripping (`cdparanoia`).
-3. **Repeat and shuffle control, for both sources at once.** They are now
+2. **Repeat and shuffle control, for both sources at once.** They are now
    *reflected* in the snapshot — AVRCP's `Repeat`/`Shuffle` for a phone, MPD's own
    flags otherwise — but nothing can change them: there has never been an API for
    it. AVRCP's are writable and MPD's obviously are, so do both together rather
    than adding a Bluetooth-only control and a second inconsistency.
-4. **A UI-gated Bluetooth pairing window** — the box is currently discoverable to
+3. **A UI-gated Bluetooth pairing window** — the box is currently discoverable to
    anyone in radio range. Designed for, deliberately deferred; see
    `bluetooth.md`.
-5. **Chase the flaky Bluetooth watcher test**, which is why `run-all.sh` goes red
+4. **Chase the flaky Bluetooth watcher test**, which is why `run-all.sh` goes red
    on a clean tree about one run in five. Rates, the failing assertion and the
    one clue worth following are in `testing.md`. It may be the test and it may be
    the re-arm — the watcher is the thing that already failed silently on the

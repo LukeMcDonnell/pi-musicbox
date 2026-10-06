@@ -2035,3 +2035,26 @@ Library list re-decodes rows it destroyed.
   Drag starts only from the grip, so a swipe anywhere else still scrolls the
   panel. `<main>` is a `cdkScrollable` so a drag near an edge scrolls it; CDK
   subscribes to its scroll events only while a drag is under way.
+
+## Search: an in-memory index, not MPD's `search` (2026-10-06)
+
+- **MPD's `search` folds case and nothing else.** Measured on the box (MPD
+  0.24.4): `artist contains "bjork"` finds 0 songs where `"Björk"` finds 50, and
+  `album contains "whats the story"` misses `(What’s the Story) Morning Glory?`
+  for its curly apostrophe. It also cost 150–190ms a command, ~350ms for albums
+  plus titles.
+- **The index is two grouped `list`s.** `list album group albumartist group
+  MUSICBRAINZ_ALBUMID` (62ms, 330KB) and `list title group album group
+  albumartist` (127ms, 1.1MB), folded with the same `fold`/`squeeze` the Library
+  and Favourites filters use. Built on the first search, dropped with the artist
+  index when a scan finishes. MPD nests the LAST group outermost.
+- **Only the shown hits go back to MPD**, one `find ... window 0:1` each (~11–14ms):
+  by `MUSICBRAINZ_ALBUMID` for an album, by artist + album + title for a track.
+  Up to 15 of them. Measured end to end: 50–70ms for a specific query, ~290ms for
+  `the`, 1.3s for the very first search (both indexes cold).
+- **A title list loses releases.** The four self-titled Weezers share one
+  artist/album pair, so a track hit resolves to whichever MPD finds first; the
+  album screen then shows that release. Rare, and the album hits are per release.
+- **Ranking is the server's**, so the panel and phones agree: exact, leading whole
+  words, prefix, start of a word, anywhere; then the shorter name. Groups are
+  ordered by their best hit; a tie goes artist, album, track.

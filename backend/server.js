@@ -12475,11 +12475,11 @@ var require_ipaddr = __commonJS({
         }
       };
       ipaddr.IPv4.isValidCIDRFourPartDecimal = function(string) {
-        const match = string.match(/^(.+)\/(\d+)$/);
-        if (!ipaddr.IPv4.isValidCIDR(string) || !match) {
+        const match2 = string.match(/^(.+)\/(\d+)$/);
+        if (!ipaddr.IPv4.isValidCIDR(string) || !match2) {
           return false;
         }
-        return ipaddr.IPv4.isValidFourPartDecimal(match[1]);
+        return ipaddr.IPv4.isValidFourPartDecimal(match2[1]);
       };
       ipaddr.IPv4.networkAddressFromCIDR = function(string) {
         let cidr, i, ipInterfaceOctets, octets, subnetMaskOctets;
@@ -12506,11 +12506,11 @@ var require_ipaddr = __commonJS({
         return new this(parts);
       };
       ipaddr.IPv4.parseCIDR = function(string) {
-        let match;
-        if (match = string.match(/^(.+)\/(\d+)$/)) {
-          const maskLength = parseInt(match[2]);
+        let match2;
+        if (match2 = string.match(/^(.+)\/(\d+)$/)) {
+          const maskLength = parseInt(match2[2]);
           if (maskLength >= 0 && maskLength <= 32) {
-            const parsed = [this.parse(match[1]), maskLength];
+            const parsed = [this.parse(match2[1]), maskLength];
             Object.defineProperty(parsed, "toString", {
               value: function() {
                 return this.join("/");
@@ -12522,10 +12522,10 @@ var require_ipaddr = __commonJS({
         throw new Error("ipaddr: string is not formatted like an IPv4 CIDR range");
       };
       ipaddr.IPv4.parser = function(string) {
-        let match, part, value;
-        if (match = string.match(ipv4Regexes.fourOctet)) {
+        let match2, part, value;
+        if (match2 = string.match(ipv4Regexes.fourOctet)) {
           return function() {
-            const ref = match.slice(1, 6);
+            const ref = match2.slice(1, 6);
             const results = [];
             for (let i = 0; i < ref.length; i++) {
               part = ref[i];
@@ -12533,8 +12533,8 @@ var require_ipaddr = __commonJS({
             }
             return results;
           }();
-        } else if (match = string.match(ipv4Regexes.longValue)) {
-          value = parseIntAuto(match[1]);
+        } else if (match2 = string.match(ipv4Regexes.longValue)) {
+          value = parseIntAuto(match2[1]);
           if (value > 4294967295 || value < 0) {
             throw new Error("ipaddr: address outside defined range");
           }
@@ -12546,9 +12546,9 @@ var require_ipaddr = __commonJS({
             }
             return results;
           }().reverse();
-        } else if (match = string.match(ipv4Regexes.twoOctet)) {
+        } else if (match2 = string.match(ipv4Regexes.twoOctet)) {
           return function() {
-            const ref = match.slice(1, 4);
+            const ref = match2.slice(1, 4);
             const results = [];
             value = parseIntAuto(ref[1]);
             if (value > 16777215 || value < 0) {
@@ -12560,9 +12560,9 @@ var require_ipaddr = __commonJS({
             results.push(value & 255);
             return results;
           }();
-        } else if (match = string.match(ipv4Regexes.threeOctet)) {
+        } else if (match2 = string.match(ipv4Regexes.threeOctet)) {
           return function() {
-            const ref = match.slice(1, 5);
+            const ref = match2.slice(1, 5);
             const results = [];
             value = parseIntAuto(ref[2]);
             if (value > 65535 || value < 0) {
@@ -12789,13 +12789,13 @@ var require_ipaddr = __commonJS({
           let bestMatchIndex = 0;
           let bestMatchLength = -1;
           let bestMatchGroups = -1;
-          let match;
-          while (match = regex.exec(string)) {
-            const groups = (match[0].match(/0/g) || []).length;
+          let match2;
+          while (match2 = regex.exec(string)) {
+            const groups = (match2[0].match(/0/g) || []).length;
             if (groups > bestMatchGroups) {
               bestMatchGroups = groups;
-              bestMatchIndex = match.index;
-              bestMatchLength = match[0].length;
+              bestMatchIndex = match2.index;
+              bestMatchLength = match2[0].length;
             }
           }
           if (bestMatchLength < 0) {
@@ -12875,11 +12875,11 @@ var require_ipaddr = __commonJS({
         return new this(addr.parts, addr.zoneId);
       };
       ipaddr.IPv6.parseCIDR = function(string) {
-        let maskLength, match, parsed;
-        if (match = string.match(/^(.+)\/(\d+)$/)) {
-          maskLength = parseInt(match[2]);
+        let maskLength, match2, parsed;
+        if (match2 = string.match(/^(.+)\/(\d+)$/)) {
+          maskLength = parseInt(match2[2]);
           if (maskLength >= 0 && maskLength <= 128) {
-            parsed = [this.parse(match[1]), maskLength];
+            parsed = [this.parse(match2[1]), maskLength];
             Object.defineProperty(parsed, "toString", {
               value: function() {
                 return this.join("/");
@@ -12891,26 +12891,26 @@ var require_ipaddr = __commonJS({
         throw new Error("ipaddr: string is not formatted like an IPv6 CIDR range");
       };
       ipaddr.IPv6.parser = function(string) {
-        let addr, i, match, octet, octets, zoneId;
-        if (match = string.match(ipv6Regexes.deprecatedTransitional)) {
-          return this.parser(`::ffff:${match[1]}`);
+        let addr, i, match2, octet, octets, zoneId;
+        if (match2 = string.match(ipv6Regexes.deprecatedTransitional)) {
+          return this.parser(`::ffff:${match2[1]}`);
         }
         if (ipv6Regexes.native.test(string)) {
           return expandIPv6(string, 8);
         }
-        if (match = string.match(ipv6Regexes.transitional)) {
-          zoneId = match[6] || "";
-          addr = match[1];
-          if (!match[1].endsWith("::")) {
+        if (match2 = string.match(ipv6Regexes.transitional)) {
+          zoneId = match2[6] || "";
+          addr = match2[1];
+          if (!match2[1].endsWith("::")) {
             addr = addr.slice(0, -1);
           }
           addr = expandIPv6(addr + zoneId, 6);
           if (addr && addr.parts) {
             octets = [
-              parseInt(match[2]),
-              parseInt(match[3]),
-              parseInt(match[4]),
-              parseInt(match[5])
+              parseInt(match2[2]),
+              parseInt(match2[3]),
+              parseInt(match2[4]),
+              parseInt(match2[5])
             ];
             for (i = 0; i < octets.length; i++) {
               octet = octets[i];
@@ -28179,8 +28179,8 @@ var require_semver = __commonJS({
             throw new Error("invalid increment argument: identifier is empty");
           }
           if (identifier) {
-            const match = `-${identifier}`.match(this.options.loose ? re[t.PRERELEASELOOSE] : re[t.PRERELEASE]);
-            if (!match || match[1] !== identifier) {
+            const match2 = `-${identifier}`.match(this.options.loose ? re[t.PRERELEASELOOSE] : re[t.PRERELEASE]);
+            if (!match2 || match2[1] !== identifier) {
               throw new Error(`invalid identifier: ${identifier}`);
             }
           }
@@ -28641,28 +28641,28 @@ var require_coerce = __commonJS({
         return null;
       }
       options = options || {};
-      let match = null;
+      let match2 = null;
       if (!options.rtl) {
-        match = version.match(options.includePrerelease ? re[t.COERCEFULL] : re[t.COERCE]);
+        match2 = version.match(options.includePrerelease ? re[t.COERCEFULL] : re[t.COERCE]);
       } else {
         const coerceRtlRegex = options.includePrerelease ? re[t.COERCERTLFULL] : re[t.COERCERTL];
         let next;
-        while ((next = coerceRtlRegex.exec(version)) && (!match || match.index + match[0].length !== version.length)) {
-          if (!match || next.index + next[0].length !== match.index + match[0].length) {
-            match = next;
+        while ((next = coerceRtlRegex.exec(version)) && (!match2 || match2.index + match2[0].length !== version.length)) {
+          if (!match2 || next.index + next[0].length !== match2.index + match2[0].length) {
+            match2 = next;
           }
           coerceRtlRegex.lastIndex = next.index + next[1].length + next[2].length;
         }
         coerceRtlRegex.lastIndex = -1;
       }
-      if (match === null) {
+      if (match2 === null) {
         return null;
       }
-      const major = match[2];
-      const minor = match[3] || "0";
-      const patch = match[4] || "0";
-      const prerelease = options.includePrerelease && match[5] ? `-${match[5]}` : "";
-      const build = options.includePrerelease && match[6] ? `+${match[6]}` : "";
+      const major = match2[2];
+      const minor = match2[3] || "0";
+      const patch = match2[4] || "0";
+      const prerelease = options.includePrerelease && match2[5] ? `-${match2[5]}` : "";
+      const build = options.includePrerelease && match2[6] ? `+${match2[6]}` : "";
       return parse(`${major}.${minor}.${patch}${prerelease}${build}`, options);
     };
     module.exports = coerce;
@@ -37427,6 +37427,13 @@ var CD_ART_BACKUP_MAX_BYTES = 256 * 1024 * 1024;
 var SSE_FAVOURITES_EVENT = "favourites";
 var RECENTLY_ADDED_LIMIT = 100;
 var RECENTLY_ADDED_MAX = 500;
+var SEARCH_MIN_LENGTH = 2;
+function fold(text) {
+  return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+}
+function squeeze(text) {
+  return text.replace(/[^\p{L}\p{N}]/gu, "");
+}
 var RECENT_PLAYS_LIMIT = 100;
 var RECENT_PLAYS_MAX = 500;
 var PLAY_THRESHOLD_SECONDS = 30;
@@ -38147,16 +38154,16 @@ var MpdBridge = class {
     return this.send(`count group ${quoteArg(group)}`);
   }
   /**
-   * `list <tag> [group <tag>]` — distinct tag values, optionally grouped.
+   * `list <tag> [group <tag>]...` — distinct tag values, optionally grouped.
+   * With several groups MPD nests the LAST outermost.
    *
    * Returns the raw Reply rather than something parsed: a grouped reply is a
    * flat stream of alternating keys whose structure depends on what was asked
    * for, and `groupBy` at the call site says what the caller expects far more
    * clearly than a general-purpose shape would.
    */
-  async list(tag, group) {
-    const cmd = group === void 0 ? `list ${quoteArg(tag)}` : `list ${quoteArg(tag)} group ${quoteArg(group)}`;
-    return this.send(cmd);
+  async list(tag, ...groups) {
+    return this.send([`list ${quoteArg(tag)}`, ...groups.map((g) => `group ${quoteArg(g)}`)].join(" "));
   }
   /** `lsinfo <path>` — one level of MPD's directory tree. '' is the root. */
   async lsinfo(path) {
@@ -38344,8 +38351,8 @@ function compareAlbums(a, b) {
 }
 function yearOf(date) {
   if (date === null) return null;
-  const match = /^(\d{4})/.exec(date);
-  return match ? Number(match[1]) : null;
+  const match2 = /^(\d{4})/.exec(date);
+  return match2 ? Number(match2[1]) : null;
 }
 function sortAlbumSongs(songs) {
   return [...songs].sort((a, b) => comparePlayingOrder(a.track, b.track));
@@ -38545,6 +38552,143 @@ async function collectRecent(bridge, limit) {
     if (songs.length < RECENT_CHUNK) break;
   }
   return [...albums.values()];
+}
+
+// src/search.ts
+var SEARCH_LIMITS = { artist: 5, album: 5, track: 10 };
+function keyed(text) {
+  const folded = fold(text);
+  return { folded, squeezed: squeeze(folded) };
+}
+function needleOf(query) {
+  return keyed(query.trim());
+}
+var WORD = /[\p{L}\p{N}]/u;
+function scoreKeyed(needle, text) {
+  const n = needle.folded;
+  if (n === "") return 0;
+  const t = text.folded;
+  if (t === n) return 5;
+  if (t.startsWith(n)) return WORD.test(t[n.length]) ? 3 : 4;
+  for (let at = t.indexOf(n); at !== -1; at = t.indexOf(n, at + 1)) {
+    if (at === 0 || !WORD.test(t[at - 1])) return 2;
+  }
+  if (t.includes(n)) return 1;
+  const sn = needle.squeezed;
+  if (sn === "") return 0;
+  if (text.squeezed === sn) return 5;
+  if (text.squeezed.startsWith(sn)) return 3;
+  return text.squeezed.includes(sn) ? 1 : 0;
+}
+function groupedRows(reply, leaf, groups) {
+  const current = {};
+  const rows = [];
+  for (const [key, value] of reply.pairs) {
+    if (key === leaf) rows.push({ ...current, [leaf]: value });
+    else if (groups.includes(key)) current[key] = value;
+  }
+  return rows;
+}
+async function buildIndex(bridge) {
+  const albums = groupedRows(
+    await bridge.list("album", "albumartist", "MUSICBRAINZ_ALBUMID"),
+    "Album",
+    ["AlbumArtist", "MUSICBRAINZ_ALBUMID"]
+  ).filter((row) => row.AlbumArtist && row.Album).map((row) => ({
+    albumArtist: row.AlbumArtist,
+    album: row.Album,
+    mbAlbumId: row.MUSICBRAINZ_ALBUMID || null,
+    ...keyed(row.Album)
+  }));
+  const tracks = groupedRows(await bridge.list("title", "album", "albumartist"), "Title", ["AlbumArtist", "Album"]).filter((row) => row.AlbumArtist && row.Album && row.Title).map((row) => ({
+    albumArtist: row.AlbumArtist,
+    album: row.Album,
+    title: row.Title,
+    ...keyed(row.Title)
+  }));
+  return { albums, tracks };
+}
+function best(rows, limit, tiebreak) {
+  return rows.filter((row) => row.score > 0).sort((a, b) => b.score - a.score || a.length - b.length || (tiebreak?.(a.item, b.item) ?? 0)).slice(0, limit);
+}
+function match(query, artists, index) {
+  const needle = needleOf(query);
+  return {
+    artists: best(
+      artists.map((item) => ({ item, score: scoreKeyed(needle, keyed(item.name)), length: item.name.length })),
+      SEARCH_LIMITS.artist,
+      (a, b) => b.trackCount - a.trackCount
+    ),
+    albums: best(
+      index.albums.map((item) => ({ item, score: scoreKeyed(needle, item), length: item.album.length })),
+      SEARCH_LIMITS.album
+    ),
+    tracks: best(
+      index.tracks.map((item) => ({ item, score: scoreKeyed(needle, item), length: item.title.length })),
+      SEARCH_LIMITS.track
+    )
+  };
+}
+function orderGroups(groups) {
+  return groups.filter(({ group }) => group.items.length > 0).sort((a, b) => b.best - a.best).map(({ group }) => group);
+}
+function albumOf(song) {
+  const { album, albumArtist, release } = song.track;
+  if (album === void 0 || albumArtist === void 0 || release === void 0) return null;
+  return { album, albumArtist, release, date: releaseDateOf(song.track), image: song.track.image };
+}
+function createSearch(library, bridge) {
+  let cached = null;
+  let building = null;
+  let generation = 0;
+  function index() {
+    if (cached !== null) return Promise.resolve(cached);
+    if (building === null) {
+      const mine = generation;
+      building = buildIndex(bridge).then((built) => {
+        if (mine === generation) cached = built;
+        return built;
+      }).finally(() => {
+        if (mine === generation) building = null;
+      });
+    }
+    return building;
+  }
+  return {
+    invalidate: () => {
+      cached = null;
+      building = null;
+      generation += 1;
+    },
+    search: async (query) => {
+      const needle = query.trim();
+      const artists = await library.artists();
+      const found = match(needle, artists, await index());
+      const albums = [];
+      for (const hit of found.albums) {
+        const { albumArtist, album, mbAlbumId } = hit.item;
+        const song = mbAlbumId === null ? await bridge.findFirstSong(["albumartist", albumArtist], ["album", album]) : await bridge.findFirstSong(["MUSICBRAINZ_ALBUMID", mbAlbumId]);
+        const resolved = song === null ? null : albumOf(song);
+        if (resolved !== null) albums.push({ ...hit, item: resolved });
+      }
+      const tracks = [];
+      for (const hit of found.tracks) {
+        const { albumArtist, album, title } = hit.item;
+        const song = await bridge.findFirstSong(
+          ["albumartist", albumArtist],
+          ["album", album],
+          ["title", title]
+        );
+        if (song !== null) tracks.push({ ...hit, item: song.track });
+      }
+      const groups = orderGroups([
+        { group: { kind: "artist", items: found.artists.map((r) => r.item) }, best: found.artists[0]?.score ?? 0 },
+        { group: { kind: "album", items: albums.map((r) => r.item) }, best: albums[0]?.score ?? 0 },
+        { group: { kind: "track", items: tracks.map((r) => r.item) }, best: tracks[0]?.score ?? 0 }
+      ]);
+      return { query: needle, groups };
+    }
+  };
 }
 
 // src/thumbs.ts
@@ -40214,9 +40358,11 @@ function registerRoutes(app, opts) {
   });
   app.get("/api/art", createArtHandler(createArtResolver(musicRoot)));
   const library = createLibrary(bridge, opts.notes);
+  const search = createSearch(library, bridge);
   bridge.onIdle((subsystems) => {
     if (subsystems.includes("database") || subsystems.includes("update")) {
       library.invalidate();
+      search.invalidate();
     }
   });
   app.get("/api/library/artists", async (_req, reply) => {
@@ -40257,6 +40403,20 @@ function registerRoutes(app, opts) {
       const [summary] = albumsFromSongs(artist, songs, opts.notes);
       favourites?.refresh(summary);
       const body = { album: summary, tracks: songs.map((s) => s.track) };
+      return body;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.get("/api/library/search", async (request, reply) => {
+    const { q } = request.query;
+    if (typeof q !== "string" || q.trim().length < SEARCH_MIN_LENGTH) {
+      return reply.code(400).send({
+        error: `'q' must be at least ${SEARCH_MIN_LENGTH} characters`
+      });
+    }
+    try {
+      const body = await search.search(q);
       return body;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
@@ -40926,7 +41086,10 @@ function registerRoutes(app, opts) {
       }
       streams.clear();
     },
-    invalidateLibrary: () => library.invalidate()
+    invalidateLibrary: () => {
+      library.invalidate();
+      search.invalidate();
+    }
   };
 }
 
@@ -41034,9 +41197,9 @@ function codePoint(value) {
   }
 }
 function tagText(text, tag) {
-  const match = new RegExp(`<${tag}>([^<]*)</${tag}>`, "i").exec(text);
-  if (match === null) return void 0;
-  const value = decodeEntities(match[1]).trim();
+  const match2 = new RegExp(`<${tag}>([^<]*)</${tag}>`, "i").exec(text);
+  if (match2 === null) return void 0;
+  const value = decodeEntities(match2[1]).trim();
   return value === "" ? void 0 : value;
 }
 function ratingOf(text) {
@@ -41674,7 +41837,7 @@ function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-06T13:02:12Z" : "dev";
+var BUILD = true ? "2026-10-06T13:35:48Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

@@ -344,3 +344,48 @@ describe('the Home route', () => {
         expect(router.url).toBe('/home');
     });
 });
+
+describe('Home search', () => {
+    function harnessProviders() {
+        return [
+            provideRouter(routes),
+            { provide: FavouritesStore, useValue: { albums: signal(albums(3)).asReadonly() } },
+            {
+                provide: LibraryStore,
+                useValue: {
+                    ...fakeLibrary(recentAlbums(3)),
+                    search: jasmine.createSpy('search').and.resolveTo({ query: '', groups: [] }),
+                },
+            },
+            { provide: PlaysStore, useValue: fakePlays([], []) },
+        ];
+    }
+
+    it('takes the shelves away while ?q= holds a search, and restores it from the URL', async () => {
+        TestBed.configureTestingModule({ providers: harnessProviders() });
+        const harness = await RouterTestingHarness.create('/home?q=radio');
+        const el = harness.routeNativeElement as HTMLElement;
+        expect((el.querySelector('input[type=search]') as HTMLInputElement).value).toBe('radio');
+        expect(el.querySelector('app-shelf')).toBeNull();
+        expect(el.querySelector('app-cd-card')).toBeNull();
+    });
+
+    it('writes the search to ?q= without a history entry, and clearing it brings the shelves back', async () => {
+        TestBed.configureTestingModule({ providers: harnessProviders() });
+        const router = TestBed.inject(Router);
+        const harness = await RouterTestingHarness.create('/home');
+        const navigate = spyOn(router, 'navigate').and.callThrough();
+        const home = harness.routeDebugElement!.componentInstance as Home;
+
+        home.setQuery('kid a');
+        await harness.fixture.whenStable();
+        expect(router.url).toBe('/home?q=kid%20a');
+        expect(navigate.calls.mostRecent().args[1]?.replaceUrl).toBeTrue();
+
+        home.setQuery('');
+        await harness.fixture.whenStable();
+        harness.detectChanges();
+        expect(router.url).toBe('/home');
+        expect((harness.routeNativeElement as HTMLElement).querySelector('app-shelf')).not.toBeNull();
+    });
+});

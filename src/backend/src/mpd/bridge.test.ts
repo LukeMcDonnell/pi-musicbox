@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    MpdBridge,
     buildSnapshot,
     songFromTags,
     trackFromBluetooth,
@@ -615,4 +616,15 @@ test('a looked-up disc names its tracks; the TOC gives the duration MPD lacks', 
     // Not looked up: still "Track N", but with its length.
     assert.equal(trackFromTags(queued, disc)?.title, 'Track 2');
     assert.equal(trackFromTags(queued, disc)?.duration, 6);
+});
+
+test('list sends one group clause per group, in order', async () => {
+    const bridge = new MpdBridge({ host: '127.0.0.1', port: 1, connectTimeoutMs: 50, log: () => {} });
+    const sent: string[] = [];
+    Object.assign(bridge, {
+        commands: { connected: true, send: async (cmd: string): Promise<Reply> => (sent.push(cmd), { pairs: [] }) },
+    });
+    await bridge.list('title');
+    await bridge.list('title', 'album', 'albumartist');
+    assert.deepEqual(sent, ['list "title"', 'list "title" group "album" group "albumartist"']);
 });

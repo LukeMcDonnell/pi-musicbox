@@ -29,6 +29,7 @@ import type {
     ArtistSummary,
     ArtistsResponse,
     RecentlyAddedAlbum,
+    SearchResponse,
     TrackRef,
     RecentlyAddedResponse,
 } from '@musicbox/shared';
@@ -172,6 +173,10 @@ export class LibraryStore {
                 `&album=${encodeURIComponent(album)}` +
                 `&release=${encodeURIComponent(release)}`,
         );
+    }
+
+    async search(query: string): Promise<SearchResponse> {
+        return this.api.getJson<SearchResponse>(`/api/library/search?q=${encodeURIComponent(query)}`);
     }
 
     /** Append an album to the queue. */

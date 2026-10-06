@@ -26,6 +26,7 @@ import {
     RECENTLY_ADDED_MAX,
     RECENT_PLAYS_LIMIT,
     RECENT_PLAYS_MAX,
+    SEARCH_MIN_LENGTH,
     type AlbumResponse,
     type AlbumRef,
     type AlbumsResponse,
@@ -43,6 +44,7 @@ import {
     type RecentPlayAlbum,
     type RecentPlaysResponse,
     type RestoreResponse,
+    type SearchResponse,
     type CdArtRestoreResponse,
     type SettingsResponse,
     type Snapshot,
@@ -52,6 +54,7 @@ import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
 import { albumsFromSongs, createLibrary, releaseFilter } from './library.ts';
+import { createSearch } from './search.ts';
 import { createThumbHandler } from './thumbs.ts';
 import type { LibraryNotes } from './library-notes.ts';
 import {
@@ -457,6 +460,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      */
 
     const library = createLibrary(bridge, opts.notes);
+    const search = createSearch(library, bridge);
 
     /*
      * A database scan invalidates the index.
@@ -473,6 +477,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
     bridge.onIdle((subsystems) => {
         if (subsystems.includes('database') || subsystems.includes('update')) {
             library.invalidate();
+            search.invalidate();
         }
     });
 
@@ -524,6 +529,22 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             const [summary] = albumsFromSongs(artist, songs, opts.notes);
             favourites?.refresh(summary);
             const body: AlbumResponse = { album: summary, tracks: songs.map((s) => s.track) };
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    /** Artists, albums and tracks matching `q`, grouped and ranked. See search.ts. */
+    app.get('/api/library/search', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { q } = request.query as { q?: unknown };
+        if (typeof q !== 'string' || q.trim().length < SEARCH_MIN_LENGTH) {
+            return reply.code(400).send({
+                error: `'q' must be at least ${SEARCH_MIN_LENGTH} characters`,
+            });
+        }
+        try {
+            const body: SearchResponse = await search.search(q);
             return body;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -1449,6 +1470,9 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             }
             streams.clear();
         },
-        invalidateLibrary: () => library.invalidate(),
+        invalidateLibrary: () => {
+            library.invalidate();
+            search.invalidate();
+        },
     };
 }

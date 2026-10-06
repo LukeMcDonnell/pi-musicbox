@@ -1,0 +1,111 @@
+<div class="relative w-full">
+  <svg lucideSearch
+       class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+       aria-hidden="true"></svg>
+  <!-- text-base: iOS zooms on focus below 16px. -->
+  <input #field type="search" enterkeyhint="search"
+         placeholder="Search artists, albums and tracks" aria-label="Search the library"
+         autocomplete="off" autocapitalize="off" spellcheck="false"
+         class="h-10 w-full appearance-none rounded-full border border-raised bg-surface
+                ps-9 pe-10 text-base text-text placeholder:text-muted
+                focus:border-accent focus:outline-none
+                [&::-webkit-search-cancel-button]:hidden"
+         [value]="query()"
+         (input)="setQuery(field.value)"
+         (keydown.escape)="setQuery('')"
+         (keydown.enter)="field.blur()">
+  @if (query()) {
+    <button type="button"
+            class="absolute inset-y-0 right-0 grid w-10 cursor-pointer touch-manipulation
+                   place-items-center rounded-full text-muted select-none active:bg-raised"
+            aria-label="Clear search"
+            (click)="setQuery(''); field.focus()">
+      <svg lucideX class="size-4" aria-hidden="true"></svg>
+    </button>
+  }
+</div>
+
+@if (query().trim()) {
+  <div class="pt-2" aria-live="polite">
+    @if (error(); as message) {
+      <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+      <button class="mt-3 min-h-11 cursor-pointer touch-manipulation rounded-full border
+                     border-muted px-[0.9rem] py-[0.4rem] text-[0.9rem] font-semibold text-muted
+                     select-none active:bg-raised"
+              (click)="retry()">
+        Try again
+      </button>
+    }
+    @if (notice(); as message) {
+      <p class="pt-3 text-[0.9rem] text-muted" role="status">{{ message }}</p>
+    }
+
+    @if (results(); as found) {
+      @for (group of found.groups; track group.kind) {
+        <section class="pt-3" [attr.aria-label]="headingOf(group)">
+          <h2 class="text-lg font-bold">{{ headingOf(group) }}</h2>
+          <ul class="flex flex-col">
+            @switch (group.kind) {
+              @case ('artist') {
+                @for (artist of artistsOf(group); track artist.name) {
+                  <li class="flex items-center">
+                    <app-artist-row [name]="artist.name" [cover]="coverOf(artist)"
+                                    [detail]="albumsLabel(artist)"
+                                    (open)="openArtist(artist)" (failed)="onCoverError($event)" />
+                  </li>
+                }
+              }
+              @case ('album') {
+                @for (album of albumsOf(group); track album.release) {
+                  <li class="flex items-center gap-1">
+                    <app-album-row [album]="album" [cover]="coverOf(album)" [subtitle]="yearOf(album)"
+                                   [busy]="busy()" (open)="openAlbum(album)" (play)="playAlbum(album)"
+                                   (queue)="queueAlbum(album)" (failed)="onCoverError($event)" />
+                  </li>
+                }
+              }
+              @case ('track') {
+                @for (track of tracksOf(group); track track.file) {
+                  <li class="flex items-center gap-1">
+                    <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation
+                                   items-center gap-3 rounded-md px-0 py-2 text-left select-none
+                                   active:bg-raised disabled:cursor-default"
+                            [disabled]="!albumOfTrack(track)"
+                            (click)="openTrack(track)">
+                      <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="coverOf(track)"
+                                     [width]="48" [height]="48" lazy thumb (failed)="onCoverError($event)">
+                        <svg lucideMusic class="size-5 text-muted" aria-hidden="true"></svg>
+                      </app-cover-art>
+                      <span class="min-w-0 flex-1">
+                        <span class="text-xl block truncate">{{ track.title }}</span>
+                        <span class="block truncate text-[0.85rem] text-muted">{{ trackSubtitle(track) }}</span>
+                      </span>
+                    </button>
+                    <button class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation
+                                   place-items-center rounded-full text-muted select-none active:bg-raised
+                                   disabled:opacity-40"
+                            [disabled]="busy()" aria-haspopup="dialog"
+                            (click)="menuTrack.set(track)"
+                            [attr.aria-label]="'More for ' + track.title">
+                      <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+                    </button>
+                  </li>
+                }
+              }
+            }
+          </ul>
+        </section>
+      } @empty {
+        @if (!searching()) {
+          <p class="px-2 py-6 text-[0.95rem] text-muted">Nothing matches “{{ query().trim() }}”.</p>
+        }
+      }
+    } @else if (searching()) {
+      <p class="pt-3 text-[0.95rem] text-muted">Searching…</p>
+    }
+  </div>
+}
+
+<app-track-menu [(track)]="menuTrack" [actions]="trackActions"
+                (play)="playTrack($event)" (queue)="queueTrack($event)" (playNext)="playNext($event)"
+                (added)="notice.set('Added to “' + $event + '”')" />

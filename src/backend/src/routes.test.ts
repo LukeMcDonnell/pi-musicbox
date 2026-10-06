@@ -28,6 +28,7 @@ import {
     RECENT_PLAYS_MAX,
     SSE_SETTINGS_EVENT,
     SSE_SNAPSHOT_EVENT,
+    type SearchResponse,
     type Snapshot,
 } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
@@ -700,6 +701,9 @@ test('library listings reject a missing or empty parameter before reaching MPD',
             ['/api/library/album?album=Kid%20A&release=mb:1', /missing 'artist'/],
             ['/api/library/album?artist=Radiohead&album=Kid%20A', /missing 'release'/],
             ['/api/library/album?artist=Radiohead&album=Kid%20A&release=', /missing 'release'/],
+            ['/api/library/search', /'q' must be/],
+            ['/api/library/search?q=', /'q' must be/],
+            ['/api/library/search?q=%20a%20', /'q' must be/],
         ];
         for (const [path, expected] of cases) {
             const res = await fetch(`http://127.0.0.1:${port}${path}`);
@@ -723,6 +727,7 @@ test('library listings answer 503 when MPD is unreachable', async () => {
             '/api/library/artists',
             '/api/library/albums?artist=Radiohead',
             '/api/library/album?artist=Radiohead&album=Kid%20A&release=mb:1',
+            '/api/library/search?q=radio',
         ]) {
             const res = await fetch(`http://127.0.0.1:${port}${path}`);
             assert.equal(res.status, 503, path);
@@ -2292,4 +2297,22 @@ test('removing a queue track deletes by id, never by position', () => {
     const handler = src.slice(src.indexOf("app.post('/api/queue/remove/:id'"), src.indexOf("app.post('/api/playback/:command'"));
     assert.match(handler, /deleteid \$\{Number\(id\)\}/);
     assert.doesNotMatch(handler, /\bdelete \$/);
+});
+
+test('search answers with ranked groups from the indexes', async (t) => {
+    const { port, bridge } = await serverFor(t);
+    // Just enough of MPD for both indexes to build.
+    bridge.list = async (tag: string) =>
+        tag === 'title'
+            ? { pairs: [['AlbumArtist', 'Radiohead'], ['Album', 'Kid A'], ['Title', 'Idioteque']] }
+            : { pairs: [['MUSICBRAINZ_ALBUMID', 'kid-a'], ['AlbumArtist', 'Radiohead'], ['Album', 'Kid A']] };
+    bridge.count = async () => ({ pairs: [] });
+    bridge.lsinfo = async () => ({ pairs: [] });
+    bridge.findFirstSong = async () => song('Radiohead', 'Kid A', '1');
+    const res = await api(port, '/api/library/search?q=kid%20a');
+    assert.equal(res.status, 200);
+    const body = res.body as SearchResponse;
+    assert.equal(body.query, 'kid a');
+    assert.deepEqual(body.groups.map((g) => g.kind), ['album']);
+    assert.equal(body.groups[0].items.length, 1);
 });

@@ -1396,6 +1396,21 @@ stamped 2020 by `Date`; `Back in Black` is 2003 against 1980. Sorting an artist'
 albums on `Date` is wrong for a third of this library and visibly contradicts the
 year in the folder name on disk.
 
+### Search
+
+A field at the top of Home. Typing replaces the shelves with Artists, Albums
+and Tracks, each best match first and the groups ordered by their best match —
+`back in black` leads with the album, `acdc` with the artist. The query is in
+the URL (`/home?q=`), so Back from a result returns to it. A track opens its
+album; its ⋮ menu plays, queues or adds it to a playlist.
+
+**Not MPD's `search`**, which folds case but not accents or punctuation: `bjork`
+found no Björk. The backend keeps its own index of album and track titles from
+two `list` commands (~190ms, built on the first search and dropped after a
+scan), matches in memory with the same folding the Library filter uses, and asks
+MPD only for the hits it shows. **50–70ms** for a specific query on the device,
+~290ms for `the`. See `.claude/docs/decisions.md`.
+
 ### What the tags actually hold
 
 Every tag MPD indexes, counted across all 38,978 songs. This is what decides

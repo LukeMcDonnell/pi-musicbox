@@ -808,18 +808,16 @@ export class MpdBridge {
     }
 
     /**
-     * `list <tag> [group <tag>]` — distinct tag values, optionally grouped.
+     * `list <tag> [group <tag>]...` — distinct tag values, optionally grouped.
+     * With several groups MPD nests the LAST outermost.
      *
      * Returns the raw Reply rather than something parsed: a grouped reply is a
      * flat stream of alternating keys whose structure depends on what was asked
      * for, and `groupBy` at the call site says what the caller expects far more
      * clearly than a general-purpose shape would.
      */
-    async list(tag: string, group?: string): Promise<Reply> {
-        const cmd = group === undefined
-            ? `list ${quoteArg(tag)}`
-            : `list ${quoteArg(tag)} group ${quoteArg(group)}`;
-        return this.send(cmd);
+    async list(tag: string, ...groups: string[]): Promise<Reply> {
+        return this.send([`list ${quoteArg(tag)}`, ...groups.map((g) => `group ${quoteArg(g)}`)].join(' '));
     }
 
     /** `lsinfo <path>` — one level of MPD's directory tree. '' is the root. */
