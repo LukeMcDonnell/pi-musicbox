@@ -19,7 +19,7 @@ import { mkdtemp, mkdir, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerRoutes } from './routes.ts';
-import type { LibraryState } from '../../shared/api.ts';
+import { BACKUP_MAX_BYTES, type LibraryState } from '../../shared/api.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
 import {
@@ -38,6 +38,7 @@ import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { openDb } from './db.ts';
 import { createPower, type Power } from './power.ts';
 import { BackupError, type Backups } from './backup.ts';
+import type { CdArtBackups } from './cd-art-backup.ts';
 import { createFavourites, type Favourites } from './favourites.ts';
 import { releaseFilter } from './release.ts';
 import { createPlays, type Plays, type TrackPlay } from './plays.ts';
@@ -82,6 +83,7 @@ async function startServer(
         power?: Power;
         scanner?: LibraryScanner;
         backups?: Backups;
+        cdArtBackups?: CdArtBackups;
         favourites?: Favourites;
         plays?: Plays;
     } = {},
@@ -106,6 +108,7 @@ async function startServer(
         power: opts.power,
         scanner: opts.scanner,
         backups: opts.backups,
+        cdArtBackups: opts.cdArtBackups,
         favourites: opts.favourites,
         plays: opts.plays,
     });
@@ -1422,6 +1425,74 @@ test('backup routes answer 503 on a box with none wired up', async (t) => {
     const { port } = await serverFor(t);
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/backup`)).status, 503);
     assert.equal((await upload(port, Buffer.from('x'))).status, 503);
+});
+
+/** Cover backups with no filesystem behind them. */
+function fakeCdArtBackups(over: { refuse?: BackupError } = {}): CdArtBackups & { restored: Buffer[] } {
+    const restored: Buffer[] = [];
+    return {
+        restored,
+        create: async () => ({ filename: 'musicbox-cd-covers-20260917-0905.tar.gz', archive: Buffer.from([0x1f, 0x8b, 3]) }),
+        restore: async (archive) => {
+            if (over.refuse) throw over.refuse;
+            restored.push(archive);
+            return 7;
+        },
+    };
+}
+
+function uploadCovers(port: number, body: Buffer | string, contentType = 'application/gzip') {
+    return fetch(`http://127.0.0.1:${port}/api/cd/art/restore`, {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        body,
+    });
+}
+
+test('GET /api/cd/art/backup downloads the covers as an attachment', async (t) => {
+    const { port } = await serverFor(t, { cdArtBackups: fakeCdArtBackups() });
+    const res = await fetch(`http://127.0.0.1:${port}/api/cd/art/backup`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'application/gzip');
+    assert.equal(
+        res.headers.get('content-disposition'),
+        'attachment; filename="musicbox-cd-covers-20260917-0905.tar.gz"',
+    );
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), Buffer.from([0x1f, 0x8b, 3]));
+});
+
+test('POST /api/cd/art/restore answers with the count, even mid-scan or with a phone playing', async (t) => {
+    const cdArtBackups = fakeCdArtBackups();
+    const { port, bridge } = await serverFor(t, { cdArtBackups, scanner: fakeScanner({ scanning: true }) });
+    await bridge.setBluetooth(PHONE);
+    const res = await uploadCovers(port, Buffer.from([0x1f, 0x8b, 9]));
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { restored: 7 });
+    assert.deepEqual(cdArtBackups.restored, [Buffer.from([0x1f, 0x8b, 9])]);
+});
+
+test('a cover restore takes a body larger than the main backup allows', async (t) => {
+    const cdArtBackups = fakeCdArtBackups();
+    const { port } = await serverFor(t, { cdArtBackups });
+    const res = await uploadCovers(port, Buffer.alloc(BACKUP_MAX_BYTES + 1));
+    assert.equal(res.status, 200);
+    assert.equal(cdArtBackups.restored[0]!.length, BACKUP_MAX_BYTES + 1);
+});
+
+test('a cover archive the backups refuse is reported with its own status', async (t) => {
+    const { port } = await serverFor(t, {
+        cdArtBackups: fakeCdArtBackups({ refuse: new BackupError('not a CD cover backup', 400) }),
+    });
+    const res = await uploadCovers(port, Buffer.from('x'));
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: string }).error, /not a CD cover backup/);
+    assert.equal((await uploadCovers(port, '{"a":1}', 'application/json')).status, 400);
+});
+
+test('cover backup routes answer 503 on a box with none wired up', async (t) => {
+    const { port } = await serverFor(t);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/cd/art/backup`)).status, 503);
+    assert.equal((await uploadCovers(port, Buffer.from('x'))).status, 503);
 });
 
 // ---------------------------------------------------------------------------

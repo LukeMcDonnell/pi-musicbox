@@ -1184,6 +1184,12 @@ regular files. It reads what GNU tar writes too, so an archive can be repacked b
 partial index (above). During Bluetooth the arbiter holds the DAC, and bringing
 MPD back under it is not a handoff anyone has tested.
 
+**CD covers are a separate archive, restored by the server itself (2026-10-06).**
+The covers belong to the `musicbox` user, so a restore needs no helper, no restart
+and no 409, which the main restore needs only because of MPD. Keeping them out also
+keeps the main backup at a few MB. A cover is keyed by an immutable release ID, so
+restore merges and never deletes: an old archive cannot lose newer covers.
+
 ## Favourites are a table, not MPD stickers (2026-09-17)
 
 MPD 0.24 on the box lists sticker types `song`, `playlist`, `filter` and the tags

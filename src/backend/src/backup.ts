@@ -1,5 +1,6 @@
 /**
  * Backup and restore of the box's state: MPD's files and this server's database.
+ * CD covers have their own archive: see cd-art-backup.ts.
  *
  * Building a backup needs no privilege — every file is world-readable. Restoring
  * does: MPD's files are its own and MPD must be stopped first, so this only
@@ -65,10 +66,15 @@ export function isAllowedMember(name: string): boolean {
     return PLAYLIST_MEMBER.test(name) && !name.startsWith('mpd/playlists/.');
 }
 
-export function backupFilename(now: number): string {
+/** `YYYYMMDD-HHMM` in the box's local time. */
+export function filenameStamp(now: number): string {
     const d = new Date(now);
     const two = (n: number) => String(n).padStart(2, '0');
-    return `musicbox-backup-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.tar.gz`;
+    return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+}
+
+export function backupFilename(now: number): string {
+    return `musicbox-backup-${filenameStamp(now)}.tar.gz`;
 }
 
 async function readOptional(path: string): Promise<Buffer | null> {

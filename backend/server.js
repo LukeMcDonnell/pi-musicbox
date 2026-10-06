@@ -7253,7 +7253,7 @@ var require_sonic_boom = __commonJS({
       if (!(this instanceof SonicBoom)) {
         return new SonicBoom(opts);
       }
-      let { fd, dest, minLength, maxLength, maxWrite, periodicFlush, sync, append = true, mkdir: mkdir3, retryEAGAIN, fsync, contentMode, mode } = opts || {};
+      let { fd, dest, minLength, maxLength, maxWrite, periodicFlush, sync, append = true, mkdir: mkdir4, retryEAGAIN, fsync, contentMode, mode } = opts || {};
       fd = fd || dest;
       this._len = 0;
       this.fd = -1;
@@ -7278,7 +7278,7 @@ var require_sonic_boom = __commonJS({
       this.append = append || false;
       this.mode = mode;
       this.retryEAGAIN = retryEAGAIN || (() => true);
-      this.mkdir = mkdir3 || false;
+      this.mkdir = mkdir4 || false;
       let fsWriteSync;
       let fsWrite;
       if (contentMode === kContentModeBuffer) {
@@ -7990,7 +7990,7 @@ var require_thread_stream = __commonJS({
     var { version } = require_package();
     var { EventEmitter } = __require("events");
     var { Worker } = __require("worker_threads");
-    var { join: join7 } = __require("path");
+    var { join: join8 } = __require("path");
     var { pathToFileURL } = __require("url");
     var { wait } = require_wait();
     var {
@@ -8041,7 +8041,7 @@ var require_thread_stream = __commonJS({
     function createWorker(stream, opts) {
       const { filename, workerData } = opts;
       const bundlerOverrides = "__bundlerPathsOverrides" in globalThis ? globalThis.__bundlerPathsOverrides : {};
-      const toExecute = bundlerOverrides["thread-stream-worker"] || join7(__dirname, "lib", "worker.js");
+      const toExecute = bundlerOverrides["thread-stream-worker"] || join8(__dirname, "lib", "worker.js");
       const worker = new Worker(toExecute, {
         ...opts.workerOpts,
         name: opts.workerOpts?.name || "thread-stream",
@@ -8509,7 +8509,7 @@ var require_transport = __commonJS({
     var { createRequire } = __require("module");
     var { existsSync } = __require("node:fs");
     var getCallers = require_caller();
-    var { join: join7, isAbsolute, sep: sep2 } = __require("node:path");
+    var { join: join8, isAbsolute, sep: sep2 } = __require("node:path");
     var { fileURLToPath } = __require("node:url");
     var sleep = require_atomic_sleep();
     var onExit = require_on_exit_leak_free();
@@ -8662,7 +8662,7 @@ var require_transport = __commonJS({
         throw new Error("only one of target or targets can be specified");
       }
       if (targets) {
-        target = bundlerOverrides["pino-worker"] || join7(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join8(__dirname, "worker.js");
         options.targets = targets.filter((dest) => dest.target).map((dest) => {
           return {
             ...dest,
@@ -8680,7 +8680,7 @@ var require_transport = __commonJS({
           });
         });
       } else if (pipeline) {
-        target = bundlerOverrides["pino-worker"] || join7(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join8(__dirname, "worker.js");
         options.pipelines = [pipeline.map((dest) => {
           return {
             ...dest,
@@ -8703,7 +8703,7 @@ var require_transport = __commonJS({
           return origin;
         }
         if (origin === "pino/file") {
-          return join7(__dirname, "..", "file.js");
+          return join8(__dirname, "..", "file.js");
         }
         let fixTarget2;
         for (const filePath of callers) {
@@ -9683,7 +9683,7 @@ var require_safe_stable_stringify = __commonJS({
               return circularValue;
             }
             let res = "";
-            let join7 = ",";
+            let join8 = ",";
             const originalIndentation = indentation;
             if (Array.isArray(value)) {
               if (value.length === 0) {
@@ -9697,7 +9697,7 @@ var require_safe_stable_stringify = __commonJS({
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join7 = `,
+                join8 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9705,13 +9705,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join7;
+                res += join8;
               }
               const tmp = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join7}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join8}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9732,7 +9732,7 @@ ${originalIndentation}`;
             let separator = "";
             if (spacer !== "") {
               indentation += spacer;
-              join7 = `,
+              join8 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9746,13 +9746,13 @@ ${indentation}`;
               const tmp = stringifyFnReplacer(key2, value, stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join7;
+                separator = join8;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...":${whitespace}"${getItemCount(removedKeys)} not stringified"`;
-              separator = join7;
+              separator = join8;
             }
             if (spacer !== "" && separator.length > 1) {
               res = `
@@ -9793,7 +9793,7 @@ ${originalIndentation}`;
             }
             const originalIndentation = indentation;
             let res = "";
-            let join7 = ",";
+            let join8 = ",";
             if (Array.isArray(value)) {
               if (value.length === 0) {
                 return "[]";
@@ -9806,7 +9806,7 @@ ${originalIndentation}`;
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join7 = `,
+                join8 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9814,13 +9814,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join7;
+                res += join8;
               }
               const tmp = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join7}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join8}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9833,7 +9833,7 @@ ${originalIndentation}`;
             let whitespace = "";
             if (spacer !== "") {
               indentation += spacer;
-              join7 = `,
+              join8 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9842,7 +9842,7 @@ ${indentation}`;
               const tmp = stringifyArrayReplacer(key2, value[key2], stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join7;
+                separator = join8;
               }
             }
             if (spacer !== "" && separator.length > 1) {
@@ -9900,20 +9900,20 @@ ${originalIndentation}`;
               indentation += spacer;
               let res2 = `
 ${indentation}`;
-              const join8 = `,
+              const join9 = `,
 ${indentation}`;
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
               let i = 0;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyIndent(String(i), value[i], stack, spacer, indentation);
                 res2 += tmp2 !== void 0 ? tmp2 : "null";
-                res2 += join8;
+                res2 += join9;
               }
               const tmp = stringifyIndent(String(i), value[i], stack, spacer, indentation);
               res2 += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res2 += `${join8}"... ${getItemCount(removedKeys)} not stringified"`;
+                res2 += `${join9}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               res2 += `
 ${originalIndentation}`;
@@ -9929,16 +9929,16 @@ ${originalIndentation}`;
               return '"[Object]"';
             }
             indentation += spacer;
-            const join7 = `,
+            const join8 = `,
 ${indentation}`;
             let res = "";
             let separator = "";
             let maximumPropertiesToStringify = Math.min(keyLength, maximumBreadth);
             if (isTypedArrayWithEntries(value)) {
-              res += stringifyTypedArray(value, join7, maximumBreadth);
+              res += stringifyTypedArray(value, join8, maximumBreadth);
               keys = keys.slice(value.length);
               maximumPropertiesToStringify -= value.length;
-              separator = join7;
+              separator = join8;
             }
             if (deterministic) {
               keys = sort(keys, comparator);
@@ -9949,13 +9949,13 @@ ${indentation}`;
               const tmp = stringifyIndent(key2, value[key2], stack, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}: ${tmp}`;
-                separator = join7;
+                separator = join8;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...": "${getItemCount(removedKeys)} not stringified"`;
-              separator = join7;
+              separator = join8;
             }
             if (separator !== "") {
               res = `
@@ -37418,6 +37418,7 @@ var LIBRARY_SCAN_HOURS = [
 ];
 var BACKUP_CONTENT_TYPE = "application/gzip";
 var BACKUP_MAX_BYTES = 32 * 1024 * 1024;
+var CD_ART_BACKUP_MAX_BYTES = 256 * 1024 * 1024;
 var SSE_FAVOURITES_EVENT = "favourites";
 var RECENTLY_ADDED_LIMIT = 100;
 var RECENTLY_ADDED_MAX = 500;
@@ -39541,10 +39542,13 @@ function isAllowedMember(name) {
   if ([...MPD_REQUIRED, ...MPD_OPTIONAL].some((file) => name === `mpd/${file}`)) return true;
   return PLAYLIST_MEMBER.test(name) && !name.startsWith("mpd/playlists/.");
 }
-function backupFilename(now) {
+function filenameStamp(now) {
   const d = new Date(now);
   const two = (n) => String(n).padStart(2, "0");
-  return `musicbox-backup-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}.tar.gz`;
+  return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+}
+function backupFilename(now) {
+  return `musicbox-backup-${filenameStamp(now)}.tar.gz`;
 }
 async function readOptional(path) {
   try {
@@ -40135,6 +40139,31 @@ function registerRoutes(app, opts) {
       return reply.code(202).send(body);
     }
   );
+  app.get("/api/cd/art/backup", async (_request, reply) => {
+    const backups = opts.cdArtBackups;
+    if (!backups) return reply.code(503).send({ error: "cover backups are unavailable" });
+    const { filename, archive } = await backups.create();
+    return reply.type(BACKUP_CONTENT_TYPE).header("content-disposition", `attachment; filename="${filename}"`).header("cache-control", "no-store").send(archive);
+  });
+  app.post(
+    "/api/cd/art/restore",
+    { bodyLimit: CD_ART_BACKUP_MAX_BYTES },
+    async (request, reply) => {
+      const backups = opts.cdArtBackups;
+      if (!backups) return reply.code(503).send({ error: "cover backups are unavailable" });
+      if (!Buffer.isBuffer(request.body)) {
+        return reply.code(400).send({ error: `body must be ${BACKUP_CONTENT_TYPE}` });
+      }
+      try {
+        const body = { restored: await backups.restore(request.body) };
+        app.log.info(`restored ${body.restored} CD covers`);
+        return reply.send(body);
+      } catch (err) {
+        if (err instanceof BackupError) return reply.code(err.code).send({ error: err.message });
+        throw err;
+      }
+    }
+  );
   function albumQuery(query) {
     const { artist, release } = query ?? {};
     if (typeof artist !== "string" || artist === "") return "missing 'artist' query parameter";
@@ -40604,6 +40633,93 @@ function createPanel(options = {}) {
   };
 }
 
+// src/cd-art-backup.ts
+import { mkdir as mkdir3, readdir as readdir2, readFile as readFile3, rename as rename3, writeFile as writeFile4 } from "node:fs/promises";
+import { join as join7 } from "node:path";
+import { gunzipSync as gunzipSync2, gzipSync as gzipSync2 } from "node:zlib";
+var CD_ART_BACKUP_FORMAT = 1;
+var MANIFEST_MEMBER2 = "manifest.json";
+var COVER_MEMBER = /^cd-art\/([^/]+)\.jpg$/;
+function cdArtBackupFilename(now) {
+  return `musicbox-cd-covers-${filenameStamp(now)}.tar.gz`;
+}
+function coverRelease(name) {
+  const id = COVER_MEMBER.exec(name)?.[1];
+  return isReleaseId(id) ? id : null;
+}
+function readCdArtBackup(archive) {
+  let entries;
+  try {
+    entries = unpackTar(gunzipSync2(archive, { maxOutputLength: CD_ART_BACKUP_MAX_BYTES * 2 }));
+  } catch (err) {
+    if (err instanceof TarError) throw new BackupError(`not a valid cover backup: ${err.message}`, 400);
+    throw new BackupError("not a valid cover backup: not a gzip archive, or too large", 400);
+  }
+  let manifest = null;
+  try {
+    const entry = entries.find((e) => e.name === MANIFEST_MEMBER2);
+    manifest = entry ? JSON.parse(entry.data.toString("utf8")) : null;
+  } catch {
+  }
+  if (manifest?.kind !== "cd-art" || manifest.format !== CD_ART_BACKUP_FORMAT) {
+    throw new BackupError("not a CD cover backup, or from an incompatible version", 400);
+  }
+  const covers = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const { name, data } of entries) {
+    if (name === MANIFEST_MEMBER2) continue;
+    const releaseId = coverRelease(name);
+    if (releaseId === null) throw new BackupError(`unexpected file in cover backup: ${name}`, 400);
+    if (seen.has(releaseId)) throw new BackupError(`duplicate file in cover backup: ${name}`, 400);
+    if (data.length === 0) throw new BackupError(`empty file in cover backup: ${name}`, 400);
+    seen.add(releaseId);
+    covers.push({ releaseId, data });
+  }
+  return covers;
+}
+function createCdArtBackups(opts) {
+  const now = opts.now ?? Date.now;
+  return {
+    async create() {
+      const createdAt = now();
+      const manifest = { kind: "cd-art", format: CD_ART_BACKUP_FORMAT, createdAt, build: opts.build };
+      const entries = [
+        { name: MANIFEST_MEMBER2, data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n") }
+      ];
+      let files = [];
+      try {
+        files = (await readdir2(opts.artDir)).sort();
+      } catch (err) {
+        if (err.code !== "ENOENT") throw err;
+      }
+      for (const file of files) {
+        const name = `cd-art/${file}`;
+        if (coverRelease(name) === null) continue;
+        try {
+          entries.push({ name, data: await readFile3(join7(opts.artDir, file)) });
+        } catch (err) {
+          if (err.code !== "ENOENT") throw err;
+        }
+      }
+      return {
+        filename: cdArtBackupFilename(createdAt),
+        archive: gzipSync2(packTar(entries, Math.floor(createdAt / 1e3)))
+      };
+    },
+    async restore(archive) {
+      if (archive.length > CD_ART_BACKUP_MAX_BYTES) throw new BackupError("cover backup is too large", 400);
+      const covers = readCdArtBackup(archive);
+      await mkdir3(opts.artDir, { recursive: true });
+      for (const { releaseId, data } of covers) {
+        const path = join7(opts.artDir, `${releaseId}.jpg`);
+        await writeFile4(`${path}.tmp`, data, { mode: 420 });
+        await rename3(`${path}.tmp`, path);
+      }
+      return covers.length;
+    }
+  };
+}
+
 // src/favourites.ts
 function parseFavourite(row) {
   let parsed;
@@ -40803,7 +40919,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-06T01:33:17Z" : "dev";
+var BUILD = true ? "2026-10-06T03:40:22Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -40881,6 +40997,7 @@ async function main() {
       mpdDir: config.mpdStateDir,
       restoreDir: config.restoreDir
     }),
+    cdArtBackups: createCdArtBackups({ artDir: config.cdArtDir, build: BUILD }),
     favourites: createFavourites(db),
     plays,
     notes

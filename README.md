@@ -987,6 +987,8 @@ POST  /api/library/rescan                          re-read every tag
 
 GET   /api/backup                                  download the box's state (.tar.gz)
 POST  /api/restore         <application/gzip>      replace it with an uploaded backup
+GET   /api/cd/art/backup                           download the looked-up CD covers (.tar.gz)
+POST  /api/cd/art/restore  <application/gzip>      add covers back from one
 ```
 
 (`POST /api/volume` is gone — see "Volume, and why there isn't any" below.)
@@ -1062,6 +1064,14 @@ leaves the box's own copies in place; playlists are replaced as a set.
 The helper comes from `setup-server.sh`, so **re-run it** on a box set up before
 this existed — until then restore answers 503. To undo a restore by hand, copy
 the files back from `restore-previous/` with MPD and the server stopped.
+
+**CD covers have their own archive.** The backup keeps the `cd_disc` lookups but
+not the cover images in `/var/lib/musicbox/data/cd-art/`, which can reach tens of
+MB. Settings → System offers them separately as `musicbox-cd-covers-<time>.tar.gz`
+(`manifest.json` plus `cd-art/<mbid>.jpg`). Restoring it only adds or replaces
+covers, never removes one, and needs no restart or root helper, because the
+server owns that directory. Covers left out of both are fetched again the next
+time their disc goes in, if the box is online.
 
 ### Home
 

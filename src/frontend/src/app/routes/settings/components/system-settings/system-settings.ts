@@ -4,6 +4,7 @@ import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
 import { IS_PANEL } from '../../../../services/panel-client';
 import { BackupRestore } from '../backup-restore/backup-restore';
+import { CdArtBackup } from '../cd-art-backup/cd-art-backup';
 import { SettingSelect, type SettingOption } from '../setting-select/setting-select';
 import { SettingSwitch } from '../setting-switch/setting-switch';
 
@@ -20,7 +21,7 @@ type CdSwitch = 'cdAutoPlay' | 'cdLookup';
 
 @Component({
     selector: 'app-system-settings',
-    imports: [SettingSelect, SettingSwitch, BackupRestore],
+    imports: [SettingSelect, SettingSwitch, BackupRestore, CdArtBackup],
     template: `
         <h2 class="text-lg font-semibold">System</h2>
 
@@ -59,6 +60,7 @@ type CdSwitch = 'cdAutoPlay' | 'cdLookup';
 
         @if (!isPanel) {
             <app-backup-restore />
+            <app-cd-art-backup />
         }
     `,
     changeDetection: ChangeDetectionStrategy.OnPush,

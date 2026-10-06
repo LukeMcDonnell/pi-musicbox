@@ -74,8 +74,8 @@ with a front cover wins, then MusicBrainz's order. The medium used is the one wh
 **Cached.** `cd_disc` (v9) keeps each answer — found forever, not-found for a
 week, network failures not at all (retried after 1, 5, 15, 60 minutes while the
 disc stays in). Covers are files in `/var/lib/musicbox/data/cd-art/<mbid>.jpg`,
-served at `/api/cd/art`; the table is in backups, the covers are not (they are
-re-fetched). A re-inserted disc is named instantly and offline.
+served at `/api/cd/art`; the table is in backups, the covers have their own
+archive (`/api/cd/art/backup`, `cd-art-backup.ts`) and are re-fetched if lost. A re-inserted disc is named instantly and offline.
 
 **The disc is published before the lookup finishes**, with `lookup: 'pending'`,
 and auto-play does not wait for it; titles arrive while it plays. The queue's rows

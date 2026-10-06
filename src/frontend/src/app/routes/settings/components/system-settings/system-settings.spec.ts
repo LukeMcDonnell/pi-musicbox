@@ -136,12 +136,14 @@ describe('SystemSettings', () => {
     it('offers backup and restore on a phone', () => {
         const { fixture } = create(0, false);
         expect((fixture.nativeElement as HTMLElement).querySelector('app-backup-restore')).not.toBeNull();
+        expect((fixture.nativeElement as HTMLElement).querySelector('app-cd-art-backup')).not.toBeNull();
     });
 
     it('shows nothing about backups on the panel', () => {
         const { fixture } = create(0, true);
         const el = fixture.nativeElement as HTMLElement;
         expect(el.querySelector('app-backup-restore')).toBeNull();
+        expect(el.querySelector('app-cd-art-backup')).toBeNull();
         expect(el.textContent).not.toContain('Backup');
     });
 

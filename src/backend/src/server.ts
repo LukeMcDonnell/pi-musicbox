@@ -26,6 +26,7 @@ import { createLibraryNotes } from './library-notes.ts';
 import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
 import { createBackups } from './backup.ts';
+import { createCdArtBackups } from './cd-art-backup.ts';
 import { createFavourites } from './favourites.ts';
 import { createPlays } from './plays.ts';
 import { createPlayWatch } from './play-watch.ts';
@@ -139,6 +140,7 @@ async function main(): Promise<void> {
             mpdDir: config.mpdStateDir,
             restoreDir: config.restoreDir,
         }),
+        cdArtBackups: createCdArtBackups({ artDir: config.cdArtDir, build: BUILD }),
         favourites: createFavourites(db),
         plays,
         notes,

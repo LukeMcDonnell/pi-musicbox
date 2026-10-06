@@ -17,6 +17,7 @@ import {
     API_VERSION,
     BACKUP_CONTENT_TYPE,
     BACKUP_MAX_BYTES,
+    CD_ART_BACKUP_MAX_BYTES,
     MOST_PLAYED_ARTISTS_LIMIT,
     MOST_PLAYED_ARTISTS_MAX,
     RECENTLY_ADDED_LIMIT,
@@ -38,6 +39,7 @@ import {
     type RecentPlayAlbum,
     type RecentPlaysResponse,
     type RestoreResponse,
+    type CdArtRestoreResponse,
     type SettingsResponse,
     type Snapshot,
 } from '../../shared/api.ts';
@@ -59,6 +61,7 @@ import { PowerUnavailableError, isPowerAction, type Power } from './power.ts';
 import { isSettingKey, parseSetting, type Settings, type SettingsValues } from './settings.ts';
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { BackupError, type Backups } from './backup.ts';
+import type { CdArtBackups } from './cd-art-backup.ts';
 import type { Favourites } from './favourites.ts';
 import type { Plays } from './plays.ts';
 
@@ -101,6 +104,8 @@ export interface RouteOptions {
     scanner?: LibraryScanner;
     /** Backup and restore of MPD's state and the database. See backup.ts. */
     backups?: Backups;
+    /** The CD covers' own backup. See cd-art-backup.ts. */
+    cdArtBackups?: CdArtBackups;
     /** Favourite albums. See favourites.ts. */
     favourites?: Favourites;
     /** What the box has played. See plays.ts; play-watch.ts is what fills it. */
@@ -891,6 +896,38 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             app.log.warn('restore requested over the API');
             const body: RestoreResponse = { accepted: 'restore' };
             return reply.code(202).send(body);
+        },
+    );
+
+    app.get('/api/cd/art/backup', async (_request: FastifyRequest, reply: FastifyReply) => {
+        const backups = opts.cdArtBackups;
+        if (!backups) return reply.code(503).send({ error: 'cover backups are unavailable' });
+        const { filename, archive } = await backups.create();
+        return reply
+            .type(BACKUP_CONTENT_TYPE)
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .header('cache-control', 'no-store')
+            .send(archive);
+    });
+
+    // Its own bodyLimit wins over the gzip parser's.
+    app.post(
+        '/api/cd/art/restore',
+        { bodyLimit: CD_ART_BACKUP_MAX_BYTES },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const backups = opts.cdArtBackups;
+            if (!backups) return reply.code(503).send({ error: 'cover backups are unavailable' });
+            if (!Buffer.isBuffer(request.body)) {
+                return reply.code(400).send({ error: `body must be ${BACKUP_CONTENT_TYPE}` });
+            }
+            try {
+                const body: CdArtRestoreResponse = { restored: await backups.restore(request.body) };
+                app.log.info(`restored ${body.restored} CD covers`);
+                return reply.send(body);
+            } catch (err) {
+                if (err instanceof BackupError) return reply.code(err.code).send({ error: err.message });
+                throw err;
+            }
         },
     );
 

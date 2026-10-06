@@ -898,6 +898,20 @@ export interface RestoreResponse {
 }
 
 /*
+ * GET  /api/cd/art/backup   — a .tar.gz of the looked-up CD covers, which the
+ *                             main backup leaves out
+ * POST /api/cd/art/restore  — upload one; 200 once the covers are written
+ *
+ * Restore only adds or replaces covers, never removes one, and needs no restart.
+ * 400 for an archive it will not trust, including a main backup sent here.
+ */
+export const CD_ART_BACKUP_MAX_BYTES = 256 * 1024 * 1024;
+
+export interface CdArtRestoreResponse {
+    restored: number;
+}
+
+/*
  * FAVOURITE ALBUMS
  *
  *   GET    /api/favourites
