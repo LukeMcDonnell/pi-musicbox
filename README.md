@@ -313,14 +313,29 @@ protects against.
 [cage](https://www.hjdskes.nl/projects/cage/), a single-app Wayland kiosk
 compositor. No desktop, no window manager, no display manager, no login prompt.
 
-It installs four things:
+It installs five things:
 
 | Path | Purpose |
 |---|---|
-| `/etc/musicbox/kiosk.conf` | `KIOSK_URL`, `KIOSK_WAIT_SECONDS` and `CHROMIUM_EXTRA_FLAGS` — the only file you should need to edit |
+| `/etc/musicbox/kiosk.conf` | `KIOSK_URL`, `KIOSK_WAIT_SECONDS` and `CHROMIUM_EXTRA_FLAGS` — the only file you should need to edit. Written once: a re-run leaves your edits alone, and `--url` changes only `KIOSK_URL` |
 | `/usr/local/bin/musicbox-kiosk` | launch wrapper; keeps the flag list out of the unit |
 | `/etc/systemd/system/musicbox-kiosk.service` | starts at boot, restarts on crash |
 | `/usr/share/musicbox/kiosk/index.html` | holding page until the web UI exists |
+| `/etc/udev/rules.d/70-musicbox-touch-poll.rules` | polls the touchscreen every 8ms instead of 17ms |
+
+### Scrolling: three settings, each measured
+
+Measured on the panel with chromium traces (2026-10-06). Scrolling had felt janky:
+stuttering drags, inconsistent flicks, and flicks that did not register.
+
+| Setting | Before | After |
+|---|---|---|
+| `--enable-prefer-compositing-to-lcd-text` | every scrolling frame waited on the page's main thread; scroll latency 68ms median, 1.4s at p90 | all on the compositor thread; 23ms median, 37ms at p90 |
+| `ResamplingScrollEvents` (in `--enable-features`) | drag steps uneven, because touch arrives at ~28Hz on a 60Hz display | drags feel smoother |
+| touch poll 8ms (udev rule) | about 1 in 3 flicks lost: the lift reached chromium 48ms after the last movement | 10 of 10 flicks detected |
+
+A flick that runs into the top or bottom of a page stops dead. That is chromium on
+Linux, which has no bounce at a scroll boundary, not a fault.
 
 ### Touch: use the firmware path, not the i2c driver
 
@@ -1633,7 +1648,7 @@ Or individually:
 
 | | |
 |---|---|
-| `tests/test-kiosk-config.sh` | 60 tests of the generated kiosk artifacts, via `--emit`. Asserts every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file actually drives the URL, and that the generated wrapper passes `bash -n`. |
+| `tests/test-kiosk-config.sh` | 81 tests of the generated kiosk artifacts, via `--emit`. Asserts every chromium flag, the four systemd lines that make or break the launch (`PAMName`, `TTYPath`, `Restart`, `Conflicts`), that the config file actually drives the URL, and that the generated wrapper passes `bash -n`. |
 | `tests/test-hardware-config.sh` | 47 tests of the `config.txt` transform, via `--emit-config` / `--emit-revert`. Covers neutralising conflicting stock lines (duplicates in `config.txt` are not reliably last-wins), the overlay ordering requirement, idempotency, `--keep-hdmi`/`--skip-*`, and that revert restores the original byte-for-byte. |
 | `tests/test-migrate-network.sh` | 25 tests of the netplan→keyfile conversion, via `--convert-only`, which touches no system state. Covers wifi/ethernet/static layouts, UUID preservation, the mandatory `0600` permissions, and that a PSK never leaks into an ethernet profile. |
 | `tests/test-mpd-config.sh` | 53 tests of the generated MPD config, via `--emit`. Asserts `music_directory` is the nested `/srv/music/Music` and not the share root, that the ALSA output targets card 0 with the `Digital` hardware mixer (not `PCM`, which does not exist on a pcm512x), that `auto_update` is off, that no `bind_to_address` is set, and that the `/etc/default/mpd` block uses its own marker. Also round-trips the managed block against a fixture. |

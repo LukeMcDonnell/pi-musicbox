@@ -54,7 +54,7 @@ and the "What is installed on the device" section from `wifi-instability.md`.
 **`.claude/docs/wifi-instability.md` has the full picture and the dead ends worth
 not repeating.**
 
-## Open issue: the panel's renderer crashes — blur + the library's artist images
+## Open issue: the panel's renderer crashes — GPU rasterisation, or full-size art
 
 Unresolved, and **purely frontend** — nothing in the install scripts, the backend
 or the deploy is involved. Chromium on the panel gets as far as "this page has
@@ -64,9 +64,42 @@ the near-white text (`--color-text: #f4f1ee`) is invisible against a layer that
 failed to rasterise, while the accent progress bar — its own fixed compositing
 layer — keeps painting.
 
-Two costs arrived together and both are suspects; neither has been isolated yet.
+**2026-10-06: caught live, and it points at GPU rasterisation.** White screen
+while scrolling a Home shelf, shortly after a cold boot. Measured on the device:
 
-1. **`blur(172px)` on a full-viewport layer, twice, always mounted.** The
+- **The JavaScript was idle.** In the renderer, the main thread (Angular) used 2%
+  of a core. Two `ThreadPoolForegroundWorker` threads, raster/decode, used **~80%
+  each**, continuously from boot (461s CPU in 285s). The GPU process was ~4%. The
+  load pushed the board to 76°C.
+- **The GPU process had failed 35–39s after boot:** `Attempt to read from an
+  uninitialized SharedImage` and `SharedImageManager::ProduceSkia ... non-existent
+  mailbox`. Seen in no other saved boot. A tile whose shared image never fills is
+  drawn white.
+- **That spin is a stuck state, not Home's normal cost.** After restarting the
+  kiosk, the same page was under 1% at idle, and the workers peaked at ~6% while
+  the shelves were scrolled hard. So decoding full-size covers is cheap; the spin
+  starts only after the GPU fault.
+- Not the frontend change deployed that day (`853eeed`, shelf effects): the main
+  thread was idle, the server saw no request loop, and the same build sat at load
+  0.05 in the previous boot.
+- `--enable-gpu-rasterization` was never ours. It comes from Debian's
+  `/etc/chromium.d/default-flags`, so it has been on since day one.
+
+**A/B running since 2026-10-06 14:10:** `CHROMIUM_EXTRA_FLAGS="--disable-gpu-rasterization"`
+in the device's `/etc/musicbox/kiosk.conf` (backup at
+`/var/lib/musicbox/kiosk.conf.before-gpu-raster-ab`). Idle with it: under 2% per
+thread, 69.6°C, no GPU errors. Scrolling the shelves hard costs more CPU but
+nothing worrying. Peaks: workers 18%/14% (6% with GPU raster), main thread 27% (10%),
+temperature flat at ~69°C, and it feels the same by hand. If the white screen stays away across days and cold
+boots, the fix is that flag in `setup-kiosk.sh`'s defaults. If it comes back, GPU
+raster is cleared and thumbnails are next.
+
+Two costs were suspected originally; the first no longer applies.
+
+1. **~~`blur(172px)` on a full-viewport layer~~ — not on the panel.** The panel is
+   under the `short` breakpoint (40rem), where the mini bar is `short:hidden` and
+   now-playing hides its own `art-backdrop`. No blur is drawn there. Kept for history:
+   **`blur(172px)` on a full-viewport layer, twice, always mounted.** The
    `art-backdrop` utility in `styles.scss`, new in `9321afc "tweak app design"`.
    Now-playing (`absolute inset-0`) and the mini bar (`h-dvh`) both carry it, and
    now-playing is never unmounted — it is a sheet translated off screen, not a

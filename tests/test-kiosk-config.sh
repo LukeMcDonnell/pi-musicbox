@@ -28,9 +28,10 @@ check "emit exits 0" "0" "$?"
 
 CONF="$OUT/kiosk.conf"; WRAP="$OUT/musicbox-kiosk"
 UNIT="$OUT/musicbox-kiosk.service"; PAGE="$OUT/index.html"
+RULE="$OUT/70-musicbox-touch-poll.rules"
 
-banner "all four artifacts produced"
-for f in "$CONF" "$WRAP" "$UNIT" "$PAGE"; do
+banner "all five artifacts produced"
+for f in "$CONF" "$WRAP" "$UNIT" "$PAGE" "$RULE"; do
     check "$(basename "$f") exists" "0" "$(exists "$f")"
 done
 check "wrapper is executable" "755" "$(stat -c %a "$WRAP")"
@@ -80,6 +81,17 @@ check "--kiosk appears exactly once"          "1" "$(count '--kiosk ' "$WRAP")"
 check "profile dir pinned"  "0" "$(has '--user-data-dir=/var/lib/musicbox/chromium' "$WRAP")"
 check "cage execs chromium" "0" "$(grep -qE '^exec cage -- ' "$WRAP"; echo $?)"
 check "handles chromium-browser fallback" "0" "$(has 'chromium-browser' "$WRAP")"
+# Measured on the panel: without it every scroll frame waited on the main thread.
+check "scrollers composite at 1x DPI" "0" "$(has '--enable-prefer-compositing-to-lcd-text' "$WRAP")"
+# chromium keeps only the last --enable-features, so a second one would silently drop the first.
+check "exactly one --enable-features" "1" "$(grep -cE '^\s*--enable-features=' "$WRAP")"
+check "it keeps the Ozone feature" "0" "$(grep -qE '^\s*--enable-features=([^ ]*,)?UseOzonePlatform[, ]' "$WRAP"; echo $?)"
+check "and resamples scroll input" "0" "$(grep -qE '^\s*--enable-features=[^ ]*ResamplingScrollEvents' "$WRAP"; echo $?)"
+
+banner "touch poll udev rule"
+check "matches the firmware touchscreen by name" "0" "$(has 'ATTR{name}=="raspberrypi-ts"' "$RULE")"
+check "sets an 8ms poll" "0" "$(has 'ATTR{poll}="8"' "$RULE")"
+check "on add only" "0" "$(has 'ACTION=="add"' "$RULE")"
 
 banner "config drives the URL"
 check "KIOSK_URL defined in conf" "0" "$(grep -qE '^KIOSK_URL=' "$CONF"; echo $?)"
@@ -145,6 +157,32 @@ banner "idempotency"
 sum1="$(cat "$OUT"/* | md5sum)"
 bash "$SCRIPT" --emit "$OUT" --hostname testbox >/dev/null 2>&1
 check "re-emitting is byte-identical" "$sum1" "$(cat "$OUT"/* | md5sum)"
+
+banner "kiosk.conf is written once, then left to its owner"
+# The script's own functions, with CONF_FILE pointed at a scratch file.
+sed -e '$ d' -e 's/^readonly CONF_FILE=/CONF_FILE=/' "$SCRIPT" > "$WORK/harness.sh"
+# shellcheck disable=SC2034  # read by the sourced functions
+(
+    # shellcheck source=/dev/null
+    source "$WORK/harness.sh"   # also turns on the script's set -e, hence the || rc=$?
+    CONF_FILE="$WORK/conf/kiosk.conf"; DRY_RUN=0
+    rc=0; write_conf >/dev/null || rc=$?; echo "created=$rc"
+    sed -i 's|^CHROMIUM_EXTRA_FLAGS=.*|CHROMIUM_EXTRA_FLAGS="--mine"|' "$CONF_FILE"
+    edited="$(cat "$CONF_FILE")"
+    rc=0; write_conf >/dev/null || rc=$?; echo "rerun=$rc"
+    [[ "$(cat "$CONF_FILE")" == "$edited" ]] && echo "kept=yes"
+    URL_SET=1; DEFAULT_URL="http://dev:8080/"
+    rc=0; write_conf >/dev/null || rc=$?; echo "url=$rc"
+    grep -qx 'KIOSK_URL="http://dev:8080/"' "$CONF_FILE" && echo "url-line=yes"
+    grep -qx 'CHROMIUM_EXTRA_FLAGS="--mine"' "$CONF_FILE" && echo "edit-survives=yes"
+    rc=0; write_conf >/dev/null || rc=$?; echo "url-again=$rc"
+) > "$WORK/conf.out" 2>&1
+check "an absent conf is created"              "0" "$(has 'created=0' "$WORK/conf.out")"
+check "a re-run reports no change"             "0" "$(has 'rerun=1' "$WORK/conf.out")"
+check "an edited conf is left byte-identical"  "0" "$(has 'kept=yes' "$WORK/conf.out")"
+check "--url rewrites KIOSK_URL"               "0" "$(has 'url-line=yes' "$WORK/conf.out")"
+check "--url keeps the owner's other edits"    "0" "$(has 'edit-survives=yes' "$WORK/conf.out")"
+check "--url twice is a no-op"                 "0" "$(has 'url-again=1' "$WORK/conf.out")"
 
 banner "usage/errors"
 bash "$SCRIPT" --emit >/dev/null 2>&1

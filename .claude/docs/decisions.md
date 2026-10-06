@@ -1878,3 +1878,48 @@ something below the kernel. The panic was proved working by a sysrq crash.
 kernel is built without `SOFTLOCKUP_DETECTOR` or `HARDLOCKUP_DETECTOR`, so a CPU
 spinning with interrupts off is otherwise noticed only as a printed RCU stall,
 and the box stays frozen.
+
+## Panel scrolling: compositor scrolling, input resampling, 8ms touch poll (2026-10-06)
+
+Scrolling felt janky: drags stuttered, flicks were inconsistent, and some flicks did
+not register. Measured with raw touch capture and chromium traces over CDP: the
+debugging port was temporarily added through `kiosk.conf`, with a Node script and
+an SSH tunnel. Three causes, three fixes, each A/B'd on the panel:
+
+1. **Every scroll ran on the main thread.** All 675 frames recorded while scrolling
+   were `SCROLL_MAIN_THREAD`. Scroll latency was 68ms median and 1.4s at p90, and
+   292 frames were only partly presented. At 1x DPI, chromium will not composite a
+   scroller that is not opaque, to protect LCD subpixel text. `<main>` has no
+   background of its own, and phones and desktops are high-DPI, so they never hit
+   the rule. `--enable-prefer-compositing-to-lcd-text` moved 100% of scroll frames
+   to the compositor thread: 23ms median, 37ms at p90, 2 dropped frames. An opaque
+   background on `<main>` would also work, but it is a styling constraint that only
+   one screen needs, so the flag lives in the kiosk.
+2. **Drags stepped.** Touch arrives at ~28Hz on a 60Hz display, so the per-frame
+   delta alternated between one sample's worth and two (29, 32, 19, 60, 27 px).
+   `ResamplingScrollEvents:predictor/linear_resampling` smooths it, judged by hand.
+   It shares the single `--enable-features`: chromium keeps only the last one, so a
+   second flag would drop `UseOzonePlatform`. The tests assert there is exactly one.
+3. **Flicks were dropped.** The touch driver's 17ms poll lands on a 24ms grid at
+   HZ=250. In 4 of 13 flicks the lift arrived 48ms after the last movement. Past
+   ~40ms, chromium's velocity tracker treats the finger as stopped, so no fling
+   starts. At 8ms, 1 of 34. By hand: 10 flicks, 10 flings. Polling faster does not
+   add samples (the firmware's ~28Hz is the ceiling), only timelier ones.
+
+Rejected or not needed:
+
+- **Faster touch polling on its own** felt the same while scrolling was still on the
+  main thread. It only mattered once (1) was fixed. Order matters when re-testing.
+- **Smaller covers:** decode stayed at or under 6% per worker while scrolling hard.
+- **The shelves' `snap-mandatory`:** not in play, because the jank was vertical.
+
+A flick that ends at the top or bottom of a page stops dead. That is the scroll
+boundary (every abrupt stop landed at y=0 or the page's max), and chromium on
+Linux has no elastic overscroll.
+
+Found along the way and fixed: re-running `setup-kiosk.sh` used to rewrite
+`kiosk.conf`, which silently dropped device-local `CHROMIUM_EXTRA_FLAGS` (it wiped
+the GPU-raster A/B flag). The file is now written only when absent, and an explicit
+`--url` replaces just the `KIOSK_URL` line. The flags that every panel needs live
+in the wrapper's `FLAGS`, which the script owns; `kiosk.conf` is for per-device
+experiments.

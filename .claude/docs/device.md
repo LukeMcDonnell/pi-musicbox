@@ -72,7 +72,16 @@ Captured from `/dev/input/event0`, upstream of compositor and browser:
 
 So touch goes through the GPU firmware — the path the official Pi panel has
 always used. The input device becomes `raspberrypi-ts`, the i2c client
-disappears entirely, and the two cannot compete. ~24Hz during a drag.
+disappears entirely, and the two cannot compete.
+
+**Rate, re-measured 2026-10-06 from raw `/dev/input/event0`:** the firmware
+refreshes touch data about every 33–36ms (~28Hz). That is the ceiling, and polling
+faster does not raise it. The kernel driver polls the firmware's buffer at
+`/sys/class/input/input0/poll` (default 17ms; a runtime-writable sysfs attribute).
+At HZ=250 that lands on a 24ms grid, which delays the lift report to 48ms after the
+last movement in about a third of flicks. `setup-kiosk.sh` sets it to 8ms with a
+udev rule. The buffer is shared memory, not the firmware mailbox, so polling more
+often does not touch the path in `clock-deadlock.md`.
 
 > **The two backends have opposite `disable_touchscreen` requirements.** With
 > the i2c driver, `disable_touchscreen=1` is mandatory or the firmware polls the

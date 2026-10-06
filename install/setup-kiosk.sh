@@ -13,6 +13,7 @@
 #   /usr/local/bin/musicbox-kiosk                launch wrapper
 #   /etc/systemd/system/musicbox-kiosk.service   starts it at boot
 #   /usr/share/musicbox/kiosk/index.html         holding page until the web UI exists
+#   /etc/udev/rules.d/70-musicbox-touch-poll.rules  touch poll 17ms -> 8ms
 #
 # HOW THE SESSION WORKS
 #   cage needs a logind session that owns seat0. The unit gets one with
@@ -30,7 +31,7 @@
 #   sudo ./setup-kiosk.sh --revert      # remove the kiosk, restore getty@tty1
 #
 #   ./setup-kiosk.sh --emit DEST
-#       Write the four artifacts to a directory and exit. Touches no system
+#       Write the five artifacts to a directory and exit. Touches no system
 #       state; used by the tests and handy for reviewing before applying.
 
 set -euo pipefail
@@ -44,6 +45,8 @@ readonly UNIT="/etc/systemd/system/musicbox-kiosk.service"
 readonly PAGE_DIR="/usr/share/musicbox/kiosk"
 readonly PAGE="${PAGE_DIR}/index.html"
 readonly CHROMIUM_PROFILE="/var/lib/musicbox/chromium"
+readonly TOUCH_RULE="/etc/udev/rules.d/70-musicbox-touch-poll.rules"
+readonly TOUCH_POLL_MS=8
 
 readonly PACKAGES=(cage chromium)
 
@@ -54,6 +57,7 @@ KIOSK_USER="musicbox"
 # The web UI served by musicbox-server.service. Override with --url to point the
 # panel at the bundled holding page or a dev machine.
 DEFAULT_URL="http://localhost/"
+URL_SET=0
 EMIT_HOSTNAME=""
 
 if [[ -t 1 ]]; then
@@ -171,7 +175,9 @@ CHROMIUM="$(command -v chromium || command -v chromium-browser)"
 
 FLAGS=(
     --ozone-platform=wayland
-    --enable-features=UseOzonePlatform
+    # One list: chromium keeps only the last --enable-features. Resampling evens out ~28Hz touch.
+    --enable-features=UseOzonePlatform,ResamplingScrollEvents:predictor/linear_resampling
+    --enable-prefer-compositing-to-lcd-text  # at 1x DPI <main> otherwise scrolls on the main thread
     --noerrdialogs
     --disable-infobars
     --no-first-run
@@ -194,6 +200,15 @@ FLAGS=(
 
 exec cage -- "$CHROMIUM" "${FLAGS[@]}" --kiosk "$KIOSK_URL"
 WRAPPER
+}
+
+# The firmware touch driver polls every 17ms, which lands on a 24ms grid at HZ=250 and
+# reports a lift late enough that chromium drops the flick. Matches nothing on the i2c backend.
+gen_touch_rule() {
+    cat <<RULE
+# musicbox: poll the firmware touchscreen every ${TOUCH_POLL_MS}ms. Written by setup-kiosk.sh.
+ACTION=="add", SUBSYSTEM=="input", KERNEL=="input*", ATTR{name}=="raspberrypi-ts", ATTR{poll}="${TOUCH_POLL_MS}"
+RULE
 }
 
 gen_unit() {
@@ -340,8 +355,29 @@ emit_all() {
     gen_wrapper > "${dest}/musicbox-kiosk"
     gen_unit    > "${dest}/musicbox-kiosk.service"
     gen_page "$host" > "${dest}/index.html"
+    gen_touch_rule > "${dest}/70-musicbox-touch-poll.rules"
     chmod 0755 "${dest}/musicbox-kiosk"
-    printf '  wrote kiosk.conf musicbox-kiosk musicbox-kiosk.service index.html -> %s\n' "$dest"
+    printf '  wrote kiosk.conf musicbox-kiosk musicbox-kiosk.service index.html 70-musicbox-touch-poll.rules -> %s\n' "$dest"
+}
+
+# kiosk.conf is the owner's to edit, so it is written once. An explicit --url
+# replaces only the KIOSK_URL line.
+write_conf() {
+    local tmp
+    if [[ ! -e "$CONF_FILE" ]]; then
+        tmp="$(mktemp)"; gen_conf > "$tmp"
+        install_if_changed "$tmp" "$CONF_FILE" 0644 && ok "$CONF_FILE"
+        return 0
+    fi
+    if [[ "$URL_SET" -eq 0 ]]; then
+        skip "$CONF_FILE kept as edited"
+        return 1
+    fi
+    tmp="$(mktemp)"
+    awk -v url="$DEFAULT_URL" '/^KIOSK_URL=/ { print "KIOSK_URL=\"" url "\""; next } { print }' \
+        "$CONF_FILE" > "$tmp"
+    if install_if_changed "$tmp" "$CONF_FILE" 0644; then ok "KIOSK_URL set to ${DEFAULT_URL}"
+    else skip "KIOSK_URL already ${DEFAULT_URL}"; return 1; fi
 }
 
 # ---------------------------------------------------------------------------
@@ -391,9 +427,7 @@ do_apply() {
     local host tmp changed=0
     host="$(hostname 2>/dev/null || echo musicbox)"
 
-    tmp="$(mktemp)"; gen_conf > "$tmp"
-    if install_if_changed "$tmp" "$CONF_FILE" 0644; then ok "$CONF_FILE"; changed=1
-    else skip "$CONF_FILE already current"; fi
+    write_conf && changed=1
 
     tmp="$(mktemp)"; gen_wrapper > "$tmp"
     if install_if_changed "$tmp" "$WRAPPER" 0755; then ok "$WRAPPER"; changed=1
@@ -406,6 +440,16 @@ do_apply() {
     tmp="$(mktemp)"; gen_unit > "$tmp"
     if install_if_changed "$tmp" "$UNIT" 0644; then ok "$UNIT"; changed=1
     else skip "$UNIT already current"; fi
+
+    tmp="$(mktemp)"; gen_touch_rule > "$tmp"
+    if install_if_changed "$tmp" "$TOUCH_RULE" 0644; then ok "$TOUCH_RULE"; changed=1
+    else skip "$TOUCH_RULE already current"; fi
+    # The rule applies at boot; set it now too. Not via udevadm trigger: a synthetic add confuses cage.
+    local poll
+    for poll in /sys/class/input/input*/poll; do
+        [[ "$(cat "${poll%/poll}/name" 2>/dev/null)" == raspberrypi-ts ]] || continue
+        run sh -c "echo ${TOUCH_POLL_MS} > ${poll}"
+    done
 
     run install -d -o "$KIOSK_USER" -g "$KIOSK_USER" -m 0755 "$CHROMIUM_PROFILE"
 
@@ -454,10 +498,10 @@ do_revert() {
     if systemctl list-unit-files musicbox-kiosk.service >/dev/null 2>&1; then
         run systemctl disable --now musicbox-kiosk.service
     fi
-    run rm -f "$UNIT" "$WRAPPER" "$CONF_FILE" "$PAGE"
+    run rm -f "$UNIT" "$WRAPPER" "$CONF_FILE" "$PAGE" "$TOUCH_RULE"
     run systemctl daemon-reload
     run systemctl enable getty@tty1.service
-    ok "kiosk removed, getty@tty1 restored"
+    ok "kiosk removed, getty@tty1 restored (touch poll returns to 17ms at reboot)"
     log "packages (cage, chromium) were left installed; remove with:"
     log "  sudo apt-get purge cage chromium && sudo apt-get autoremove --purge"
     log "reboot to return the panel to a console"
@@ -471,7 +515,7 @@ main() {
             -y|--yes)   ASSUME_YES=1 ;;
             --user)     KIOSK_USER="${2:?--user needs a value}"; shift ;;
             --hostname) EMIT_HOSTNAME="${2:?--hostname needs a value}"; shift ;;
-            --url)      DEFAULT_URL="${2:?--url needs a value}"; shift ;;
+            --url)      DEFAULT_URL="${2:?--url needs a value}"; URL_SET=1; shift ;;
             --revert)   MODE="revert" ;;
             --emit)     MODE="emit"; dest="${2:-}"; shift ;;
             -h|--help)  usage; exit 0 ;;
