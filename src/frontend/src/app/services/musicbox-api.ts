@@ -6,7 +6,8 @@
  * dropped, duplicated or out-of-order event is harmless.
  *
  * EventSource reconnects on its own, and the server sends a snapshot immediately
- * on connect, so recovery from a dropped connection needs no code here.
+ * on connect. The one gap is a phone resuming after a long suspend, when the
+ * stream can be closed or silently dead — resumeStream() covers that.
  *
  * IT IS NO LONGER THE ONLY PLACE THAT TALKS TO THE BACKEND, which is what this
  * header used to say. Browsing the library is a catalogue with a different
@@ -15,6 +16,7 @@
  * what is playing — which is what this service was always actually about.
  */
 
+import { DOCUMENT } from '@angular/common';
 import { Injectable, computed, effect, signal, DestroyRef, inject } from '@angular/core';
 import type {
     Snapshot,
@@ -39,6 +41,9 @@ import {
 } from '@musicbox/shared';
 import { ApiClient } from './api-client';
 
+/** Hidden this long, a phone's stream is not trusted to have survived the suspend. */
+export const RESUME_RECONNECT_MS = 30_000;
+
 /** How the browser is getting on with the server (not with MPD — that is snapshot.status). */
 export type StreamState = 'connecting' | 'live' | 'offline';
 
@@ -46,6 +51,7 @@ export type StreamState = 'connecting' | 'live' | 'offline';
 export class MusicboxApi {
     private readonly destroyRef = inject(DestroyRef);
     private readonly api = inject(ApiClient);
+    private readonly document = inject(DOCUMENT);
 
     private readonly _snapshot = signal<Snapshot | null>(null);
     private readonly _stream = signal<StreamState>('connecting');
@@ -173,9 +179,15 @@ export class MusicboxApi {
      */
     private receivedAt = 0;
 
+    private hiddenAt: number | null = null;
+
     constructor() {
         this.connect();
         this.destroyRef.onDestroy(() => this.source?.close());
+
+        const onVisibility = () => this.resumeStream();
+        this.document.addEventListener('visibilitychange', onVisibility);
+        this.destroyRef.onDestroy(() => this.document.removeEventListener('visibilitychange', onVisibility));
 
         /*
          * Watch the version, not the snapshot: a snapshot arrives on every
@@ -233,6 +245,20 @@ export class MusicboxApi {
         } catch {
             // Keep the last known state; the stream will correct it.
         }
+    }
+
+    /** Reconnecting costs nothing: the server answers with a full snapshot and the build. */
+    private resumeStream(): void {
+        if (this.document.visibilityState === 'hidden') {
+            this.hiddenAt = Date.now();
+            return;
+        }
+        const away = this.hiddenAt === null ? 0 : Date.now() - this.hiddenAt;
+        this.hiddenAt = null;
+        if (away < RESUME_RECONNECT_MS && this.source?.readyState !== EventSource.CLOSED) return;
+        this.source?.close();
+        this._stream.set('connecting');
+        this.connect();
     }
 
     private connect(): void {

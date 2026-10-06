@@ -2,11 +2,14 @@ import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SSE_SNAPSHOT_EVENT, type CdInfo, type Snapshot } from '@musicbox/shared';
 import { ApiClient } from './api-client';
-import { MusicboxApi } from './musicbox-api';
+import { MusicboxApi, RESUME_RECONNECT_MS } from './musicbox-api';
 
 /** Stands in for the browser's EventSource so frames can be pushed by hand. */
 class FakeEventSource {
+    static readonly CLOSED = 2;
     static last: FakeEventSource | null = null;
+    readyState = 1;
+    closed = false;
     private readonly listeners = new Map<string, Array<(e: MessageEvent) => void>>();
     constructor() {
         FakeEventSource.last = this;
@@ -17,7 +20,9 @@ class FakeEventSource {
     emit(type: string, data: unknown): void {
         for (const fn of this.listeners.get(type) ?? []) fn(new MessageEvent(type, { data: JSON.stringify(data) }));
     }
-    close(): void {}
+    close(): void {
+        this.closed = true;
+    }
 }
 
 function snapshot(cd: CdInfo | null, elapsed = 0): Snapshot {
@@ -64,5 +69,59 @@ describe('MusicboxApi', () => {
         source.emit(SSE_SNAPSHOT_EVENT, snapshot({ ...PENDING, lookup: 'found', album: 'Ten' }));
         flush();
         expect(queueFetches()).toBe(2);
+    });
+
+    describe('coming back to the foreground', () => {
+        let visibility: DocumentVisibilityState;
+        let source: FakeEventSource;
+        const setVisibility = (state: DocumentVisibilityState) => {
+            visibility = state;
+            document.dispatchEvent(new Event('visibilitychange'));
+        };
+
+        beforeEach(() => {
+            visibility = 'visible';
+            spyOnProperty(document, 'visibilityState', 'get').and.callFake(() => visibility);
+            jasmine.clock().install();
+            jasmine.clock().mockDate(new Date(0));
+            TestBed.configureTestingModule({
+                providers: [{
+                    provide: ApiClient,
+                    useValue: { getJson: () => Promise.resolve({ version: 0, tracks: [] }), resolve: (p: string) => p },
+                }],
+            });
+            TestBed.inject(MusicboxApi);
+            source = FakeEventSource.last!;
+        });
+        afterEach(() => jasmine.clock().uninstall());
+
+        it('reconnects after a long suspend, which a phone\'s stream may not have survived', () => {
+            setVisibility('hidden');
+            jasmine.clock().tick(RESUME_RECONNECT_MS);
+            setVisibility('visible');
+            expect(source.closed).toBeTrue();
+            expect(FakeEventSource.last).not.toBe(source);
+        });
+
+        it('keeps the stream across a brief glance away', () => {
+            setVisibility('hidden');
+            jasmine.clock().tick(RESUME_RECONNECT_MS - 1);
+            setVisibility('visible');
+            expect(source.closed).toBeFalse();
+            expect(FakeEventSource.last).toBe(source);
+        });
+
+        it('always replaces a stream the browser has given up on', () => {
+            source.readyState = FakeEventSource.CLOSED;
+            setVisibility('hidden');
+            setVisibility('visible');
+            expect(FakeEventSource.last).not.toBe(source);
+        });
+
+        it('does nothing on the way into the background', () => {
+            jasmine.clock().tick(RESUME_RECONNECT_MS * 2);
+            setVisibility('hidden');
+            expect(FakeEventSource.last).toBe(source);
+        });
     });
 });

@@ -1839,3 +1839,13 @@ zeroed chunk as a successful read is what a CD player does, and it ends every
 retry layer at once. The alternative, poking `cdrom_drive_t.error_retry` by
 offset, would have removed only one of the three layers and tied the shim to a
 struct layout.
+
+## The PWA has no service worker (2026-10-01)
+
+**A manifest and icons only.** Chrome, Android and iOS install from the manifest
+alone, and a caching worker would break the build-event reload (see README, "The
+panel reloads itself"): `location.reload()` would get the cached old
+`index.html` back. The app is no use without the box, so an offline shell buys
+nothing. If a worker is ever added, it must never cache `index.html`, `/api`
+or the SSE stream. The foreground reconnect in `musicbox-api.ts` covers what an
+installed app actually needs: its stream can die while it is suspended.
