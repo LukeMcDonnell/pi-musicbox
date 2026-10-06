@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import type { MostPlayedArtist, MostPlayedArtistsResponse } from '@musicbox/shared';
 import { MOST_PLAYED_ARTISTS_LIMIT } from '@musicbox/shared';
 import { ApiClient } from './api-client';
@@ -35,17 +35,32 @@ export class PlaysStore {
      */
     readonly artists = this._artists.asReadonly();
 
+    private readonly _generation = signal(0);
+
+    /** Bumped by invalidate(): a screen showing the artists watches it to refetch. */
+    readonly generation = this._generation.asReadonly();
+
+    /**
+     * The newest play, as a primitive: every reconnect resends the same list as a
+     * new array, and that is not a play. Null before the first frame.
+     */
+    private readonly latestPlay = computed(() => {
+        const albums = this.albums();
+        if (albums === null) return null;
+        const newest = albums[0];
+        return newest ? `${newest.release}:${newest.playedAt}` : '';
+    });
+
     constructor() {
-        // A play changes the counts, so the cache is dropped and the next screen
-        // to ask refetches. THE FIRST FRAME IS THE BASELINE, NOT A CHANGE: the
-        // stream sends one on connect, and treating it as news would throw away
-        // the fetch in flight behind it and leave the shelf on its skeleton.
-        // Same shape as LibraryStore's scan effect, and the same trap.
-        let seen = false;
+        // A play changes the counts, so the cache is dropped. The first frame is
+        // the baseline, not a change — same trap as LibraryStore's scan effect.
+        let seen: string | null = null;
         effect(() => {
-            if (this.albums() === null) return;
-            if (seen) this.invalidate();
-            seen = true;
+            const latest = this.latestPlay();
+            if (latest === null) return;
+            const known = seen !== null;
+            seen = latest;
+            if (known) this.invalidate();
         });
     }
 
@@ -53,6 +68,7 @@ export class PlaysStore {
     invalidate(): void {
         this._artists.set(null);
         this.artistsRequest = null;
+        this._generation.update((n) => n + 1);
     }
 
     async loadArtists(): Promise<MostPlayedArtist[]> {

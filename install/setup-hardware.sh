@@ -6,7 +6,6 @@
 #   - HiFiBerry DAC+ Standard (I2S)
 #   - DFRobot DFR0550 5" 800x480 DSI touchscreen
 #   - suppresses the two unused HDMI ports
-#   - ramoops, so a kernel panic's log survives the reboot (/sys/fs/pstore)
 #
 # Run AFTER setup.sh (OS cleanup + boot tuning) and BEFORE install.sh (the music
 # stack). Safe to re-run; --revert undoes everything it does.
@@ -94,7 +93,6 @@ usage() { sed -n '3,45p' "$0" | sed 's/^# \{0,1\}//'; }
 # whole line.
 # ---------------------------------------------------------------------------
 conflicting_patterns() {
-    printf '%s\n' '^[[:space:]]*dtoverlay=ramoops(-pi4)?([,[:space:]]|$)'
     if [[ "$DO_DAC" -eq 1 ]]; then
         printf '%s\n' '^[[:space:]]*dtparam=audio='
     fi
@@ -161,9 +159,6 @@ build_block() {
         printf '%s\n' "dtparam=audio=off"
         printf '%s\n' "dtoverlay=hifiberry-dacplus-std"
     fi
-
-    printf '\n%s\n' "# --- keep the panic log across the reboot setup.sh's sysctl forces ---"
-    printf '%s\n' "dtoverlay=ramoops-pi4"
 }
 
 # emit_config <src> <dest> — pure transform, no system state touched.

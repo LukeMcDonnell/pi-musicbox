@@ -1865,5 +1865,10 @@ rebooting by itself in about 2.5 minutes is better than waiting for someone.
 False positives are bounded: NFS is `soft,timeo=50,retrans=3` (well under
 120s), and idle kworkers park in `TASK_IDLE`, which the detector ignores. That
 is also why `instrument-wifi-debug.sh` no longer drops the timeout to 30s.
-Together with `dtoverlay=ramoops-pi4`, the panic is also how the trace survives
-a hang that takes the SD card with it. See `clock-deadlock.md`.
+It does not catch the silent freezes in `clock-deadlock.md`, which stop
+something below the kernel. The panic was proved working by a sysrq crash.
+
+`kernel.panic_on_rcu_stall=1` sits in the same file for the same reason. The rpt
+kernel is built without `SOFTLOCKUP_DETECTOR` or `HARDLOCKUP_DETECTOR`, so a CPU
+spinning with interrupts off is otherwise noticed only as a printed RCU stall,
+and the box stays frozen.

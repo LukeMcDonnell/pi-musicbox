@@ -297,10 +297,6 @@ systemctl is-active mpd             # player running
 mpc status && mpc stats             # and it can see the library
 ```
 
-After an unexplained reboot, `sudo ls -R /var/lib/systemd/pstore/`: a
-`dmesg-ramoops-*` there means the kernel panicked (usually a hung task — see
-`clock-deadlock.md`), and the file holds the stacks.
-
 The `.automount` check matters: `ls` on an unmounted empty mountpoint succeeds
 and looks exactly like a working mount.
 

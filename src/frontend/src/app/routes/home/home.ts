@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import type { AlbumIdentity, AlbumSummary, MostPlayedArtist, RecentlyAddedAlbum } from '@musicbox/shared';
 import { FavouritePicks, SHELF_SIZE } from '../../services/favourite-picks';
@@ -61,15 +61,16 @@ export class Home {
     readonly recentLoading = computed(() => this.library.recentlyAdded() === null);
 
     constructor() {
-        // Cached after the first visit, and dropped by the store when a scan
-        // finishes, so coming back from an album costs the backend nothing.
-        void this.library.loadRecentlyAdded().catch(() => {
-            // Nothing to say on the shelf: the screen behind it reports errors,
-            // and a shelf that cannot fill simply does not appear.
+        // On each store's generation, so a play or a scan dropping a list while
+        // Home is open refetches it instead of leaving the shelf on its skeleton.
+        // Errors are the See-all screens' to report; an empty shelf just hides.
+        effect(() => {
+            this.plays.generation();
+            void this.plays.loadArtists().catch(() => {});
         });
-        void this.plays.loadArtists().catch(() => {
-            // Same again — and the counts are dropped when a play lands, so
-            // coming back to Home after listening refetches them.
+        effect(() => {
+            this.library.generation();
+            void this.library.loadRecentlyAdded().catch(() => {});
         });
     }
 

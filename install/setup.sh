@@ -532,6 +532,8 @@ gen_recovery_sysctl() {
 # See .claude/docs/clock-deadlock.md. Delete this file to restore stock behaviour.
 kernel.hung_task_timeout_secs = 120
 kernel.hung_task_panic = 1
+# A CPU stuck with interrupts off: this kernel has no lockup detector, only RCU's stall check.
+kernel.panic_on_rcu_stall = 1
 kernel.panic = 10
 CONF
 }

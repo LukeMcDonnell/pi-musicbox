@@ -37,6 +37,7 @@ function fakeLibrary(recent: RecentlyAddedAlbum[] | null) {
     const albums = signal<RecentlyAddedAlbum[] | null>(recent);
     return {
         resolve: (path: string) => path,
+        generation: signal(0),
         recentlyAdded: albums.asReadonly(),
         loadRecentlyAdded: jasmine.createSpy('loadRecentlyAdded').and.resolveTo(recent ?? []),
     };
@@ -65,6 +66,7 @@ function topArtists(count: number): MostPlayedArtist[] {
 function fakePlays(played: RecentPlayAlbum[] | null, artists: MostPlayedArtist[] | null) {
     return {
         albums: signal(played).asReadonly(),
+        generation: signal(0),
         artists: signal(artists).asReadonly(),
         loadArtists: jasmine.createSpy('loadArtists').and.resolveTo(artists ?? []),
     };
@@ -248,6 +250,24 @@ describe('Home', () => {
         expect(shelfSkeleton(fixture, 'Most Played Artists')).not.toBeNull();
     });
 
+    it('asks again when a play or a scan drops a list while Home is open', () => {
+        create(albums(4));
+        const plays = TestBed.inject(PlaysStore) as unknown as ReturnType<typeof fakePlays>;
+        const library = TestBed.inject(LibraryStore) as unknown as ReturnType<typeof fakeLibrary>;
+        expect(plays.loadArtists).toHaveBeenCalledTimes(1);
+        expect(library.loadRecentlyAdded).toHaveBeenCalledTimes(1);
+
+        plays.generation.set(1);
+        TestBed.tick();
+        expect(plays.loadArtists).toHaveBeenCalledTimes(2);
+        // A play is not a scan: the newest albums are left alone.
+        expect(library.loadRecentlyAdded).toHaveBeenCalledTimes(1);
+
+        library.generation.set(1);
+        TestBed.tick();
+        expect(library.loadRecentlyAdded).toHaveBeenCalledTimes(2);
+    });
+
     it('a box that has played nothing shows no artist shelf, and leaves the others alone', () => {
         const fixture = create(albums(40), recentAlbums(20), [], []);
         expect(shelfCards(fixture, 'Most Played Artists').length).toBe(0);
@@ -280,6 +300,7 @@ describe('Home', () => {
                     provide: PlaysStore,
                     useValue: {
                         albums: signal([]).asReadonly(),
+                        generation: signal(0),
                         artists: signal(null).asReadonly(),
                         loadArtists: () => Promise.reject(new Error('the box is not answering')),
                     },

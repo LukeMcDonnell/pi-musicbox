@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { VirtualScrollerComponent, VirtualScrollerModule } from '@iharbeck/ngx-virtual-scroller';
 import { LucideChevronLeft } from '@lucide/angular';
@@ -62,7 +62,11 @@ export class RecentlyAdded {
     private readonly scroller = viewChild(VirtualScrollerComponent);
 
     constructor() {
-        void this.load();
+        // On the generation, so the list being dropped under this screen refetches.
+        effect(() => {
+            this.library.generation();
+            void this.load();
+        });
     }
 
     async load(): Promise<void> {

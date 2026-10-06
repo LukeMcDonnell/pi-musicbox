@@ -39,7 +39,7 @@ The three scripts split by concern, and each owns its own managed block in
 | Script | Owns |
 |---|---|
 | `setup.sh` | OS cleanup and boot tuning — **no hardware** |
-| `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression, ramoops |
+| `setup-hardware.sh` | HiFiBerry DAC+, DSI panel, HDMI suppression |
 | `setup-kiosk.sh` | cage + chromium fullscreen on the panel at boot |
 | `setup-nas.sh` | the one `/etc/fstab` entry for the music share |
 | `setup-mpd.sh` | `/etc/musicbox/mpd.conf`, the `MPDCONF=` line that selects it, and the `mpd.service` drop-in that orders MPD ahead of the share |
@@ -1547,16 +1547,22 @@ Do not switch the governor back to save power. The full trace, the reasoning and
 the triage commands for telling this fault apart from the wifi one are in
 `.claude/docs/clock-deadlock.md`.
 
-**It came back, or something like it, on 2026-10-06** after 43 hours up: the panel
-dark and ignoring touch, the box off the network, and the journal silent from one
-second to the next with no kernel message at all. Nothing survived to say why. So
-the box now gets itself out of it rather than waiting for someone to pull the
-plug. `setup.sh` sets `kernel.hung_task_panic=1` and `kernel.panic=10`: any task
-stuck in the kernel for 2 minutes panics it, and the panic reboots the board 10
-seconds later. That needs no help from the wedged clock path, unlike `reboot`.
-`setup-hardware.sh` adds `dtoverlay=ramoops-pi4`, so the panic's own log survives
-the reboot, in `/var/lib/systemd/pstore/`, even when the SD card was part of what hung.
-Playback stops for about two and a half minutes instead of indefinitely.
+If it does recur, the box now gets itself out of it. `setup.sh` sets
+`kernel.hung_task_panic=1` and `kernel.panic=10`: any task stuck in the kernel
+for 2 minutes panics it, and the panic reboots the board 10 seconds later.
+`kernel.panic_on_rcu_stall=1` does the same for a CPU that stops responding. That
+needs no help from the wedged clock path, unlike `reboot`. Playback stops for
+about two and a half minutes instead of indefinitely.
+
+## Known issue: the box sometimes freezes outright
+
+Since 2026-09-29 the box has frozen completely four times, after anything from
+3 minutes to 43 hours: off the network, the panel ignoring touch, the logs
+stopping mid-line, and no recovery until the power is cycled. Neither the
+watchdog nor the hung-task reboot above catches it, which places it below the
+kernel. Memory and visible power have been ruled out. The leading suspect is the
+USB CD drive: every boot before it was attached ended cleanly. It is still being
+reproduced. See `.claude/docs/clock-deadlock.md`.
 
 A second, independent bug surfaced alongside it and is also fixed: the backend's
 MPD client had a connect timeout but no **reply** timeout, so a wedged MPD — one

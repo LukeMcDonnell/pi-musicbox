@@ -56,8 +56,16 @@ while true; do
     load=$(cut -d' ' -f1 /proc/loadavg)
     chrome=$(timeout 3 ps -C chromium -o rss= 2>/dev/null | awk '{ s += $1 } END { print int(s/1024) }')
     dstate=$(timeout 3 ps -eo stat=,comm= 2>/dev/null | awk '$1 ~ /^D/ { printf "%s,", $2 }')
-    printf 'NETWATCH gw=%s nas=%s nm=%s mnt=%s rx=%s tx=%s avail=%sM swap=%sM load=%s chromium=%sM D=[%s] link=[%s] mpd=[%s] %s\n' \
-        "$gw" "$nas" "$nm" "$mnt" "$rx" "$tx" "$avail" "$swap" "$load" "$chrome" "$dstate" "$link" "$mpd" "$err"
+    # Sticky undervoltage/throttle bits. Backgrounded, so a hung firmware mailbox cannot stall the loop.
+    thr=$(cat /run/netwatch.throttled 2>/dev/null)
+    { timeout 3 vcgencmd get_throttled 2>/dev/null | cut -d= -f2 > /run/netwatch.throttled.new \
+        && mv /run/netwatch.throttled.new /run/netwatch.throttled; } &
+    uv=$(cat /sys/class/hwmon/hwmon*/in0_lcrit_alarm 2>/dev/null)
+    temp=$(awk '{ printf "%.1f", $1/1000 }' /sys/class/thermal/thermal_zone0/temp 2>/dev/null)
+    printf 'NETWATCH gw=%s nas=%s nm=%s mnt=%s rx=%s tx=%s avail=%sM swap=%sM load=%s chromium=%sM D=[%s] thr=%s uv=%s temp=%s link=[%s] mpd=[%s] %s\n' \
+        "$gw" "$nas" "$nm" "$mnt" "$rx" "$tx" "$avail" "$swap" "$load" "$chrome" "$dstate" "$thr" "$uv" "$temp" "$link" "$mpd" "$err"
+    # Writeback alone leaves the last ~30s in RAM, and a freeze loses exactly those.
+    timeout 3 journalctl --sync >/dev/null 2>&1
     sleep 10
 done
 WATCH
@@ -81,7 +89,8 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now musicbox-netwatch >/dev/null 2>&1
+systemctl enable musicbox-netwatch >/dev/null 2>&1
+systemctl restart musicbox-netwatch  # a re-run must pick up a changed script
 echo "netwatch: $(systemctl is-active musicbox-netwatch)"
 
 # setup.sh owns kernel.hung_task_timeout_secs now: a hung task panics and reboots,

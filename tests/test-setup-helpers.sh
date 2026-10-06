@@ -176,6 +176,7 @@ CHANGED=0
 enable_hang_recovery >/dev/null 2>&1
 check "sysctl drop-in created" "0" "$(exists "$RECOVERY_SYSCTL")"
 check "hung tasks panic" "0" "$(grep -qx 'kernel.hung_task_panic = 1' "$RECOVERY_SYSCTL"; echo $?)"
+check "a stalled CPU panics too" "0" "$(grep -qx 'kernel.panic_on_rcu_stall = 1' "$RECOVERY_SYSCTL"; echo $?)"
 check "a panic reboots rather than halting" "0" "$(grep -qx 'kernel.panic = 10' "$RECOVERY_SYSCTL"; echo $?)"
 check "the hung-task timeout is explicit" "0" \
     "$(grep -qx 'kernel.hung_task_timeout_secs = 120' "$RECOVERY_SYSCTL"; echo $?)"

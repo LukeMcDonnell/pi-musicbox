@@ -45,6 +45,7 @@ async function create(artists: MostPlayedArtist[] | null = many(4), fails = fals
     const frame = realFrame();
     const state = signal<MostPlayedArtist[] | null>(artists);
     const plays = {
+        generation: signal(0),
         artists: state.asReadonly(),
         loadArtists: jasmine
             .createSpy('loadArtists')
@@ -85,6 +86,14 @@ describe('MostPlayedArtists', () => {
         const { fixture, plays } = await create();
         expect(plays.loadArtists).toHaveBeenCalled();
         expect(rows(fixture)).toEqual(['Artist 0', 'Artist 1', 'Artist 2', 'Artist 3']);
+    });
+
+    it('asks again when a play drops the counts under it', async () => {
+        const { plays } = await create();
+        const calls = plays.loadArtists.calls.count();
+        plays.generation.set(1);
+        TestBed.tick();
+        expect(plays.loadArtists).toHaveBeenCalledTimes(calls + 1);
     });
 
     it('counts the artists, singular at one', async () => {

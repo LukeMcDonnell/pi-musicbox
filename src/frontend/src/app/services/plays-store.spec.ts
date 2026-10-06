@@ -11,8 +11,8 @@ const ARTISTS: MostPlayedArtist[] = [
 
 const OTHERS: MostPlayedArtist[] = [{ name: 'Tool', image: null, plays: 9 }];
 
-function played(album: string): RecentPlayAlbum[] {
-    return [{ album, albumArtist: 'Radiohead', release: `mb:${album}`, image: null, playedAt: 1000, plays: 1 }];
+function played(album: string, playedAt = 1000): RecentPlayAlbum[] {
+    return [{ album, albumArtist: 'Radiohead', release: `mb:${album}`, image: null, playedAt, plays: 1 }];
 }
 
 /** A store whose fetches finish when the test says so. */
@@ -86,6 +86,30 @@ describe('PlaysStore', () => {
         plays.set(played('Amnesiac'));
         TestBed.tick();
         expect(store.artists()).toBeNull();
+    });
+
+    it('keeps the cached artists when a reconnect resends the same plays', async () => {
+        const { store, plays, pending } = setup();
+        plays.set(played('Kid A'));
+        TestBed.tick();
+        const load = store.loadArtists();
+        pending[0](ARTISTS);
+        await load;
+
+        // A resumed phone reconnects and the stream resends the list as a new array.
+        plays.set(played('Kid A'));
+        TestBed.tick();
+        expect(store.artists()).toEqual(ARTISTS);
+        expect(store.generation()).toBe(0);
+    });
+
+    it('counts playing the same album again as a play', async () => {
+        const { store, plays } = setup();
+        plays.set(played('Kid A', 1000));
+        TestBed.tick();
+        plays.set(played('Kid A', 2000));
+        TestBed.tick();
+        expect(store.generation()).toBe(1);
     });
 
     it('refetches the counts after a play rather than serving the old ones', async () => {

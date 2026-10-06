@@ -49,6 +49,7 @@ async function create(albums: RecentlyAddedAlbum[] | null = many(4), loadFails?:
     const state = signal<RecentlyAddedAlbum[] | null>(albums);
     const library = {
         resolve: (path: string) => path,
+        generation: signal(0),
         recentlyAdded: state.asReadonly(),
         loadRecentlyAdded: jasmine
             .createSpy('loadRecentlyAdded')
@@ -92,6 +93,13 @@ describe('RecentlyAdded', () => {
     it('asks the store for the list, which caches it', async () => {
         const { library } = await create();
         expect(library.loadRecentlyAdded).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks again when a scan drops the list under it', async () => {
+        const { library } = await create();
+        library.generation.set(1);
+        TestBed.tick();
+        expect(library.loadRecentlyAdded).toHaveBeenCalledTimes(2);
     });
 
     it('reads "Artist · year", and drops the year when the album has no date', async () => {

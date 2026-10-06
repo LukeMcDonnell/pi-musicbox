@@ -1,8 +1,7 @@
 # The clock/firmware deadlock — diagnosed 2026-09-12
 
-> **2026-10-06:** a hang with no evidence at all, after 43h up and with the
-> governor fix active. The box now reboots itself after a 2-minute hang, and
-> ramoops keeps the trace. See "The 2026-10-06 silent hang" at the end.
+> **2026-10-06:** a different fault: silent whole-board freezes that neither the
+> watchdog nor the hung-task panic catches. Open. See "Silent freezes" at the end.
 
 **Status: root cause captured; fix applied, verified across a reboot, and soaked
 4 hours clean (56 track changes, zero hung tasks). Not called closed — the fault
@@ -349,48 +348,69 @@ exits the moment it sees either signature. Its one important design rule is that
 own, and the deadlock leaves the network *up*, so "reachable but `vcgencmd` hangs"
 is the decisive test.
 
-## The 2026-10-06 silent hang — unattributed
+## Silent freezes (2026-09-29 onward) — open, probably not this deadlock
 
-After about 43h of uptime (boot 2026-10-04 14:49), with `performance` confirmed
-active, the box hung. The frontend would not load, there was no mDNS and no ARP
-reply, and the panel was dark and ignored touch. A dark panel says little: it
-sleeps by backlight and only the backend wakes it, so any hang that takes out
-the backend looks like this. Power cycled about 35 minutes later.
+Four so far, all the same shape. Every journal writer stops in the same second.
+The last netwatch sample is healthy: network up, gigabytes free, load near zero,
+nothing in D. The box is then off the network (no ARP reply), the panel ignores
+touch, and it stays like that until power cycled.
 
-What the persistent journal shows, and does not:
+| Boot ended | Uptime | Notes |
+|---|---|---|
+| 2026-09-29 10:28 | ~22h | CD drive first appears in the kernel log 2.5 min later |
+| 2026-10-06 10:21 | ~43h | drive empty |
+| 2026-10-06 11:12 | 3.5 min | idle, disc in |
+| 2026-10-06 11:37 | 13.5 min | idle, no disc |
 
-- **Every writer stopped at once at 10:21:34**: netwatch (every 10s), cron,
-  the server. No hung-task report, no OOM, no brcmfmac error, no kernel
-  warning of any kind. Nothing at all for the 35 minutes before the power cycle.
-- Until then it looked healthy: `gw=up nas=up nm=connected`, −72 dBm. The last
-  sample arrived 2s late with `gw=DOWN`. That is the only sign anything was wrong.
-- The 1-min hardware watchdog **did not fire**, so PID 1 kept petting it. This
-  was not a hard lockup of the whole kernel.
+Why this is not the clock deadlock:
 
-It fits neither row of the table above. The network **and** the SD card stopped
-together, which is what this deadlock would look like if it reached the mmc
-hosts (SD and the SDIO wifi chip): both set clocks through the same firmware
-path. Memory exhaustion is equally consistent: chromium creeping into the 2 GB
-zram over two days and livelocking it. Nothing logged memory, so it cannot be
-ruled out. **No cause is claimed.** A record written to disk cannot survive a
-hang that includes the disk.
+- **Neither recovery fired.** The hung-task panic below was live for the last two
+  and was proved working by a sysrq crash (it rebooted in ~38s). The 1-minute
+  hardware watchdog did not reset the board either: each freeze lasted 11–35 min
+  and ended only at a power cycle. (Do not use the bootloader's `rsts` for this:
+  it reads `0x1000` after a clean soft reboot too.) The deadlock leaves the kernel
+  running; this stops something below it.
+- Nothing is in D beforehand, and the network goes down too.
 
-What changed in response:
+What has been ruled out:
+
+- **Memory:** 3.2 GB available, no swap use, in the last sample.
+- **Power, as far as visible:** official PSU; the CD drive has its own supply;
+  no undervoltage ever logged. The kernel samples every 2s and can miss a short
+  dip, so netwatch now logs the sticky `get_throttled` bits (`thr=`), live
+  undervoltage (`uv=`) and `temp=`. Read those on the last samples first.
+- **The panel's backlight write.** Panel sleep writes the ATtiny over the I2C
+  bus that the firmware polls for touch (`rpi-ft5406`), with no coordination, and
+  the 3.5-min freeze landed exactly at the 3-minute sleep. But the 43h freeze
+  came after hours with the panel already off and no backlight write, and a page
+  that is already asleep sends nothing. Coincidence.
+
+**Leading suspect: the USB CD drive** (HP slim DVD on a JMicron JMS578
+USB-SATA bridge, separately powered). Before it was attached, 2026-09-16 to 09-28,
+every boot ended cleanly, including 4- and 7-day uptimes. Since then, four
+freezes. The kernel polls the drive for media every 2s even when idle, through
+the VL805 USB controller on PCIe, where a hang can stall the CPU below anything
+a watchdog sees. Correlation by date only. Being reproduced with the drive left
+attached.
+
+**ramoops was tried and removed.** `dtoverlay=ramoops-pi4` was added on 10-06
+to keep the panic log across a reboot. The next two freezes came 3.5 and 13.5 min
+after boot, against 22h and 43h before. It was the only firmware-level change,
+so it came out. The boot it was still loaded in then ran 86 min clean, so this
+may well be coincidence. If freezes recur without it, it can come back.
+
+What stays from that work:
 
 | | Where | Why |
 |---|---|---|
-| `kernel.hung_task_panic=1`, `kernel.panic=10`, timeout 120s | `setup.sh` → `/etc/sysctl.d/90-musicbox-recovery.conf` | A task stuck in D for 2 min panics; the panic reboots. Needs nothing from the clock path, unlike `reboot`. |
-| `dtoverlay=ramoops-pi4` | `setup-hardware.sh` | The panic writes its log to RAM, and the warm reboot keeps it. Stock `systemd-pstore.service` then moves it to `/var/lib/systemd/pstore/` on boot. |
-| netwatch logs `avail`, `swap`, `load`, `chromium` RSS, `D=[...]` | `tools/instrument-wifi-debug.sh` | Next time, memory can be ruled in or out from the last samples. |
+| `kernel.hung_task_panic=1`, `kernel.panic=10`, timeout 120s | `setup.sh` → `/etc/sysctl.d/90-musicbox-recovery.conf` | A task stuck in D for 2 min panics, and the panic reboots. It catches *this* deadlock, which `reboot` cannot get out of. It does not catch the silent freezes. |
+| `kernel.panic_on_rcu_stall=1` | same file | This kernel has no soft/hard lockup detector, so RCU's 21s stall check is the only thing that notices a CPU stuck with interrupts off. If a freeze now reboots itself after ~30s, a CPU was stuck. If it still needs a power cycle, the CPUs were not the thing that stopped. |
+| netwatch `avail`, `swap`, `load`, `chromium`, `D=[...]`, `thr`, `uv`, `temp` | `tools/instrument-wifi-debug.sh` | The last samples before a freeze. |
+| netwatch runs `journalctl --sync` every sample | same | Without it the journal reaches the SD card only once data is 30s old, so a freeze lost its last ~30s, including any stall warning. Now at most ~10s is lost. |
 
-The panic fires only if something is genuinely stuck in D. If the next one is
-memory exhaustion instead, the netwatch fields will show `avail` falling, and
-the fix goes elsewhere.
-
-After any unexplained reboot, read the evidence in this order:
+After a freeze, once power cycled:
 
 ```sh
-sudo ls -R /var/lib/systemd/pstore/           # anything here => it panicked
-sudo cat /var/lib/systemd/pstore/dmesg-ramoops-*     # the hung-task stacks
-journalctl -b -1 -t netwatch -n 30 --no-pager # memory and D-state just before
+journalctl -b -1 -t netwatch -n 5 --no-pager           # thr= uv= temp= avail= D= just before
+journalctl -b -1 -k -p warning --no-pager | tail       # anything from the kernel at all, e.g. "rcu: INFO: rcu_preempt detected stalls"
 ```

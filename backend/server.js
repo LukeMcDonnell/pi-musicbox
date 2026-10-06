@@ -40803,7 +40803,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-09-29T01:56:25Z" : "dev";
+var BUILD = true ? "2026-10-06T01:33:17Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
