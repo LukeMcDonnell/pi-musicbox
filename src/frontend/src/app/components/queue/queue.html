@@ -15,16 +15,27 @@
               (click)="tab.set('next')">
         Up next <span class="tabular-nums text-muted ms-2">({{ upNext().length }})</span>
       </button>
+      <!-- Outside the tabs' meaning but in their row, where there is room. -->
+      <button type="button"
+              class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                     rounded-full text-muted select-none active:bg-raised"
+              aria-label="Save queue as playlist" aria-haspopup="dialog"
+              (click)="saving.set(true)">
+        <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+      </button>
     </div>
 
     @if (error(); as message) {
       <p class="pb-2 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
     }
+    @if (notice(); as message) {
+      <p class="pb-2 text-[0.9rem] text-muted" role="status">{{ message }}</p>
+    }
 
     <ul class="flex flex-col">
       @for (row of rows(); track row.id ?? $index) {
-        <li>
-          <button class="flex min-h-[3.5rem] w-full cursor-pointer touch-manipulation items-center
+        <li class="flex items-center gap-1">
+          <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
                          gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
                   (click)="play(row)">
             <!-- Lazy, with the box fixed by width/height: a long queue is
@@ -47,6 +58,14 @@
               {{ durationOf(row) }}
             </span>
           </button>
+          <!-- A sibling, not inside the row: a button cannot hold a button. -->
+          <button type="button"
+                  class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                         rounded-full text-muted select-none active:bg-raised"
+                  aria-haspopup="dialog" [attr.aria-label]="'More for ' + titleOf(row)"
+                  (click)="menuTrack.set(row)">
+            <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+          </button>
         </li>
       } @empty {
         <li class="px-2 py-6 text-[0.95rem] text-muted">
@@ -58,5 +77,8 @@
         </li>
       }
     </ul>
+    <app-track-menu [(track)]="menuTrack" [actions]="trackActions" removeLabel="Remove from Queue"
+                    (remove)="remove($event)" />
+    <app-save-queue-dialog [(open)]="saving" (saved)="notice.set('Saved to “' + $event + '”')" />
   </section>
 }

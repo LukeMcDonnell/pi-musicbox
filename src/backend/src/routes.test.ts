@@ -2062,3 +2062,203 @@ test('a track reference must be a library path before it can reach a command lin
         await app.close();
     }
 });
+
+test('playlist names are validated before anything reaches MPD', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const post = (path: string, body: unknown) =>
+            fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        for (const name of [undefined, '', 1, 'a/b', '.x', 'a\nb', ['x']]) {
+            const label = JSON.stringify(name);
+            assert.equal((await post('/api/playlists', { name })).status, 400, `create ${label}`);
+            assert.equal((await post('/api/playlist/play', { name })).status, 400, `play ${label}`);
+            assert.equal((await post('/api/playlist/queue', { name })).status, 400, `queue ${label}`);
+            assert.equal((await post('/api/playlist/rename', { from: 'ok', to: name })).status, 400, `rename ${label}`);
+            assert.equal((await post('/api/playlist/rename', { from: name, to: 'ok' })).status, 400, `rename ${label}`);
+        }
+        for (const query of ['', '?name=', '?name=a%2Fb']) {
+            assert.equal((await fetch(`http://127.0.0.1:${port}/api/playlist${query}`)).status, 400, query);
+            const del = await fetch(`http://127.0.0.1:${port}/api/playlist${query}`, { method: 'DELETE' });
+            assert.equal(del.status, 400, `delete ${query}`);
+        }
+        // A good name gets as far as the (absent) MPD.
+        assert.equal((await post('/api/playlists', { name: 'Road trip' })).status, 503);
+        assert.equal((await fetch(`http://127.0.0.1:${port}/api/playlists`)).status, 503);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing or queueing a playlist is refused while a phone owns the DAC', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        for (const path of ['/api/playlist/play', '/api/playlist/queue']) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name: 'Road trip' }),
+            });
+            assert.equal(res.status, 409, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing a playlist clears the queue first, and queueing one does not', () => {
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const handler = src.slice(src.indexOf("['/api/playlist/play', true]"), src.indexOf('Append an album to the queue'));
+    assert.match(handler, /replace \? \['clear', load, 'play'\] : \[load\]/);
+});
+
+test('adding a track to a playlist validates both fields, and is allowed under Bluetooth', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const post = (body: unknown) =>
+            fetch(`http://127.0.0.1:${port}/api/playlist/add`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        for (const body of [
+            {},
+            { name: 'Mix' },
+            { file: 'a/1.flac' },
+            { name: 'a/b', file: 'a/1.flac' },
+            { name: 'Mix', file: 'http://x/y.mp3' },
+            { name: 'Mix', file: '/etc/passwd' },
+        ]) {
+            assert.equal((await post(body)).status, 400, JSON.stringify(body));
+        }
+        await bridge.setBluetooth(PHONE);
+        // Past validation and the source check, as far as the absent MPD.
+        assert.equal((await post({ name: 'Mix', file: 'a/1.flac' })).status, 503);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test("an album's start track is held to the same rule as any track", async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const album = { albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' };
+        for (const start of ['', 1, 'http://x/y.mp3', '/etc/passwd']) {
+            const res = await fetch(`http://127.0.0.1:${port}/api/library/play`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ ...album, start }),
+            });
+            assert.equal(res.status, 400, JSON.stringify(start));
+        }
+        const res = await fetch(`http://127.0.0.1:${port}/api/library/play`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...album, start: 'Radiohead/Kid A/03.flac' }),
+        });
+        assert.equal(res.status, 503);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('playing an album from a track jumps to it by song id, not by position', () => {
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const play = src.slice(src.indexOf("app.post('/api/library/play'"), src.indexOf("app.get('/api/events'"));
+    assert.match(play, /runAll\(\['clear', findaddFor\(ref\)\]\);\s*const id = await bridge\.queueIdOf\(start\);/);
+    assert.match(play, /playid \$\{id\}/);
+});
+
+test('saving the queue validates the name and is refused while a phone owns the DAC', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const paths = ['/api/queue/save', '/api/queue/save/append', '/api/queue/save/replace'];
+        const post = (path: string, body: unknown) =>
+            fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        for (const path of paths) {
+            for (const name of [undefined, '', 'a/b', 1]) {
+                assert.equal((await post(path, { name })).status, 400, `${path} ${JSON.stringify(name)}`);
+            }
+            assert.equal((await post(path, { name: 'Mix' })).status, 503, `${path} reaches MPD`);
+        }
+        await bridge.setBluetooth(PHONE);
+        for (const path of paths) assert.equal((await post(path, { name: 'Mix' })).status, 409, path);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('saving the queue leaves out disc tracks', () => {
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const save = src.slice(src.indexOf("['/api/queue/save', 'create']"), src.indexOf("['/api/playlist/play', true]"));
+    assert.match(save, /tracks\.filter\(\(t\) => !isCdTrack\(t\)/);
+});
+
+test('moving and removing playlist tracks validate positions and the file', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const post = (path: string, body: unknown) =>
+            fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        const ok = { name: 'Mix', file: 'a/1.flac' };
+        for (const bad of [-1, 1.5, '1', null]) {
+            assert.equal((await post('/api/playlist/move', { ...ok, from: bad, to: 0 })).status, 400, `from ${bad}`);
+            assert.equal((await post('/api/playlist/move', { ...ok, from: 0, to: bad })).status, 400, `to ${bad}`);
+            assert.equal((await post('/api/playlist/remove', { ...ok, pos: bad })).status, 400, `pos ${bad}`);
+            assert.equal((await post('/api/playlist/add', { ...ok, pos: bad })).status, 400, `add pos ${bad}`);
+        }
+        assert.equal((await post('/api/playlist/remove', { name: 'Mix', pos: 0, file: 'http://x' })).status, 400);
+        assert.equal((await post('/api/playlist/move', { name: 'a/b', from: 0, to: 1, file: 'a' })).status, 400);
+        // Valid, and not refused under Bluetooth: they touch no queue.
+        await bridge.setBluetooth(PHONE);
+        assert.equal((await post('/api/playlist/move', { ...ok, from: 0, to: 1 })).status, 503);
+        assert.equal((await post('/api/playlist/remove', { ...ok, pos: 0 })).status, 503);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('removing a queue track takes a song id, digits only, and is refused under Bluetooth', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const post = (id: string) => fetch(`http://127.0.0.1:${port}/api/queue/remove/${id}`, { method: 'POST' });
+        for (const bad of ['x', '1e2', '0x10', '-1', '1.5']) assert.equal((await post(bad)).status, 400, bad);
+        assert.equal((await post('42')).status, 503, 'a good id reaches MPD');
+        await bridge.setBluetooth(PHONE);
+        assert.equal((await post('42')).status, 409);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('removing a queue track deletes by id, never by position', () => {
+    const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+    const handler = src.slice(src.indexOf("app.post('/api/queue/remove/:id'"), src.indexOf("app.post('/api/playback/:command'"));
+    assert.match(handler, /deleteid \$\{Number\(id\)\}/);
+    assert.doesNotMatch(handler, /\bdelete \$/);
+});

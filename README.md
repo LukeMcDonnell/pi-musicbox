@@ -993,15 +993,23 @@ GET  /api/health     GET /api/status    GET /api/events (SSE)    GET /api/queue
 GET  /api/art?album=<url-encoded library directory>       the original cover
 GET  /api/art/thumb?album=<...>  /api/cd/art/thumb?release=<mbid>   280px thumbnail; 404 until built
 POST /api/playback/{play,pause,stop,next,previous}
-POST /api/queue/play/<song id>
+POST /api/queue/play/<song id>     POST /api/queue/remove/<song id>
 
 GET  /api/library/artists
 GET  /api/library/albums?artist=<name>
 GET  /api/library/album?artist=<name>&album=<title>&release=<release>
 POST /api/library/queue    {albumArtist, album, release}   append an album
-POST /api/library/play     {albumArtist, album, release}   replace the queue and play
+POST /api/library/play     {albumArtist, album, release, start?}   replace the queue and play, from `start`
 POST /api/library/track/queue  {file}   append one track
 POST /api/library/track/next   {file}   insert one track after the current one
+
+GET    /api/playlists                    GET /api/playlist?name=   one, with tracks
+POST   /api/playlists        {name}      create an empty playlist
+POST   /api/playlist/rename  {from, to}  DELETE /api/playlist?name=
+POST   /api/playlist/play    {name}      POST /api/playlist/queue  {name}
+POST   /api/playlist/add     {name, file, pos?}   append one song, or insert at pos; 404 rather than create
+POST   /api/playlist/move    {name, from, to, file}   POST /api/playlist/remove {name, pos, file}
+POST   /api/queue/save{,/append,/replace}  {name}   the queue (less CD tracks) as a playlist
 
 GET   /api/panel                                   is there a backlight, is it on
 POST  /api/panel/backlight {on}                    409 unless the panel itself asks
@@ -1263,6 +1271,35 @@ table is keyed by AlbumArtist and Album, as `findadd` is. Each row keeps the
 album's summary so the list costs no MPD lookups; it is refreshed whenever the
 album screen is opened.
 
+### Playlists
+
+The Playlists tab lists MPD's own stored playlists (the `.m3u` files in
+`/var/lib/mpd/playlists`) with Play, Queue, and Rename and Delete behind ⋮. The
++ at the top right makes a new, empty one, and tapping a row opens its tracks.
+Each playlist shows its first four different album covers as a 2×2, or its first
+cover alone when it has fewer. The server reads them with `listplaylist` — file
+names only, since a cover is its file's folder — and caches them with the list.
+The list is per box, so it arrives on the stream; the server caches it until
+MPD's `stored_playlist` idle fires, so a change made with `mpc` shows up too.
+Outside Edit mode, each playlist row's ⋮ offers Remove (with the same Undo), Go
+to Artist and Go to Album. A playlist's Edit button gives each row a grip to drag it by and a × to remove
+it, with Undo for five seconds after. A stored playlist has no song ids, only
+positions, so a move or removal names the file it expects at that position; if
+the playlist was changed elsewhere in the meantime, that is a 409 and the screen
+reloads rather than moving the wrong track.
+
+Tracks are added from the ⋮ menu on the album screen, and the whole queue can be
+saved from the button beside the queue's tabs: as a new playlist, onto the end of
+one, or in place of one. Audio CD tracks are left out, since a `cdda://` entry is
+dead once the disc is out — so the server builds the playlist from the queue's
+files rather than with MPD's `save`. Replace builds the new contents under a
+scratch name, moves the old playlist aside, renames the new one in and only then
+deletes the old, so a failure part-way leaves the original as it was.
+
+MPD has no "create" command. A new playlist is built under a scratch name (add
+one song, delete it), then renamed onto the name you typed. `rename` refuses a
+name that is taken, so a clash can never touch an existing playlist.
+
 ### The queue on screen
 
 The now-playing screen is exactly one viewport tall; the queue lives underneath
@@ -1274,6 +1311,10 @@ next**, with Up next selected. The playing track is in neither: it is already th
 whole screen above, and a highlighted row would be the third place the same thing
 is said. Back to runs backwards, most recent first, because the point of it is to
 get back to something you heard a moment ago.
+
+Each row's ⋮ offers Remove from Queue (MPD's `deleteid`, by song id like
+playing one), Go to Artist and Go to Album; the last two close the sheet first,
+so Back from the page does not reopen it, and are disabled for a CD track.
 
 Tapping a row plays that track. Nothing is updated locally when you do — the new
 position arrives on the next snapshot and re-splits both lists, the same rule as
@@ -1433,13 +1474,20 @@ exist matches nothing rather than erroring, so a stale request is inert. It earn
 its place on the big sets: the Dylan *Basement Tapes Complete* is 139 tracks over
 six discs.
 
-**Each track row carries Play next and Queue**, for building a queue a track at a
-time. Queue is MPD's `add`; Play next is `add <file> +0`, a position relative to
-the current song (MPD 0.23+). Into an empty queue, both add the track and start
-playing it — there is no current song to follow, and a lone track sitting stopped
-would read as a button that did nothing. Stopped with no current song, Play next
-inserts at position 0, which is where `play` starts. The `file` must be a library
-path: a URL or absolute path is a 400, so these cannot point MPD at a stream.
+**Each track row has a ⋮ menu**: Play, Add to Queue, Play Next, Add to Playlist.
+Play replaces the queue with the whole album and starts at that track, so the
+album carries on after it. The server finds the track's song id with
+`playlistfind` and plays it with `playid`, because MPD's add order need not be
+the screen's. Add to Queue is MPD's `add`; Play Next is `add <file> +0`, a
+position relative to the current song (MPD 0.23+). Into an empty queue, both
+add the track and start playing it — there is no current song to follow, and a
+lone track sitting stopped would read as a button that did nothing. Stopped
+with no current song, Play Next inserts at position 0, which is where `play`
+starts. Add to Playlist lists the playlists and offers New playlist…, which
+creates one and adds the track in one go. `playlistadd` would quietly create a
+misspelt playlist, so the server answers 404 for one that does not exist. The
+`file` must be a library path: a URL or absolute path is a 400, so none of
+these can point MPD at a stream.
 
 Adding an album is MPD's own `findadd` — one command, not a track at a time, which
 would bump `queueVersion` once per track and make every client refetch the whole

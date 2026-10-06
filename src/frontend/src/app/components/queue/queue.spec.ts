@@ -46,6 +46,7 @@ describe('Queue', () => {
 
         function make(over: Partial<Snapshot> = {}) {
             const api = {
+                removeQueueId: jasmine.createSpy('removeQueueId').and.resolveTo(undefined),
                 queue: () => tracks,
                 snapshot: () => snapshot(over),
                 hasQueue: () => true,
@@ -76,6 +77,34 @@ describe('Queue', () => {
             const queue = make({ queuePosition: null });
             expect(queue.upNext().length).toBe(4);
             expect(queue.backTo().length).toBe(0);
+        });
+
+        it('offers to save the queue as a playlist', () => {
+            make(); // configures the TestBed; a fresh fixture is needed for its DOM
+            const fixture = TestBed.createComponent(Queue);
+            fixture.detectChanges();
+            const button = (fixture.nativeElement as HTMLElement).querySelector(
+                '[aria-label="Save queue as playlist"]',
+            ) as HTMLButtonElement;
+            button.click();
+            expect(fixture.componentInstance.saving()).toBeTrue();
+        });
+
+        it('removes a row by its song id from the ⋮ menu', async () => {
+            const queue = make();
+            const api = TestBed.inject(MusicboxApi) as unknown as { removeQueueId: jasmine.Spy };
+            await queue.remove(tracks[2]);
+            expect(api.removeQueueId).toHaveBeenCalledWith(12);
+        });
+
+        it('gives every row a ⋮ that opens the menu on it', () => {
+            make();
+            const fixture = TestBed.createComponent(Queue);
+            fixture.detectChanges();
+            const dots = (fixture.nativeElement as HTMLElement).querySelectorAll('li [aria-label^="More for"]');
+            expect(dots.length).toBe(2);
+            (dots[1] as HTMLButtonElement).click();
+            expect(fixture.componentInstance.menuTrack()?.id).toBe(13);
         });
 
         it('shows Up next by default', () => {

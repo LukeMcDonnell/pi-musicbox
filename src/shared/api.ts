@@ -399,6 +399,7 @@ export interface QueueResponse {
 
 /*
  * PLAYING A TRACK FROM THE QUEUE: POST /api/queue/play/:id
+ * REMOVING ONE:                    POST /api/queue/remove/:id   (MPD's deleteid; same answers)
  *
  * `:id` is `Track.id` — MPD's song id, not the position. Position shifts when
  * the queue is reordered; the id does not. See the `queuePosition` note above.
@@ -666,6 +667,12 @@ export interface AlbumResponse {
     tracks: Track[];
 }
 
+/** The body of POST /api/library/play: an album, and optionally the track to start on. */
+export interface AlbumPlayRequest extends AlbumRef {
+    /** A `Track.file` in the album. Absent, or not in it, plays from the top. */
+    start?: string;
+}
+
 /** Names an album — or one disc of it — for the two POSTs below. */
 export interface AlbumRef {
     albumArtist: string;
@@ -704,7 +711,8 @@ export interface AlbumRef {
  * PUTTING AN ALBUM IN THE QUEUE
  *
  *   POST /api/library/queue   appends it
- *   POST /api/library/play    clears the queue, adds it, starts playing
+ *   POST /api/library/play    clears the queue, adds it, starts playing —
+ *                             at `start` when an AlbumPlayRequest names one
  *
  * Both take an AlbumRef and answer with a Snapshot, and both act on ONE DISC
  * when the ref names one — `play` still replaces the queue, with that disc.
@@ -734,6 +742,66 @@ export interface TrackRef {
  * Both take a TrackRef and answer with a Snapshot. Into an EMPTY queue, both add
  * the track and start playing it. `file` must be a library path — no URL, no
  * absolute path. 409 while a phone owns the DAC, as for an album.
+ */
+
+/** One MPD stored playlist. `duration` is null when it is empty. */
+export interface PlaylistSummary {
+    name: string;
+    trackCount: number;
+    duration: number | null;
+    /** MPD's Last-Modified, ISO 8601. */
+    modified: string;
+    /** Up to four different album covers, in playlist order, as Track.image paths. */
+    covers: string[];
+}
+
+/** Sorted by name, case-folded. */
+export interface PlaylistsResponse {
+    playlists: PlaylistSummary[];
+}
+
+export interface PlaylistResponse {
+    playlist: PlaylistSummary;
+    /** In playlist order. A song gone from the library still has its `file`. */
+    tracks: Track[];
+}
+
+/*
+ * PLAYLISTS — MPD's own stored playlists, named in the body or by `?name=`
+ *
+ *   GET    /api/playlists                    the list; also on SSE_PLAYLISTS_EVENT
+ *   GET    /api/playlist?name=               one, with its tracks; 404 when absent
+ *   POST   /api/playlists        {name}      create it empty; 409 when it exists
+ *   POST   /api/playlist/rename  {from, to}  404 / 409 as above
+ *   DELETE /api/playlist?name=               404 when absent
+ *   POST   /api/playlist/play    {name}      replace the queue with it and play
+ *   POST   /api/playlist/queue   {name}      append it to the queue
+ *   POST   /api/playlist/add     {name, file, pos?} append one library song, or insert
+ *                                       it at `pos`; 404 when absent, never creating it
+ *   POST   /api/playlist/move    {name, from, to, file}  a PlaylistResponse
+ *   POST   /api/playlist/remove  {name, pos, file}       a PlaylistResponse
+ *
+ * A stored playlist has no song ids, so move and remove name the `file` they
+ * expect at the position. Anything else there is a 409 — someone else edited
+ * it — and a position past the end is a 400.
+ *
+ * The writes answer with a PlaylistsResponse; play and queue with a Snapshot,
+ * and 409 while a phone owns the DAC (the edits touch no queue, so they never are). A name is 1–100 characters with no `/`,
+ * no control characters and no leading `.`; anything else is a 400.
+ */
+export const SSE_PLAYLISTS_EVENT = 'playlists';
+
+/*
+ * SAVING THE QUEUE AS A PLAYLIST
+ *
+ *   POST /api/queue/save           {name}  as a new playlist; 409 when the name is taken
+ *   POST /api/queue/save/append    {name}  onto the end of one; 404 when absent
+ *   POST /api/queue/save/replace   {name}  in place of its contents; 404 when absent
+ *
+ * The whole queue in order, LESS ANY AUDIO CD TRACKS — a `cdda://` entry stops
+ * working when the disc comes out. 400 when nothing is left to save, 409 while
+ * a phone owns the DAC. Each answers with a PlaylistsResponse. Three routes for
+ * the same reason as an album's play and queue: replace destroys something.
  */
 
 export interface HealthResponse {

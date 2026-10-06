@@ -34426,7 +34426,7 @@ var require_parse_url = __commonJS({
 var require_form_data = __commonJS({
   "node_modules/light-my-request/lib/form-data.js"(exports, module) {
     "use strict";
-    var { randomUUID } = __require("node:crypto");
+    var { randomUUID: randomUUID2 } = __require("node:crypto");
     var { Readable } = __require("node:stream");
     var textEncoder;
     function isFormDataLike(payload) {
@@ -34434,7 +34434,7 @@ var require_form_data = __commonJS({
     }
     function formDataToStream(formdata) {
       textEncoder = textEncoder ?? new TextEncoder();
-      const boundary = `----formdata-${randomUUID()}`;
+      const boundary = `----formdata-${randomUUID2()}`;
       const prefix = `--${boundary}\r
 Content-Disposition: form-data`;
       const escape2 = (str3) => str3.replace(/\n/g, "%0A").replace(/\r/g, "%0D").replace(/"/g, "%22");
@@ -37373,6 +37373,7 @@ var CD_URI_PREFIX = "cdda://";
 function isCdTrack(track) {
   return track?.file?.startsWith(CD_URI_PREFIX) ?? false;
 }
+var SSE_PLAYLISTS_EVENT = "playlists";
 var PLAYBACK_COMMANDS = ["play", "pause", "stop", "next", "previous"];
 var SSE_SNAPSHOT_EVENT = "snapshot";
 var SSE_BUILD_EVENT = "build";
@@ -37623,7 +37624,7 @@ function releaseFilter(release) {
 }
 
 // src/mpd/bridge.ts
-var IDLE_SUBSYSTEMS = "player mixer playlist options update database";
+var IDLE_SUBSYSTEMS = "player mixer playlist options update database stored_playlist";
 var BACKOFF_MIN_MS = 500;
 var BACKOFF_MAX_MS = 1e4;
 var KEEPALIVE_MS = 2e4;
@@ -38178,6 +38179,34 @@ var MpdBridge = class {
   async startScan(verb, uri) {
     const reply = await this.send(uri === void 0 ? verb : `${verb} ${quoteArg(uri)}`);
     return num(firstValue(reply, "updating_db")) ?? null;
+  }
+  /** The song id of the first queue entry playing `file`, or null when none does. */
+  async queueIdOf(file) {
+    const id = firstValue(await this.send(`playlistfind "file" ${quoteArg(file)}`), "Id");
+    return id === void 0 ? null : Number(id);
+  }
+  /** Any one song in the library, or null when it is empty. */
+  async anySong() {
+    const groups = groupBy(await this.send('find "(base \\"\\")" window 0:1'), "file");
+    return groups.length > 0 ? trackFromTags(groups[0], this.cd) : null;
+  }
+  /** `listplaylists`: each stored playlist's name and Last-Modified. */
+  async listPlaylists() {
+    return this.send("listplaylists");
+  }
+  /** `playlistlength`: a stored playlist's `songs` and `playtime`. */
+  async playlistLength(name) {
+    return this.send(`playlistlength ${quoteArg(name)}`);
+  }
+  /** A stored playlist's files alone: no tags, so far cheaper than playlistTracks. */
+  async playlistFiles(name) {
+    const reply = await this.send(`listplaylist ${quoteArg(name)}`);
+    return reply.pairs.filter(([k]) => k === "file").map(([, v]) => v);
+  }
+  /** A stored playlist's tracks; a song gone from the library keeps its `file`. */
+  async playlistTracks(name) {
+    const reply = await this.send(`listplaylistinfo ${quoteArg(name)}`);
+    return groupBy(reply, "file").map((tags) => trackFromTags(tags, this.cd)).filter((t) => t !== null);
   }
   /** MPD's `stats`: the library's counts, and its own uptime. */
   async stats() {
@@ -39782,6 +39811,220 @@ function createBackups(opts) {
   };
 }
 
+// src/playlists.ts
+import { randomUUID } from "node:crypto";
+var PlaylistNotFoundError = class extends Error {
+};
+var PlaylistExistsError = class extends Error {
+};
+var PlaylistChangedError = class extends Error {
+};
+function playlistNameError(name) {
+  if (typeof name !== "string" || name.trim() === "") return "a playlist needs a name";
+  if (name !== name.trim()) return "a playlist name cannot start or end with a space";
+  if ([...name].length > 100) return "a playlist name is at most 100 characters";
+  if (name.includes("/")) return "a playlist name cannot contain '/'";
+  if (name.startsWith(".")) return "a playlist name cannot start with '.'";
+  if (/[\u0000-\u001f\u007f]/.test(name)) return "a playlist name cannot contain control characters";
+  return null;
+}
+function coversOf(files) {
+  const covers = /* @__PURE__ */ new Set();
+  for (const file of files) {
+    if (file.startsWith(CD_URI_PREFIX)) continue;
+    covers.add(artUriFor(file));
+    if (covers.size === 4) break;
+  }
+  return [...covers];
+}
+function mapPlaylistAck(err, missing, taken = missing) {
+  if (!(err instanceof MpdError)) return err;
+  if (err.message.startsWith("ACK [50@")) return new PlaylistNotFoundError(`no playlist named '${missing}'`);
+  if (err.message.startsWith("ACK [56@")) return new PlaylistExistsError(`a playlist named '${taken}' already exists`);
+  return err;
+}
+function createPlaylists(bridge) {
+  const listeners = /* @__PURE__ */ new Set();
+  let cache = null;
+  let loading = null;
+  let generation = 0;
+  async function summaryOf(name, modified) {
+    const [reply, files] = await Promise.all([bridge.playlistLength(name), bridge.playlistFiles(name)]);
+    const trackCount = Number(firstValue(reply, "songs") ?? 0);
+    const playtime = Number(firstValue(reply, "playtime") ?? 0);
+    return { name, trackCount, duration: trackCount === 0 ? null : playtime, modified, covers: coversOf(files) };
+  }
+  async function read() {
+    const reply = await bridge.listPlaylists();
+    const entries = [];
+    for (const [k, v] of reply.pairs) {
+      if (k === "playlist") entries.push([v, ""]);
+      else if (k === "Last-Modified" && entries.length > 0) entries[entries.length - 1][1] = v;
+    }
+    const summaries = await Promise.all(entries.map(([name, modified]) => summaryOf(name, modified)));
+    return summaries.sort((a, b) => a.name.localeCompare(b.name, void 0, { sensitivity: "base" }));
+  }
+  function list() {
+    if (cache !== null) return Promise.resolve(cache);
+    if (loading !== null) return loading;
+    const started = generation;
+    const pending = read().then(
+      (playlists) => {
+        if (loading === pending) loading = null;
+        if (started === generation) {
+          cache = playlists;
+          for (const listener of [...listeners]) listener(playlists);
+        }
+        return playlists;
+      },
+      (err) => {
+        if (loading === pending) loading = null;
+        throw err;
+      }
+    );
+    loading = pending;
+    return pending;
+  }
+  function invalidate() {
+    generation += 1;
+    cache = null;
+    loading = null;
+  }
+  async function reload() {
+    invalidate();
+    return list();
+  }
+  bridge.onIdle((subsystems) => {
+    if (subsystems.includes("stored_playlist")) void reload().catch(() => {
+    });
+  });
+  bridge.onSnapshot((snapshot) => {
+    if (cache === null && loading === null && snapshot.status === "ok") void list().catch(() => {
+    });
+  });
+  async function write(cmds, missing, taken = missing) {
+    try {
+      await bridge.runAll(cmds);
+    } catch (err) {
+      throw mapPlaylistAck(err, missing, taken);
+    }
+    return reload();
+  }
+  async function filesOf(name) {
+    try {
+      return await bridge.playlistFiles(name);
+    } catch (err) {
+      throw mapPlaylistAck(err, name);
+    }
+  }
+  function expectAt(files, pos, file) {
+    if (pos >= files.length) throw new RangeError(`position ${pos} is past the end`);
+    if (files[pos] !== file) throw new PlaylistChangedError("the playlist has changed; reload it");
+  }
+  async function mustExist(name) {
+    if (!(await list()).some((p) => p.name === name)) {
+      throw new PlaylistNotFoundError(`no playlist named '${name}'`);
+    }
+  }
+  async function buildScratch(files) {
+    const scratch = `musicbox-new-${randomUUID()}`;
+    const add = (file) => `playlistadd ${quoteArg(scratch)} ${quoteArg(file)}`;
+    let cmds = files.map(add);
+    if (cmds.length === 0) {
+      const song = await bridge.anySong();
+      if (song?.file === void 0) throw new Error("the library is empty");
+      cmds = [add(song.file), `playlistdelete ${quoteArg(scratch)} 0`];
+    }
+    try {
+      await bridge.runAll(cmds);
+    } catch (err) {
+      await bridge.runAll([`rm ${quoteArg(scratch)}`]).catch(() => {
+      });
+      throw mapPlaylistAck(err, scratch);
+    }
+    return scratch;
+  }
+  async function saveFiles(name, files, mode) {
+    if (mode === "append") {
+      await mustExist(name);
+      return write(files.map((f) => `playlistadd ${quoteArg(name)} ${quoteArg(f)}`), name);
+    }
+    if (mode === "replace") await mustExist(name);
+    const scratch = await buildScratch(files);
+    const target = quoteArg(name);
+    const backup = quoteArg(`musicbox-old-${randomUUID()}`);
+    try {
+      if (mode === "create") {
+        await bridge.runAll([`rename ${quoteArg(scratch)} ${target}`]);
+      } else {
+        await bridge.runAll([`rename ${target} ${backup}`]);
+        try {
+          await bridge.runAll([`rename ${quoteArg(scratch)} ${target}`]);
+        } catch (err) {
+          await bridge.runAll([`rename ${backup} ${target}`]).catch(() => {
+          });
+          throw err;
+        }
+        await bridge.runAll([`rm ${backup}`]).catch(() => {
+        });
+      }
+    } catch (err) {
+      await bridge.runAll([`rm ${quoteArg(scratch)}`]).catch(() => {
+      });
+      throw mapPlaylistAck(err, name);
+    }
+    return reload();
+  }
+  async function getPlaylist(name) {
+    const summary = (await list()).find((p) => p.name === name);
+    if (summary === void 0) throw new PlaylistNotFoundError(`no playlist named '${name}'`);
+    try {
+      return { playlist: summary, tracks: await bridge.playlistTracks(name) };
+    } catch (err) {
+      throw mapPlaylistAck(err, name);
+    }
+  }
+  return {
+    current: () => cache,
+    list,
+    get: getPlaylist,
+    create(name) {
+      return saveFiles(name, [], "create");
+    },
+    saveQueue: saveFiles,
+    rename(from, to) {
+      return write([`rename ${quoteArg(from)} ${quoteArg(to)}`], from, to);
+    },
+    remove(name) {
+      return write([`rm ${quoteArg(name)}`], name);
+    },
+    async addTrack(name, file, pos) {
+      await mustExist(name);
+      const add = `playlistadd ${quoteArg(name)} ${quoteArg(file)}`;
+      if (pos === void 0) return write([add], name);
+      const files = await filesOf(name);
+      if (pos > files.length) throw new RangeError(`position ${pos} is past the end`);
+      return write([`${add} ${pos}`], name);
+    },
+    async moveTrack(name, from, to, file) {
+      const files = await filesOf(name);
+      if (to >= files.length) throw new RangeError(`position ${to} is past the end`);
+      expectAt(files, from, file);
+      await write([`playlistmove ${quoteArg(name)} ${from} ${to}`], name);
+      return getPlaylist(name);
+    },
+    async removeTrack(name, pos, file) {
+      expectAt(await filesOf(name), pos, file);
+      await write([`playlistdelete ${quoteArg(name)} ${pos}`], name);
+      return getPlaylist(name);
+    },
+    onChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  };
+}
+
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
 function trackAddCommands(file, next, current) {
@@ -39826,6 +40069,11 @@ function registerRoutes(app, opts) {
   const favouritesSinks = /* @__PURE__ */ new Set();
   favourites?.onChange((albums) => {
     for (const sink of [...favouritesSinks]) sink(albums);
+  });
+  const playlists = createPlaylists(bridge);
+  const playlistsSinks = /* @__PURE__ */ new Set();
+  playlists.onChange((list) => {
+    for (const sink of [...playlistsSinks]) sink(list);
   });
   const plays = opts.plays;
   const playsSinks = /* @__PURE__ */ new Set();
@@ -39888,6 +40136,19 @@ function registerRoutes(app, opts) {
     }
     try {
       await bridge.command(`playid ${Number(id)}`);
+      return bridge.current;
+    } catch (err) {
+      return reply.code(503).send({ error: err.message });
+    }
+  });
+  app.post("/api/queue/remove/:id", async (request, reply) => {
+    if (bridge.current.source === "bluetooth") {
+      return reply.code(409).send({ error: "cannot edit the queue while a phone owns the DAC" });
+    }
+    const { id } = request.params;
+    if (!/^\d+$/.test(id)) return reply.code(400).send({ error: `invalid song id '${id}'` });
+    try {
+      await bridge.command(`deleteid ${Number(id)}`);
       return bridge.current;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
@@ -40025,6 +40286,162 @@ function registerRoutes(app, opts) {
       }
     });
   }
+  function playlistFailure(reply, err) {
+    if (err instanceof PlaylistNotFoundError) return reply.code(404).send({ error: err.message });
+    if (err instanceof PlaylistExistsError) return reply.code(409).send({ error: err.message });
+    if (err instanceof PlaylistChangedError) return reply.code(409).send({ error: err.message });
+    if (err instanceof RangeError) return reply.code(400).send({ error: err.message });
+    return reply.code(503).send({ error: err.message });
+  }
+  function positionOf(body, field2) {
+    const value = (body ?? {})[field2];
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : { error: `'${field2}' must be a position in the playlist` };
+  }
+  function playlistName(source, field2) {
+    const value = (source ?? {})[field2];
+    const error = playlistNameError(value);
+    return error === null ? value : { error: `'${field2}': ${error}` };
+  }
+  app.get("/api/playlists", async (_request, reply) => {
+    try {
+      const body = { playlists: await playlists.list() };
+      return body;
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.get("/api/playlist", async (request, reply) => {
+    const name = playlistName(request.query, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    try {
+      return await playlists.get(name);
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.post("/api/playlists", async (request, reply) => {
+    const name = playlistName(request.body, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    try {
+      const body = { playlists: await playlists.create(name) };
+      return reply.code(201).send(body);
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.post("/api/playlist/rename", async (request, reply) => {
+    const from = playlistName(request.body, "from");
+    if (typeof from !== "string") return reply.code(400).send(from);
+    const to = playlistName(request.body, "to");
+    if (typeof to !== "string") return reply.code(400).send(to);
+    try {
+      const body = { playlists: await playlists.rename(from, to) };
+      return body;
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.delete("/api/playlist", async (request, reply) => {
+    const name = playlistName(request.query, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    try {
+      const body = { playlists: await playlists.remove(name) };
+      return body;
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.post("/api/playlist/add", async (request, reply) => {
+    const name = playlistName(request.body, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    const ref = trackRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    let pos;
+    if (request.body.pos !== void 0) {
+      const checked = positionOf(request.body, "pos");
+      if (typeof checked !== "number") return reply.code(400).send(checked);
+      pos = checked;
+    }
+    try {
+      const body = { playlists: await playlists.addTrack(name, ref.file, pos) };
+      return body;
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.post("/api/playlist/move", async (request, reply) => {
+    const name = playlistName(request.body, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    const ref = trackRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    const from = positionOf(request.body, "from");
+    if (typeof from !== "number") return reply.code(400).send(from);
+    const to = positionOf(request.body, "to");
+    if (typeof to !== "number") return reply.code(400).send(to);
+    try {
+      return await playlists.moveTrack(name, from, to, ref.file);
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  app.post("/api/playlist/remove", async (request, reply) => {
+    const name = playlistName(request.body, "name");
+    if (typeof name !== "string") return reply.code(400).send(name);
+    const ref = trackRefFrom(request.body);
+    if (typeof ref === "string") return reply.code(400).send({ error: ref });
+    const pos = positionOf(request.body, "pos");
+    if (typeof pos !== "number") return reply.code(400).send(pos);
+    try {
+      return await playlists.removeTrack(name, pos, ref.file);
+    } catch (err) {
+      return playlistFailure(reply, err);
+    }
+  });
+  for (const [path, mode] of [
+    ["/api/queue/save", "create"],
+    ["/api/queue/save/append", "append"],
+    ["/api/queue/save/replace", "replace"]
+  ]) {
+    app.post(path, async (request, reply) => {
+      const name = playlistName(request.body, "name");
+      if (typeof name !== "string") return reply.code(400).send(name);
+      if (bridge.current.source === "bluetooth") {
+        return reply.code(409).send({ error: "no queue to save while a phone owns the DAC" });
+      }
+      try {
+        const { tracks } = await bridge.queue();
+        const files = tracks.filter((t) => !isCdTrack(t) && t.file).map((t) => t.file);
+        if (files.length === 0) {
+          return reply.code(400).send({ error: "nothing in the queue can be saved" });
+        }
+        const body = { playlists: await playlists.saveQueue(name, files, mode) };
+        return body;
+      } catch (err) {
+        return playlistFailure(reply, err);
+      }
+    });
+  }
+  for (const [path, replace] of [
+    ["/api/playlist/play", true],
+    ["/api/playlist/queue", false]
+  ]) {
+    app.post(path, async (request, reply) => {
+      const name = playlistName(request.body, "name");
+      if (typeof name !== "string") return reply.code(400).send(name);
+      if (bridge.current.source === "bluetooth") {
+        return reply.code(409).send({
+          error: "cannot play a playlist while a phone owns the DAC"
+        });
+      }
+      const load = `load ${quoteArg(name)}`;
+      try {
+        await bridge.runAll(replace ? ["clear", load, "play"] : [load]);
+        return bridge.current;
+      } catch (err) {
+        return playlistFailure(reply, mapPlaylistAck(err, name));
+      }
+    });
+  }
   app.post("/api/library/queue", async (request, reply) => {
     const ref = albumRefFrom(request.body);
     if (typeof ref === "string") return reply.code(400).send({ error: ref });
@@ -40048,8 +40465,19 @@ function registerRoutes(app, opts) {
         error: "cannot play an album while a phone owns the DAC"
       });
     }
+    const { start } = request.body ?? {};
+    if (start !== void 0) {
+      const checked = trackRefFrom({ file: start });
+      if (typeof checked === "string") return reply.code(400).send({ error: "invalid 'start'" });
+    }
     try {
-      await bridge.runAll(["clear", findaddFor(ref), "play"]);
+      if (typeof start !== "string") {
+        await bridge.runAll(["clear", findaddFor(ref), "play"]);
+        return bridge.current;
+      }
+      await bridge.runAll(["clear", findaddFor(ref)]);
+      const id = await bridge.queueIdOf(start);
+      await bridge.command(id === null ? "play" : `playid ${id}`);
       return bridge.current;
     } catch (err) {
       return reply.code(503).send({ error: err.message });
@@ -40090,6 +40518,15 @@ function registerRoutes(app, opts) {
       sendFavourites(favourites.all());
       favouritesSinks.add(sendFavourites);
     }
+    const sendPlaylists = (list) => {
+      const body = { playlists: list };
+      reply.raw.write(sseFrame(SSE_PLAYLISTS_EVENT, body));
+    };
+    const cachedPlaylists = playlists.current();
+    if (cachedPlaylists !== null) sendPlaylists(cachedPlaylists);
+    else void playlists.list().catch(() => {
+    });
+    playlistsSinks.add(sendPlaylists);
     const sendPlays = (albums) => {
       const body = { albums };
       reply.raw.write(sseFrame(SSE_PLAYS_EVENT, body));
@@ -40112,6 +40549,7 @@ function registerRoutes(app, opts) {
       settingsSinks.delete(sendSettings);
       librarySinks.delete(sendLibrary);
       favouritesSinks.delete(sendFavourites);
+      playlistsSinks.delete(sendPlaylists);
       playsSinks.delete(sendPlays);
       streams.delete(close);
       if (fromPanel) {
@@ -41175,7 +41613,7 @@ function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-06T08:19:02Z" : "dev";
+var BUILD = true ? "2026-10-06T09:41:30Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

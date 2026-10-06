@@ -62,6 +62,9 @@
     @if (error(); as message) {
       <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
     }
+    @if (notice(); as message) {
+      <p class="pt-3 text-[0.9rem] text-muted" role="status">{{ message }}</p>
+    }
     @if (loading()) {
       <p class="pt-3 text-[0.95rem] text-muted">Loading tracks…</p>
     }
@@ -106,19 +109,12 @@
             <span class="flex-none text-[0.85rem] text-muted tabular-nums">
               {{ durationOf(track) }}
             </span>
-            <button class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
-                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
-                    [disabled]="busy()"
-                    (click)="playNext(track)"
-                    [attr.aria-label]="'Play ' + titleOf(track) + ' next'">
-              <svg lucideListStart class="size-5" aria-hidden="true"></svg>
-            </button>
             <button class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
                            rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
-                    [disabled]="busy()"
-                    (click)="queueTrack(track)"
-                    [attr.aria-label]="'Add ' + titleOf(track) + ' to the queue'">
-              <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+                    [disabled]="busy()" aria-haspopup="dialog"
+                    (click)="menuTrack.set(track)"
+                    [attr.aria-label]="'More for ' + titleOf(track)">
+              <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
             </button>
           </li>
         }
@@ -129,4 +125,7 @@
       }
     </ol>
   </div>
+
+  <app-track-menu [(track)]="menuTrack" (play)="playFrom($event)" (queue)="queueTrack($event)"
+                  (playNext)="playNext($event)" (added)="notice.set('Added to “' + $event + '”')" />
 </section>

@@ -26,8 +26,7 @@ import {
     LucideEject,
     LucideX,
 } from '@lucide/angular';
-import { NavigationCancel, NavigationEnd, NavigationError, NavigationSkipped, Router } from '@angular/router';
-import { filter, firstValueFrom, timer } from 'rxjs';
+import { Router } from '@angular/router';
 import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
@@ -88,8 +87,6 @@ function sampleFormat(format: string | undefined): string | null {
   the host the containing block for its position: fixed children, and the
   backdrop and the bottom progress bar would silently stop being screen-sized.
 */
-/** Longest follow() waits for the router to process the sheet's Back. */
-const SYNC_TIMEOUT_MS = 500;
 
 @Component({
     selector: 'app-now-playing',
@@ -156,25 +153,12 @@ export class NowPlaying implements OnDestroy {
         );
     }
 
-    /**
-     * Close the sheet, then open the page. Not a routerLink: closing pops the
-     * sheet's history entry, and navigating before that lands would put the page
-     * on top of it, so Back from the page would reopen the sheet.
-     */
+    /** Not a routerLink: the sheet must close first. See NowPlayingSheet.leaveTo. */
     async follow(event: MouseEvent, url: string): Promise<void> {
         // A modified click opens a new tab as any link does.
         if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
-        // The router syncs to a popstate a task later; navigating before it has
-        // would have that sync replace the new page with the one underneath.
-        const synced = firstValueFrom(
-            this.router.events.pipe(
-                filter((e) => e instanceof NavigationSkipped || e instanceof NavigationEnd ||
-                    e instanceof NavigationCancel || e instanceof NavigationError),
-            ),
-        );
-        if (await this.sheet.hide()) await Promise.race([synced, firstValueFrom(timer(SYNC_TIMEOUT_MS))]);
-        await this.router.navigateByUrl(url);
+        await this.sheet.leaveTo(url);
     }
     private readonly injector = inject(Injector);
 

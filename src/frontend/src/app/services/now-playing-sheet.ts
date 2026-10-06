@@ -19,6 +19,8 @@
 
 import { Location } from '@angular/common';
 import { DestroyRef, Injectable, inject, signal } from '@angular/core';
+import { NavigationCancel, NavigationEnd, NavigationError, NavigationSkipped, Router } from '@angular/router';
+import { filter, firstValueFrom, timer } from 'rxjs';
 
 /** The history.state key marking the entry the open sheet owns. */
 export const NOW_PLAYING_STATE = 'musicboxNowPlaying';
@@ -26,9 +28,13 @@ export const NOW_PLAYING_STATE = 'musicboxNowPlaying';
 /** How long hide() waits for its own Back before giving up on the popstate. */
 const BACK_TIMEOUT_MS = 500;
 
+/** Longest leaveTo() waits for the router to process the sheet's Back. */
+const SYNC_TIMEOUT_MS = 500;
+
 @Injectable({ providedIn: 'root' })
 export class NowPlayingSheet {
     private readonly location = inject(Location);
+    private readonly router = inject(Router);
 
     private readonly _open = signal(false);
     private readonly _atQueue = signal(false);
@@ -74,6 +80,24 @@ export class NowPlayingSheet {
     /** NowPlaying, once the queue is on screen. */
     settled(): void {
         this._atQueue.set(false);
+    }
+
+    /**
+     * Close the sheet, then open the page. Closing pops the sheet's history
+     * entry, and navigating before that lands would put the page on top of it,
+     * so Back from the page would reopen the sheet. Just navigates when closed.
+     */
+    async leaveTo(url: string): Promise<void> {
+        // The router syncs to a popstate a task later; navigating before it has
+        // would have that sync replace the new page with the one underneath.
+        const synced = firstValueFrom(
+            this.router.events.pipe(
+                filter((e) => e instanceof NavigationSkipped || e instanceof NavigationEnd ||
+                    e instanceof NavigationCancel || e instanceof NavigationError),
+            ),
+        );
+        if (await this.hide()) await Promise.race([synced, firstValueFrom(timer(SYNC_TIMEOUT_MS))]);
+        await this.router.navigateByUrl(url);
     }
 
     /**

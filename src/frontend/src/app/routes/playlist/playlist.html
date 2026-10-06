@@ -1,0 +1,131 @@
+<section aria-label="Playlist">
+  <div class="hidden short:flex sticky top-0 px-4 py-0 bg-bg z-1">
+    <button class="flex py-4 cursor-pointer touch-manipulation" (click)="back()" aria-label="Back">
+      <svg lucideChevronLeft class="size-6 text-muted" aria-hidden="true"></svg>
+      <h2 class="flex-none font-bold text-muted">Back</h2>
+    </button>
+  </div>
+
+  <div class="flex items-start gap-4 px-4 pt-4 short:pt-0">
+    <app-cover-grid class="size-[clamp(6rem,26vh,11rem)] flex-none rounded-md bg-surface max-[40rem]:size-24"
+                    [uris]="covers()" (failed)="onArtError($event)">
+      <svg lucideListMusic class="size-10 text-muted" aria-hidden="true"></svg>
+    </app-cover-grid>
+
+    <div class="min-w-0 flex-1">
+      <h1 class="text-2xl font-bold [overflow-wrap:anywhere]">{{ name() }}</h1>
+      @if (summary(); as line) {
+        <p class="text-[0.85rem] text-muted tabular-nums">{{ line }}</p>
+      }
+
+      <div class="flex flex-wrap items-center gap-2 pt-3">
+        <button class="flex min-h-8 cursor-pointer touch-manipulation items-center gap-2
+                       rounded-full bg-accent px-5 text-[0.95rem] font-semibold text-on-accent
+                       select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy() || tracks().length === 0"
+                (click)="play()">
+          <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
+          Play
+        </button>
+        <button class="flex min-h-8 cursor-pointer touch-manipulation items-center gap-2
+                       rounded-full border border-muted px-5 text-[0.95rem] font-semibold
+                       text-muted select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy() || tracks().length === 0"
+                (click)="queue()">
+          <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+          Queue
+        </button>
+        @if (tracks().length > 0 || editing()) {
+          <button type="button"
+                  class="flex min-h-8 cursor-pointer touch-manipulation items-center rounded-full px-4
+                         text-[0.95rem] font-semibold select-none active:bg-raised"
+                  [class]="editing() ? 'bg-raised text-text' : 'text-muted'"
+                  [attr.aria-pressed]="editing()" (click)="toggleEditing()">
+            {{ editing() ? 'Done' : 'Edit' }}
+          </button>
+        }
+        <button type="button"
+                class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                       rounded-full text-muted select-none active:bg-raised"
+                aria-haspopup="dialog" [attr.aria-label]="'More for ' + name()"
+                (click)="dialog.set({ kind: 'actions', name: name() })">
+          <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="px-4 py-3">
+    @if (error(); as message) {
+      <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+    }
+    @if (loading()) {
+      <p class="pt-3 text-[0.95rem] text-muted">Loading tracks…</p>
+    }
+    @if (removed(); as gone) {
+      <p class="flex items-center gap-2 pt-3 text-[0.9rem] text-muted" role="status">
+        <span class="min-w-0 truncate">Removed “{{ gone.title }}”.</span>
+        <button type="button"
+                class="min-h-11 flex-none cursor-pointer touch-manipulation rounded-full px-3
+                       font-semibold text-accent select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy()" (click)="undo()">
+          Undo
+        </button>
+      </p>
+    }
+
+    <!-- Drag by the grip only, so a swipe anywhere else still scrolls. -->
+    <ol class="flex flex-col pt-3" cdkDropList cdkDropListLockAxis="y"
+        [cdkDropListData]="tracks()" [cdkDropListDisabled]="!editing() || busy()"
+        (cdkDropListDropped)="drop($event)">
+      @for (track of tracks(); track track) {
+        <li class="flex min-h-11 items-center gap-3 bg-bg py-1" cdkDrag>
+          @if (editing()) {
+            <span class="-ms-3 grid size-11 flex-none cursor-grab touch-none place-items-center text-muted"
+                  cdkDragHandle [attr.aria-label]="'Drag ' + titleOf(track) + ' to reorder'">
+              <svg lucideGripVertical class="size-5" aria-hidden="true"></svg>
+            </span>
+          } @else {
+            <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ $index + 1 }}.</span>
+          }
+          <!-- Lazy, with the box fixed: a long playlist is mostly off screen. -->
+          <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="artOf(track)"
+                         [width]="48" [height]="48" lazy thumb (failed)="onArtError($event)">
+            <svg lucideMusic class="size-5 text-muted" aria-hidden="true"></svg>
+          </app-cover-art>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-xl">{{ titleOf(track) }}</span>
+            @if (sourceOf(track); as source) {
+              <span class="block truncate text-[0.85rem] text-muted">{{ source }}</span>
+            }
+          </span>
+          @if (editing()) {
+            <button type="button"
+                    class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" [attr.aria-label]="'Remove ' + titleOf(track)"
+                    (click)="remove(track, $index)">
+              <svg lucideX class="size-5" aria-hidden="true"></svg>
+            </button>
+          } @else {
+            <span class="flex-none text-[0.85rem] text-muted tabular-nums">{{ durationOf(track) }}</span>
+            <button type="button"
+                    class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" aria-haspopup="dialog" [attr.aria-label]="'More for ' + titleOf(track)"
+                    (click)="menuTrack.set(track)">
+              <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+            </button>
+          }
+        </li>
+      } @empty {
+        @if (data() !== null) {
+          <li class="py-6 text-[0.95rem] text-muted">This playlist is empty.</li>
+        }
+      }
+    </ol>
+  </div>
+
+  <app-playlist-dialog [(view)]="dialog" (done)="onDialogDone($event)" />
+  <app-track-menu [(track)]="menuTrack" [actions]="trackActions" (remove)="removeFromMenu($event)" />
+</section>

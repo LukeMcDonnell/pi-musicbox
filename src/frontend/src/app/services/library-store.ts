@@ -22,6 +22,7 @@
 
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import type {
+    AlbumPlayRequest,
     AlbumRef,
     AlbumResponse,
     AlbumsResponse,
@@ -178,9 +179,10 @@ export class LibraryStore {
         await this.api.post('/api/library/queue', ref);
     }
 
-    /** Replace the queue with an album and start playing it. */
-    async playAlbum(ref: AlbumRef): Promise<void> {
-        await this.api.post('/api/library/play', ref);
+    /** Replace the queue with an album and start playing it — at `start`, a track's file, if given. */
+    async playAlbum(ref: AlbumRef, start?: string): Promise<void> {
+        const body: AlbumPlayRequest = start === undefined ? ref : { ...ref, start };
+        await this.api.post('/api/library/play', body);
     }
 
     /** Append one track; into an empty queue it also starts playing. */

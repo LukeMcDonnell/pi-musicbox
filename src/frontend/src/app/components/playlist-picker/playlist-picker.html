@@ -1,0 +1,37 @@
+@if (naming()) {
+  <form class="flex flex-col gap-2" (submit)="$event.preventDefault(); submit()">
+    <!-- text-base: iOS zooms on focus below 16px. -->
+    <input #field type="text" enterkeyhint="done" maxlength="100"
+           aria-label="Playlist name" placeholder="Playlist name"
+           autocomplete="off" spellcheck="false"
+           class="h-11 w-full rounded-lg border border-raised bg-bg px-3 text-base text-text
+                  placeholder:text-muted focus:border-accent focus:outline-none"
+           [value]="draft()" (input)="draft.set(field.value)">
+    <button type="submit"
+            class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center justify-center
+                   rounded-lg bg-accent px-4 text-[1.05rem] font-semibold text-on-accent
+                   select-none active:bg-raised disabled:opacity-40"
+            [disabled]="busy() || draft().trim() === ''">
+      {{ createLabel() }}
+    </button>
+  </form>
+} @else {
+  <button type="button"
+          class="flex min-h-14 w-full flex-none cursor-pointer touch-manipulation items-center gap-3
+                 rounded-lg border border-muted px-4 text-left text-[1.05rem] font-semibold
+                 select-none active:bg-raised disabled:opacity-40"
+          [disabled]="busy()" (click)="newPlaylist.emit()">
+    <svg lucidePlus class="size-5 flex-none text-accent" aria-hidden="true"></svg>
+    New playlist…
+  </button>
+  @for (playlist of playlists(); track playlist.name) {
+    <button type="button"
+            class="flex min-h-14 w-full flex-none cursor-pointer touch-manipulation items-center gap-3
+                   rounded-lg border border-muted px-4 text-left text-[1.05rem] font-semibold
+                   select-none active:bg-raised disabled:opacity-40"
+            [disabled]="busy()" (click)="picked.emit(playlist.name)">
+      <svg lucideListMusic class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+      <span class="min-w-0 flex-1 truncate">{{ playlist.name }}</span>
+    </button>
+  }
+}

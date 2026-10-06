@@ -38,7 +38,7 @@ import type { CdDisc } from '../cd.ts';
  * miss nothing in practice, but the index is cheap to rebuild and showing music
  * that is not there is not.
  */
-const IDLE_SUBSYSTEMS = 'player mixer playlist options update database';
+const IDLE_SUBSYSTEMS = 'player mixer playlist options update database stored_playlist';
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
@@ -846,6 +846,42 @@ export class MpdBridge {
     private async startScan(verb: 'update' | 'rescan', uri?: string): Promise<number | null> {
         const reply = await this.send(uri === undefined ? verb : `${verb} ${quoteArg(uri)}`);
         return num(firstValue(reply, 'updating_db')) ?? null;
+    }
+
+    /** The song id of the first queue entry playing `file`, or null when none does. */
+    async queueIdOf(file: string): Promise<number | null> {
+        const id = firstValue(await this.send(`playlistfind "file" ${quoteArg(file)}`), 'Id');
+        return id === undefined ? null : Number(id);
+    }
+
+    /** Any one song in the library, or null when it is empty. */
+    async anySong(): Promise<Track | null> {
+        const groups = groupBy(await this.send('find "(base \\"\\")" window 0:1'), 'file');
+        return groups.length > 0 ? trackFromTags(groups[0], this.cd) : null;
+    }
+
+    /** `listplaylists`: each stored playlist's name and Last-Modified. */
+    async listPlaylists(): Promise<Reply> {
+        return this.send('listplaylists');
+    }
+
+    /** `playlistlength`: a stored playlist's `songs` and `playtime`. */
+    async playlistLength(name: string): Promise<Reply> {
+        return this.send(`playlistlength ${quoteArg(name)}`);
+    }
+
+    /** A stored playlist's files alone: no tags, so far cheaper than playlistTracks. */
+    async playlistFiles(name: string): Promise<string[]> {
+        const reply = await this.send(`listplaylist ${quoteArg(name)}`);
+        return reply.pairs.filter(([k]) => k === 'file').map(([, v]) => v);
+    }
+
+    /** A stored playlist's tracks; a song gone from the library keeps its `file`. */
+    async playlistTracks(name: string): Promise<Track[]> {
+        const reply = await this.send(`listplaylistinfo ${quoteArg(name)}`);
+        return groupBy(reply, 'file')
+            .map((tags) => trackFromTags(tags, this.cd))
+            .filter((t): t is Track => t !== null);
     }
 
     /** MPD's `stats`: the library's counts, and its own uptime. */

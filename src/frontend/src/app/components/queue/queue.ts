@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { LucideDisc3, LucideMusic } from '@lucide/angular';
+import { LucideDisc3, LucideEllipsisVertical, LucideListPlus, LucideMusic } from '@lucide/angular';
 import { isCdTrack, type Track } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { clock } from '../now-playing/now-playing';
 import { CoverArt } from '../cover-art/cover-art';
+import { SaveQueueDialog } from '../save-queue-dialog/save-queue-dialog';
+import { TrackMenu, type TrackAction } from '../track-menu/track-menu';
 
 /** Which half of the queue is on screen. */
 type Tab = 'back' | 'next';
@@ -31,7 +33,7 @@ type Tab = 'back' | 'next';
 */
 @Component({
     selector: 'app-queue',
-    imports: [CoverArt, LucideDisc3, LucideMusic],
+    imports: [CoverArt, LucideDisc3, LucideEllipsisVertical, LucideListPlus, LucideMusic, SaveQueueDialog, TrackMenu],
     templateUrl: './queue.html',
     // The list is up to a few hundred rows and none of them depend on anything
     // but signals, so there is no reason to re-check them on every unrelated
@@ -82,6 +84,15 @@ export class Queue {
 
     readonly error = signal<string | null>(null);
 
+    /** The row whose ⋮ menu is open, or null. */
+    readonly menuTrack = signal<Track | null>(null);
+    readonly trackActions: readonly TrackAction[] = ['remove', 'artist', 'album'];
+
+    /** The save-as-playlist dialog is open. */
+    readonly saving = signal(false);
+    /** Where the queue was last saved, until the next thing worth saying. */
+    readonly notice = signal<string | null>(null);
+
     /**
      * Covers that 404ed, by resolved URI.
      *
@@ -127,6 +138,17 @@ export class Queue {
             // Deliberately no local change: the new position arrives on the next
             // snapshot and re-splits both lists. Guessing would move the row
             // under the finger before MPD had agreed to it.
+        } catch (err) {
+            this.error.set((err as Error).message);
+        }
+    }
+
+    /** By song id; the row goes when the next snapshot's listing arrives, as with play(). */
+    async remove(track: Track): Promise<void> {
+        if (track.id === undefined) return;
+        this.error.set(null);
+        try {
+            await this.api.removeQueueId(track.id);
         } catch (err) {
             this.error.set((err as Error).message);
         }

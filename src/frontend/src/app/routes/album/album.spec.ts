@@ -425,14 +425,32 @@ describe('Album', () => {
         expect(store.playAlbum).toHaveBeenCalledTimes(1);
     });
 
-    it('offers Play next and Queue on every track row', async () => {
+    it('gives every track row one ⋮ menu, and opens it on that track', async () => {
         const fixture = create(fakeStore());
         fixture.detectChanges();
         await fixture.whenStable();
         fixture.detectChanges();
         const el = fixture.nativeElement as HTMLElement;
-        expect(el.querySelector('[aria-label="Play Everything next"]')).not.toBeNull();
-        expect(el.querySelector('[aria-label="Add Kid A to the queue"]')).not.toBeNull();
+        expect(el.querySelector('[aria-label="Play Everything next"]')).toBeNull();
+        (el.querySelector('[aria-label="More for Kid A"]') as HTMLButtonElement).click();
+        fixture.detectChanges();
+        expect(fixture.componentInstance.menuTrack()?.file).toBe('a/2.flac');
+        expect(el.querySelector('[role="dialog"]')!.textContent).toContain('Add to Playlist');
+    });
+
+    it('plays the whole album from the chosen track', async () => {
+        const store = fakeStore();
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+
+        await fixture.componentInstance.playFrom(fixture.componentInstance.tracks()[1]);
+        // The whole album — no disc key — starting at the track.
+        expect(store.playAlbum).toHaveBeenCalledWith(
+            { albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' },
+            'a/2.flac',
+        );
+        expect(TestBed.inject(NowPlayingSheet).open()).toBeTrue();
     });
 
     it('queues and plays-next a single track by its file', async () => {

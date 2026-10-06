@@ -28,6 +28,11 @@ Last updated 2026-09-16.
 - **Settings → Status**: uptime, CPU, temperature, under-voltage, memory, SD card,
   scan state, library counts and cover-thumbnail build progress. Read-only, and
   polled only while the tab is open.
+- **Playlists**: a ⋮ menu on each album track (Play from here, Add to Queue,
+  Play Next, Add to Playlist), and a Playlists tab over MPD's stored playlists
+  (create, rename, delete, play, queue, view), and saving the queue as a new
+  playlist, onto one, or in place of one; and reordering (drag) and removing
+  (with Undo) within a playlist.
 - A **Bluetooth A2DP sink** at aptX HD: a phone pairs with no prompt and plays
   through the DAC, MPD pauses and releases the card. The now-playing screen and
   the transport buttons follow whichever source is active, over AVRCP, and a

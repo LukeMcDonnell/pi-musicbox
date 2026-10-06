@@ -7,6 +7,8 @@ import { RecentlyAdded } from './routes/home/recently-added/recently-added';
 import { Album } from './routes/album/album';
 import { Artist } from './routes/artist/artist';
 import { Library } from './routes/library/library';
+import { Playlist } from './routes/playlist/playlist';
+import { Playlists } from './routes/playlists/playlists';
 import { Settings } from './routes/settings/settings';
 
 /*
@@ -36,6 +38,9 @@ export const routes: Routes = [
     { path: 'library/artist', component: Artist, title: 'Artist · musicbox' },
     { path: 'library/album', component: Album, title: 'Album · musicbox' },
     { path: 'favourites', component: Favourites, title: 'Favourites · musicbox' },
+    { path: 'playlists', component: Playlists, title: 'Playlists · musicbox' },
+    // By query parameter, as artist and album are.
+    { path: 'playlists/playlist', component: Playlist, title: 'Playlist · musicbox' },
     { path: 'settings', component: Settings, title: 'Settings · musicbox' },
     // The panel never types a URL, but a phone can hold a stale bookmark.
     { path: '**', redirectTo: 'home' },

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucideListStart, LucidePlay } from '@lucide/angular';
+import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucideListPlus, LucidePlay } from '@lucide/angular';
 import type { AlbumRef, AlbumResponse, Track } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
@@ -11,6 +11,7 @@ import { Rating } from '../../components/rating/rating';
 import { clock } from '../../components/now-playing/now-playing';
 import { FavouriteButton } from '../../components/favourite-button/favourite-button';
 import { CoverArt } from '../../components/cover-art/cover-art';
+import { TrackMenu } from '../../components/track-menu/track-menu';
 
 /*
   One album: its cover as a hero, two buttons, and the tracks.
@@ -32,8 +33,9 @@ import { CoverArt } from '../../components/cover-art/cover-art';
   Each disc heading carries its own Play and Queue, which narrow the same two
   POSTs with a `disc` on the AlbumRef. Play still replaces the queue.
 
-  Each track row has Play next and Queue, addressed by the track's `file`. Into
-  an empty queue either one starts playback, so it is treated as a Play.
+  Each track row's ⋮ opens TrackMenu: Play (the album, from that track), Add to
+  Queue, Play Next, Add to Playlist. Into an empty queue Queue and Play Next
+  start playback, so they are treated as a Play.
 */
 @Component({
     selector: 'app-album',
@@ -45,8 +47,9 @@ import { CoverArt } from '../../components/cover-art/cover-art';
         LucideChevronLeft,
         LucideDisc3,
         LucideListPlus,
-        LucideListStart,
+        LucideEllipsisVertical,
         LucidePlay,
+        TrackMenu,
     ],
     templateUrl: './album.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
@@ -72,6 +75,11 @@ export class Album {
 
     /** True while a Play or Queue request is in flight, so it cannot be double-sent. */
     readonly busy = signal(false);
+
+    /** The track whose ⋮ menu is open, or null. */
+    readonly menuTrack = signal<Track | null>(null);
+    /** A quiet line after something worked that has nothing else to show for it. */
+    readonly notice = signal<string | null>(null);
 
     private readonly artFailed = signal<string | null>(null);
 
@@ -203,6 +211,12 @@ export class Album {
         if (this.error() === null && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
     }
 
+    /** The whole album, starting at this track — later discs included. */
+    async playFrom(track: Track): Promise<void> {
+        await this.send(() => this.library.playAlbum(this.ref(), track.file));
+        if (this.error() === null && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+    }
+
     /** Append to the queue, and show where it landed if that is wanted. */
     async queue(disc: string | null = null): Promise<void> {
         await this.send(() => this.library.queueAlbum(this.ref(disc)));
@@ -245,6 +259,7 @@ export class Album {
         if (this.busy()) return;
         this.busy.set(true);
         this.error.set(null);
+        this.notice.set(null);
         try {
             await action();
         } catch (err) {
@@ -273,7 +288,7 @@ export interface DiscGroup {
  * Not `clock()`, which is the per-track m:ss and would render an 82 minute album
  * as "82:14". Albums routinely run past an hour here.
  */
-function runtime(seconds: number): string {
+export function runtime(seconds: number): string {
     const total = Math.max(0, Math.round(seconds));
     const hours = Math.floor(total / 3600);
     const mins = Math.floor((total % 3600) / 60);

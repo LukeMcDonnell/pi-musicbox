@@ -1,3 +1,4 @@
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import { AfterViewInit, Component, ElementRef, inject, viewChild } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { Keyboard } from './components/keyboard/keyboard';
@@ -22,7 +23,7 @@ import { ScrollFrame } from './services/scroll-frame';
  */
 @Component({
     selector: 'app-root',
-    imports: [RouterOutlet, Keyboard, Menu, NowPlaying, NowPlayingMini],
+    imports: [CdkScrollable, RouterOutlet, Keyboard, Menu, NowPlaying, NowPlayingMini],
     templateUrl: './app.html',
 })
 export class App implements AfterViewInit {

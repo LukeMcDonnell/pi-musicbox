@@ -27,6 +27,8 @@ import type {
     SettingsResponse,
     LibraryState,
     FavouriteAlbum,
+    PlaylistSummary,
+    PlaylistsResponse,
     FavouritesResponse,
     RecentPlayAlbum,
     RecentPlaysResponse,
@@ -37,6 +39,7 @@ import {
     SSE_SETTINGS_EVENT,
     SSE_LIBRARY_EVENT,
     SSE_FAVOURITES_EVENT,
+    SSE_PLAYLISTS_EVENT,
     SSE_PLAYS_EVENT,
 } from '@musicbox/shared';
 import { ApiClient } from './api-client';
@@ -59,6 +62,7 @@ export class MusicboxApi {
     private readonly _settings = signal<SettingsResponse | null>(null);
     private readonly _library = signal<LibraryState | null>(null);
     private readonly _favourites = signal<FavouriteAlbum[] | null>(null);
+    private readonly _playlists = signal<PlaylistSummary[] | null>(null);
     private readonly _plays = signal<RecentPlayAlbum[] | null>(null);
 
     /** Latest complete state, or null before the first frame arrives. */
@@ -93,6 +97,14 @@ export class MusicboxApi {
     /** Apply a favourites route's answer without waiting for its own event. */
     setFavourites(albums: FavouriteAlbum[]): void {
         this._favourites.set(albums);
+    }
+
+    /** The box's stored playlists, or null before the first frame. See PlaylistsStore. */
+    readonly playlists = this._playlists.asReadonly();
+
+    /** Apply a playlists route's answer without waiting for its own event. */
+    setPlaylists(playlists: PlaylistSummary[]): void {
+        this._playlists.set(playlists);
     }
 
     /**
@@ -318,6 +330,11 @@ export class MusicboxApi {
             this._favourites.set(albums);
         });
 
+        this.source.addEventListener(SSE_PLAYLISTS_EVENT, (event) => {
+            const { playlists } = JSON.parse((event as MessageEvent<string>).data) as PlaylistsResponse;
+            this._playlists.set(playlists);
+        });
+
         this.source.addEventListener(SSE_PLAYS_EVENT, (event) => {
             const { albums } = JSON.parse((event as MessageEvent<string>).data) as RecentPlaysResponse;
             this._plays.set(albums);
@@ -380,6 +397,11 @@ export class MusicboxApi {
      */
     async playQueueId(id: number): Promise<void> {
         await this.api.post(`/api/queue/play/${id}`);
+    }
+
+    /** Take one track out of the queue, by MPD song id as playQueueId does. */
+    async removeQueueId(id: number): Promise<void> {
+        await this.api.post(`/api/queue/remove/${id}`);
     }
 
     /**

@@ -1,0 +1,66 @@
+<section aria-label="Playlists" class="px-4 py-3 pt-0">
+  <!-- The same header as the Library's and Favourites'. -->
+  <div class="sticky top-0 z-1 flex w-full items-center gap-3 bg-bg py-2">
+    <h1 class="text-2xl shrink-0 font-bold me-4">Playlists</h1>
+    <button type="button"
+            class="-me-3 ms-auto grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                   rounded-full text-accent select-none active:bg-raised"
+            aria-label="New playlist" aria-haspopup="dialog"
+            (click)="dialog.set({ kind: 'create' })">
+      <svg lucidePlus class="size-7" aria-hidden="true"></svg>
+    </button>
+  </div>
+
+  @if (error(); as message) {
+    <p class="pt-3 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+  }
+  @if (loading()) {
+    <p class="pt-3 text-[0.95rem] text-muted">Loading playlists…</p>
+  } @else if (playlists().length === 0) {
+    <p class="py-6 text-[0.95rem] text-muted">No playlists yet. Tap + to make one.</p>
+  }
+
+  <ul class="flex flex-col">
+    @for (playlist of playlists(); track playlist.name) {
+      <li class="flex items-center gap-1">
+        <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
+                       gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised"
+                (click)="open(playlist)">
+          <app-cover-grid class="size-12 flex-none rounded bg-surface" [uris]="coversOf(playlist)" lazy
+                          (failed)="onArtError($event)">
+            <svg lucideListMusic class="size-5 text-muted" aria-hidden="true"></svg>
+          </app-cover-grid>
+          <span class="min-w-0 flex-1">
+            <span class="text-xl block truncate">{{ playlist.name }}</span>
+            <span class="block truncate text-[0.85rem] text-muted tabular-nums">{{ subtitleOf(playlist) }}</span>
+          </span>
+        </button>
+        <button type="button"
+                class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                       rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy() || playlist.trackCount === 0"
+                [attr.aria-label]="'Add ' + playlist.name + ' to the queue'"
+                (click)="queue(playlist)">
+          <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+        </button>
+        <button type="button"
+                class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                       rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy() || playlist.trackCount === 0"
+                [attr.aria-label]="'Play ' + playlist.name"
+                (click)="play(playlist)">
+          <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
+        </button>
+        <button type="button"
+                class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                       rounded-full text-muted select-none active:bg-raised"
+                aria-haspopup="dialog" [attr.aria-label]="'More for ' + playlist.name"
+                (click)="dialog.set({ kind: 'actions', name: playlist.name })">
+          <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+        </button>
+      </li>
+    }
+  </ul>
+
+  <app-playlist-dialog [(view)]="dialog" />
+</section>

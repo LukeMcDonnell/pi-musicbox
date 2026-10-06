@@ -340,7 +340,7 @@ describe('the Home route', () => {
         const router = TestBed.inject(Router);
         await RouterTestingHarness.create('/');
         expect(router.url).toBe('/home');
-        await router.navigateByUrl('/playlists');
+        await router.navigateByUrl('/no-such-screen');
         expect(router.url).toBe('/home');
     });
 });

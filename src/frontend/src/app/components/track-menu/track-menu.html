@@ -1,0 +1,97 @@
+@if (track(); as t) {
+  <!-- z-35, as the power dialog: over the menu and mini bar, under the sheet and keyboard. -->
+  <div class="fixed inset-0 z-[35] grid place-items-center bg-black/70 p-4" (click)="close()">
+    <div class="flex max-h-full w-full max-w-sm flex-col rounded-xl border border-raised bg-surface p-4"
+         role="dialog" aria-modal="true" aria-labelledby="track-menu-title"
+         (click)="$event.stopPropagation()">
+      <div class="flex items-center gap-1">
+        @if (face() !== 'actions') {
+          <button type="button"
+                  class="-ms-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                         rounded-full text-muted select-none active:bg-raised"
+                  aria-label="Back" (click)="show(face() === 'name' ? 'pick' : 'actions')">
+            <svg lucideChevronLeft class="size-6" aria-hidden="true"></svg>
+          </button>
+        }
+        <h2 id="track-menu-title" class="min-w-0 truncate text-lg font-bold">
+          @switch (face()) {
+            @case ('pick') { Add to playlist }
+            @case ('name') { New playlist }
+            @default { {{ titleOf(t) }} }
+          }
+        </h2>
+      </div>
+      @if (face() === 'actions' && t.artist) {
+        <p class="truncate text-[0.9rem] text-muted">{{ t.artist }}</p>
+      }
+
+      @if (error(); as message) {
+        <p class="pt-2 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+      }
+
+      <div class="flex min-h-0 flex-col gap-2 overflow-y-auto pt-4">
+        @if (face() === 'actions') {
+          @for (action of actions(); track action) {
+            @switch (action) {
+              @case ('play') {
+                <button type="button" [class]="itemClass" (click)="choose('play')">
+                  <svg lucidePlay class="size-5 flex-none fill-current text-accent" aria-hidden="true"></svg>
+                  Play
+                </button>
+              }
+              @case ('queue') {
+                <button type="button" [class]="itemClass" (click)="choose('queue')">
+                  <svg lucideListEnd class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+                  Add to Queue
+                </button>
+              }
+              @case ('playNext') {
+                <button type="button" [class]="itemClass" (click)="choose('playNext')">
+                  <svg lucideListStart class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+                  Play Next
+                </button>
+              }
+              @case ('playlist') {
+                <button type="button" [class]="itemClass" (click)="show('pick')">
+                  <svg lucideListPlus class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+                  Add to Playlist
+                </button>
+              }
+              @case ('remove') {
+                <button type="button" [class]="itemClass + ' text-warn'" (click)="choose('remove')">
+                  <svg lucideTrash2 class="size-5 flex-none" aria-hidden="true"></svg>
+                  {{ removeLabel() }}
+                </button>
+              }
+              @case ('artist') {
+                <button type="button" [class]="itemClass" [disabled]="artistUrl(t) === null"
+                        (click)="go(artistUrl(t))">
+                  <svg lucideUser class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+                  Go to Artist
+                </button>
+              }
+              @case ('album') {
+                <button type="button" [class]="itemClass" [disabled]="albumUrl(t) === null"
+                        (click)="go(albumUrl(t))">
+                  <svg lucideDisc3 class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+                  Go to Album
+                </button>
+              }
+            }
+          }
+        } @else {
+          <app-playlist-picker [naming]="face() === 'name'" [busy]="busy()" createLabel="Create and add"
+                               (newPlaylist)="show('name')" (picked)="addTo($event)"
+                               (create)="addTo($event, true)" />
+        }
+      </div>
+
+      <button #cancel type="button"
+              class="mt-3 min-h-11 w-full flex-none cursor-pointer touch-manipulation rounded-full
+                     text-[0.95rem] font-semibold text-muted select-none active:bg-raised"
+              (click)="close()">
+        Cancel
+      </button>
+    </div>
+  </div>
+}

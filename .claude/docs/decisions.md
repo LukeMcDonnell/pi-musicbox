@@ -1998,3 +1998,40 @@ Library list re-decodes rows it destroyed.
   starts a pass. It lives on tmpfs, so after a reboot the tab falls back to the
   `.complete` marker's mtime.
 
+
+## Playlists are MPD's stored playlists, not a table (2026-10-06)
+
+- **MPD already does this.** `load` puts a playlist in the queue in one command.
+  The files survive a database restore, sit in `/var/lib/mpd` (which is already
+  backed up), and `mpc` can see and edit them. A table in `musicbox.db` would
+  mean writing ordering, a track-at-a-time queue fill and a second source of
+  truth ourselves.
+- **Cached in the server, invalidated by `stored_playlist` idle.** The list costs
+  `listplaylists` plus one `playlistlength` (MPD 0.24) per playlist, so it is not
+  read again for every client. The first snapshot with `status: 'ok'` triggers
+  the first read, so a panel that connected before MPD was up still gets a list.
+- **Create = scratch name, add, delete, rename.** MPD 0.24 has no create verb,
+  and `save` writes the queue. Adding to the name you typed and then deleting
+  position 0 would edit someone else's playlist if that name had appeared since
+  the check. `rename` onto a taken name fails with `ACK [56]` and changes
+  nothing. Checked on the box: the add/delete pair leaves `songs: 0`.
+- **Names:** 1–100 characters, no `/`, no control characters, no leading `.` or
+  surrounding spaces. MPD itself refuses `/` and newlines; the rest keeps the
+  `.m3u` filenames ordinary.
+
+## Playlist edits: the file stands in for a song id, and a drag is optimistic (2026-10-06)
+
+- **Moves and removals name the file at the position.** The queue is addressed
+  by song id because positions go stale; MPD's stored playlists have no ids at
+  all. So `POST /api/playlist/move` and `/remove` send the file the client saw
+  at `from`/`pos`, the server reads `listplaylist` and refuses with 409 if it
+  differs. A duplicate track at the same position would pass, which is harmless:
+  it is the same song.
+- **The one optimistic update in the UI.** Everywhere else waits for the server
+  (see the album screen's header). A dropped row is moved locally first, because
+  waiting made it snap back to where it started and then jump — which reads as a
+  failed drag. The server's answer replaces the list; a refusal reloads it.
+- **`@angular/cdk` for drag-drop.** Bundled at build time, so nothing on the Pi.
+  Drag starts only from the grip, so a swipe anywhere else still scrolls the
+  panel. `<main>` is a `cdkScrollable` so a drag near an edge scrolls it; CDK
+  subscribes to its scroll events only while a drag is under way.

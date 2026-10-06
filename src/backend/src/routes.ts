@@ -14,6 +14,8 @@ import {
     SSE_LIBRARY_EVENT,
     SSE_FAVOURITES_EVENT,
     SSE_PLAYS_EVENT,
+    isCdTrack,
+    SSE_PLAYLISTS_EVENT,
     API_VERSION,
     BACKUP_CONTENT_TYPE,
     BACKUP_MAX_BYTES,
@@ -35,6 +37,8 @@ import {
     type MostPlayedArtistsResponse,
     type PanelState,
     type PlaybackCommand,
+    type PlaylistSummary,
+    type PlaylistsResponse,
     type RecentlyAddedResponse,
     type RecentPlayAlbum,
     type RecentPlaysResponse,
@@ -65,6 +69,14 @@ import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
 import { BackupError, type Backups } from './backup.ts';
 import type { CdArtBackups } from './cd-art-backup.ts';
 import type { Favourites } from './favourites.ts';
+import {
+    PlaylistChangedError,
+    PlaylistExistsError,
+    PlaylistNotFoundError,
+    createPlaylists,
+    mapPlaylistAck,
+    playlistNameError,
+} from './playlists.ts';
 import type { Plays } from './plays.ts';
 import type { SystemStatusReader } from './system-status.ts';
 
@@ -211,6 +223,12 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         for (const sink of [...favouritesSinks]) sink(albums);
     });
 
+    const playlists = createPlaylists(bridge);
+    const playlistsSinks = new Set<(playlists: PlaylistSummary[]) => void>();
+    playlists.onChange((list) => {
+        for (const sink of [...playlistsSinks]) sink(list);
+    });
+
     const plays = opts.plays;
     const playsSinks = new Set<(albums: RecentPlayAlbum[]) => void>();
     plays?.onChange((albums) => {
@@ -323,7 +341,22 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
     });
 
-    app.post('/api/playback/:command', async (request: FastifyRequest, reply: FastifyReply) => {
+    // By song id for the same reason as playing one: a position may be stale by the time the finger lands.
+    app.post('/api/queue/remove/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({ error: 'cannot edit the queue while a phone owns the DAC' });
+        }
+        const { id } = request.params as { id: string };
+        if (!/^\d+$/.test(id)) return reply.code(400).send({ error: `invalid song id '${id}'` });
+        try {
+            await bridge.command(`deleteid ${Number(id)}`);
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+        app.post('/api/playback/:command', async (request: FastifyRequest, reply: FastifyReply) => {
         const { command } = request.params as { command: string };
         if (!(PLAYBACK_COMMANDS as readonly string[]).includes(command)) {
             return reply.code(400).send({
@@ -564,6 +597,184 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         });
     }
 
+    function playlistFailure(reply: FastifyReply, err: unknown) {
+        if (err instanceof PlaylistNotFoundError) return reply.code(404).send({ error: err.message });
+        if (err instanceof PlaylistExistsError) return reply.code(409).send({ error: err.message });
+        if (err instanceof PlaylistChangedError) return reply.code(409).send({ error: err.message });
+        if (err instanceof RangeError) return reply.code(400).send({ error: err.message });
+        return reply.code(503).send({ error: (err as Error).message });
+    }
+
+    /** A position off a body field: a whole number, never negative. */
+    function positionOf(body: unknown, field: string): number | { error: string } {
+        const value = ((body ?? {}) as Record<string, unknown>)[field];
+        return typeof value === 'number' && Number.isInteger(value) && value >= 0
+            ? value
+            : { error: `'${field}' must be a position in the playlist` };
+    }
+
+    /** A playlist name off a body or query field, or the 400 to answer with. */
+    function playlistName(source: unknown, field: string): string | { error: string } {
+        const value = ((source ?? {}) as Record<string, unknown>)[field];
+        const error = playlistNameError(value);
+        return error === null ? (value as string) : { error: `'${field}': ${error}` };
+    }
+
+    app.get('/api/playlists', async (_request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const body: PlaylistsResponse = { playlists: await playlists.list() };
+            return body;
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    app.get('/api/playlist', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.query, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        try {
+            return await playlists.get(name);
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    app.post('/api/playlists', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        try {
+            const body: PlaylistsResponse = { playlists: await playlists.create(name) };
+            return reply.code(201).send(body);
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    app.post('/api/playlist/rename', async (request: FastifyRequest, reply: FastifyReply) => {
+        const from = playlistName(request.body, 'from');
+        if (typeof from !== 'string') return reply.code(400).send(from);
+        const to = playlistName(request.body, 'to');
+        if (typeof to !== 'string') return reply.code(400).send(to);
+        try {
+            const body: PlaylistsResponse = { playlists: await playlists.rename(from, to) };
+            return body;
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    app.delete('/api/playlist', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.query, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        try {
+            const body: PlaylistsResponse = { playlists: await playlists.remove(name) };
+            return body;
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    // Touches no queue, so it is allowed while a phone owns the DAC.
+    app.post('/api/playlist/add', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        const ref = trackRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        let pos: number | undefined;
+        if ((request.body as { pos?: unknown }).pos !== undefined) {
+            const checked = positionOf(request.body, 'pos');
+            if (typeof checked !== 'number') return reply.code(400).send(checked);
+            pos = checked;
+        }
+        try {
+            const body: PlaylistsResponse = { playlists: await playlists.addTrack(name, ref.file, pos) };
+            return body;
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    // Each names the file it expects at the position, so a stale screen gets a 409, not the wrong track.
+    app.post('/api/playlist/move', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        const ref = trackRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        const from = positionOf(request.body, 'from');
+        if (typeof from !== 'number') return reply.code(400).send(from);
+        const to = positionOf(request.body, 'to');
+        if (typeof to !== 'number') return reply.code(400).send(to);
+        try {
+            return await playlists.moveTrack(name, from, to, ref.file);
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    app.post('/api/playlist/remove', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        const ref = trackRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        const pos = positionOf(request.body, 'pos');
+        if (typeof pos !== 'number') return reply.code(400).send(pos);
+        try {
+            return await playlists.removeTrack(name, pos, ref.file);
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    // Three routes, not a mode flag: replace destroys a playlist and should not be one field away.
+    for (const [path, mode] of [
+        ['/api/queue/save', 'create'],
+        ['/api/queue/save/append', 'append'],
+        ['/api/queue/save/replace', 'replace'],
+    ] as const) {
+        app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+            const name = playlistName(request.body, 'name');
+            if (typeof name !== 'string') return reply.code(400).send(name);
+            if (bridge.current.source === 'bluetooth') {
+                return reply.code(409).send({ error: 'no queue to save while a phone owns the DAC' });
+            }
+            try {
+                // A disc track stops working once the disc is out, so it is never saved.
+                const { tracks } = await bridge.queue();
+                const files = tracks.filter((t) => !isCdTrack(t) && t.file).map((t) => t.file as string);
+                if (files.length === 0) {
+                    return reply.code(400).send({ error: 'nothing in the queue can be saved' });
+                }
+                const body: PlaylistsResponse = { playlists: await playlists.saveQueue(name, files, mode) };
+                return body;
+            } catch (err) {
+                return playlistFailure(reply, err);
+            }
+        });
+    }
+
+    // Same pair as an album's: play replaces the queue, queue appends to it.
+    for (const [path, replace] of [
+        ['/api/playlist/play', true],
+        ['/api/playlist/queue', false],
+    ] as const) {
+        app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+            const name = playlistName(request.body, 'name');
+            if (typeof name !== 'string') return reply.code(400).send(name);
+            if (bridge.current.source === 'bluetooth') {
+                return reply.code(409).send({
+                    error: 'cannot play a playlist while a phone owns the DAC',
+                });
+            }
+            const load = `load ${quoteArg(name)}`;
+            try {
+                await bridge.runAll(replace ? ['clear', load, 'play'] : [load]);
+                return bridge.current;
+            } catch (err) {
+                return playlistFailure(reply, mapPlaylistAck(err, name));
+            }
+        });
+    }
+
     /**
      * Append an album to the queue.
      *
@@ -607,8 +818,20 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
                 error: 'cannot play an album while a phone owns the DAC',
             });
         }
+        const { start } = (request.body ?? {}) as { start?: unknown };
+        if (start !== undefined) {
+            const checked = trackRefFrom({ file: start });
+            if (typeof checked === 'string') return reply.code(400).send({ error: "invalid 'start'" });
+        }
         try {
-            await bridge.runAll(['clear', findaddFor(ref), 'play']);
+            if (typeof start !== 'string') {
+                await bridge.runAll(['clear', findaddFor(ref), 'play']);
+                return bridge.current;
+            }
+            // By id, not by position: MPD's add order need not be the screen's.
+            await bridge.runAll(['clear', findaddFor(ref)]);
+            const id = await bridge.queueIdOf(start);
+            await bridge.command(id === null ? 'play' : `playid ${id}`);
             return bridge.current;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -671,6 +894,16 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             favouritesSinks.add(sendFavourites);
         }
 
+        const sendPlaylists = (list: PlaylistSummary[]) => {
+            const body: PlaylistsResponse = { playlists: list };
+            reply.raw.write(sseFrame(SSE_PLAYLISTS_EVENT, body));
+        };
+        // Never awaited: a cold cache is read in the background and arrives via the sink.
+        const cachedPlaylists = playlists.current();
+        if (cachedPlaylists !== null) sendPlaylists(cachedPlaylists);
+        else void playlists.list().catch(() => {});
+        playlistsSinks.add(sendPlaylists);
+
         const sendPlays = (albums: RecentPlayAlbum[]) => {
             const body: RecentPlaysResponse = { albums };
             reply.raw.write(sseFrame(SSE_PLAYS_EVENT, body));
@@ -705,6 +938,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             settingsSinks.delete(sendSettings);
             librarySinks.delete(sendLibrary);
             favouritesSinks.delete(sendFavourites);
+            playlistsSinks.delete(sendPlaylists);
             playsSinks.delete(sendPlays);
             streams.delete(close);
             if (fromPanel) {

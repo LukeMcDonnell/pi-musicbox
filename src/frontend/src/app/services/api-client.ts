@@ -91,6 +91,17 @@ export class ApiClient {
         return (await response.json()) as T;
     }
 
+    /** POST with a JSON body, returning the server's answer. Used as patchJson is. */
+    async postJson<T>(path: string, body: unknown): Promise<T> {
+        const response = await fetch(this.resolve(path), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new ApiError(await detail(response, path), response.status);
+        return (await response.json()) as T;
+    }
+
     /** PUT with no body, returning the server's answer. Used as patchJson is. */
     async putJson<T>(path: string): Promise<T> {
         return this.bodyless<T>('PUT', path);

@@ -10,7 +10,8 @@
                    max-[46rem]:fixed max-[46rem]:inset-x-0 max-[46rem]:bottom-0 max-[46rem]:h-tabs
                    max-[46rem]:w-auto max-[46rem]:border-t max-[46rem]:border-raised" />
 
-  <main #scrollFrame class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+  <!-- cdkScrollable: a dragged playlist row scrolls this. CDK listens only during a drag. -->
+  <main #scrollFrame cdkScrollable class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
         [class.pb-keyboard]="keyboard.open()"
         [class.scroll-pb-keyboard]="keyboard.open()">
     <!-- A tablet and up gets a capped, inset column. Inside the scroller rather
