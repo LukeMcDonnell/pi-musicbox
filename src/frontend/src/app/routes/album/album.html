@@ -66,8 +66,6 @@
       <p class="pt-3 text-[0.95rem] text-muted">Loading tracks…</p>
     }
 
-    <!-- Rows are not buttons: a library track has no MPD song id, so there is
-         nothing to address. See the component header. -->
     <ol class="flex flex-col pt-3">
       @for (group of discs(); track group.disc) {
         @if (group.disc; as disc) {
@@ -101,13 +99,27 @@
           </li>
         }
         @for (track of group.tracks; track track.file) {
-          <li class="flex min-h-11 items-center gap-3 px-0 py-2">
+          <li class="flex min-h-11 items-center gap-3 px-0 py-0">
             <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ numberOf(track, $index) }}.
             </span>
             <span class="text-xl min-w-0 flex-1 truncate">{{ titleOf(track) }}</span>
             <span class="flex-none text-[0.85rem] text-muted tabular-nums">
               {{ durationOf(track) }}
             </span>
+            <button class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()"
+                    (click)="playNext(track)"
+                    [attr.aria-label]="'Play ' + titleOf(track) + ' next'">
+              <svg lucideListStart class="size-5" aria-hidden="true"></svg>
+            </button>
+            <button class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()"
+                    (click)="queueTrack(track)"
+                    [attr.aria-label]="'Add ' + titleOf(track) + ' to the queue'">
+              <svg lucideListPlus class="size-5" aria-hidden="true"></svg>
+            </button>
           </li>
         }
       } @empty {

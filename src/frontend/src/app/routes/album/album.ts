@@ -1,9 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucidePlay } from '@lucide/angular';
+import { LucideChevronLeft, LucideDisc3, LucideListPlus, LucideListStart, LucidePlay } from '@lucide/angular';
 import type { AlbumRef, AlbumResponse, Track } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
+import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Preferences } from '../../services/preferences';
 import { Rating } from '../../components/rating/rating';
@@ -31,9 +32,8 @@ import { CoverArt } from '../../components/cover-art/cover-art';
   Each disc heading carries its own Play and Queue, which narrow the same two
   POSTs with a `disc` on the AlbumRef. Play still replaces the queue.
 
-  Rows are not tappable. These tracks have no MPD song id — they are library
-  songs, not queue entries — so there is nothing for `POST /api/queue/play/:id`
-  to address. Play the album.
+  Each track row has Play next and Queue, addressed by the track's `file`. Into
+  an empty queue either one starts playback, so it is treated as a Play.
 */
 @Component({
     selector: 'app-album',
@@ -45,6 +45,7 @@ import { CoverArt } from '../../components/cover-art/cover-art';
         LucideChevronLeft,
         LucideDisc3,
         LucideListPlus,
+        LucideListStart,
         LucidePlay,
     ],
     templateUrl: './album.html',
@@ -52,6 +53,7 @@ import { CoverArt } from '../../components/cover-art/cover-art';
 })
 export class Album {
     private readonly library = inject(LibraryStore);
+    private readonly api = inject(MusicboxApi);
     private readonly sheet = inject(NowPlayingSheet);
     private readonly prefs = inject(Preferences);
     private readonly router = inject(Router);
@@ -205,6 +207,28 @@ export class Album {
     async queue(disc: string | null = null): Promise<void> {
         await this.send(() => this.library.queueAlbum(this.ref(disc)));
         if (this.error() === null && this.prefs.openQueueOnAdd()) this.sheet.showQueue();
+    }
+
+    queueTrack(track: Track): Promise<void> {
+        return this.addTrack(track, (file) => this.library.queueTrack(file));
+    }
+
+    playNext(track: Track): Promise<void> {
+        return this.addTrack(track, (file) => this.library.playTrackNext(file));
+    }
+
+    private async addTrack(track: Track, add: (file: string) => Promise<void>): Promise<void> {
+        const file = track.file;
+        if (!file) return;
+        // Read before sending: the server starts playback only into an empty queue.
+        const starts = this.api.snapshot()?.queueLength === 0;
+        await this.send(() => add(file));
+        if (this.error() !== null) return;
+        if (starts) {
+            if (this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+        } else if (this.prefs.openQueueOnAdd()) {
+            this.sheet.showQueue();
+        }
     }
 
     /** The key is OMITTED for a whole album — `disc: null` would fail validation. */

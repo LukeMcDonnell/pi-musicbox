@@ -39784,6 +39784,12 @@ function createBackups(opts) {
 
 // src/routes.ts
 var SSE_HEARTBEAT_MS = 15e3;
+function trackAddCommands(file, next, current) {
+  const add = `add ${quoteArg(file)}`;
+  if (current.queueLength === 0) return [add, "play"];
+  if (!next) return [add];
+  return [`${add} ${quoteArg(current.queuePosition === null ? "0" : "+0")}`];
+}
 function isLoopback(ip) {
   return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 }
@@ -39992,6 +39998,32 @@ function registerRoutes(app, opts) {
     const [tag, value] = releaseFilter(ref.release);
     const album = `findadd ${quoteArg(tag)} ${quoteArg(value)}`;
     return ref.disc === void 0 ? album : `${album} ${quoteArg("disc")} ${quoteArg(ref.disc)}`;
+  }
+  function trackRefFrom(body) {
+    const { file } = body ?? {};
+    if (typeof file !== "string" || file === "") return "missing 'file'";
+    if (file.startsWith("/") || file.includes("://")) return "invalid 'file'";
+    return { file };
+  }
+  for (const [path, next] of [
+    ["/api/library/track/queue", false],
+    ["/api/library/track/next", true]
+  ]) {
+    app.post(path, async (request, reply) => {
+      const ref = trackRefFrom(request.body);
+      if (typeof ref === "string") return reply.code(400).send({ error: ref });
+      if (bridge.current.source === "bluetooth") {
+        return reply.code(409).send({
+          error: "cannot queue a track while a phone owns the DAC"
+        });
+      }
+      try {
+        await bridge.runAll(trackAddCommands(ref.file, next, bridge.current));
+        return bridge.current;
+      } catch (err) {
+        return reply.code(503).send({ error: err.message });
+      }
+    });
   }
   app.post("/api/library/queue", async (request, reply) => {
     const ref = albumRefFrom(request.body);
@@ -41143,7 +41175,7 @@ function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-06T07:25:13Z" : "dev";
+var BUILD = true ? "2026-10-06T08:19:02Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);

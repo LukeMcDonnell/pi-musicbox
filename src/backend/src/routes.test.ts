@@ -32,7 +32,7 @@ import {
 } from '../../shared/api.ts';
 import type { BluetoothState } from './bluetooth.ts';
 import { discFromState } from './cd.ts';
-import { isLoopback } from './routes.ts';
+import { isLoopback, trackAddCommands } from './routes.ts';
 import type { Panel } from './panel.ts';
 import { createSettings, SETTINGS_DEFAULTS, type Settings } from './settings.ts';
 import { ScanRefusedError, type LibraryScanner } from './library-scan.ts';
@@ -1985,5 +1985,80 @@ test('system status is 503 without a reader, and its answer with one', async () 
             routes.closeStreams();
             await app.close();
         }
+    }
+});
+
+test('a track is queued by plain add, or inserted after the current one', () => {
+    const playing = { queueLength: 5, queuePosition: 2 };
+    assert.deepEqual(trackAddCommands('a/1.flac', false, playing), ['add "a/1.flac"']);
+    assert.deepEqual(trackAddCommands('a/1.flac', true, playing), ['add "a/1.flac" "+0"']);
+    // Stopped with no current song: `play` would start from the top.
+    const noSong = { queueLength: 5, queuePosition: null };
+    assert.deepEqual(trackAddCommands('a/1.flac', true, noSong), ['add "a/1.flac" "0"']);
+    assert.deepEqual(trackAddCommands('a/1.flac', false, noSong), ['add "a/1.flac"']);
+});
+
+test('a track added to an empty queue starts playing, whichever button', () => {
+    const empty = { queueLength: 0, queuePosition: null };
+    for (const next of [false, true]) {
+        assert.deepEqual(trackAddCommands('a/"b".flac', next, empty), ['add "a/\\"b\\".flac"', 'play']);
+    }
+});
+
+test('queueing a track is refused while a phone owns the DAC', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        await bridge.setBluetooth(PHONE);
+        for (const path of ['/api/library/track/queue', '/api/library/track/next']) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ file: 'Radiohead/Kid A/01.flac' }),
+            });
+            assert.equal(res.status, 409, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('a track reference must be a library path before it can reach a command line', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const bodies: unknown[] = [
+            {},
+            { file: '' },
+            { file: 1 },
+            { file: ['a.flac'] },
+            { file: { toString: () => 'a.flac' } },
+            { file: 'http://example.com/stream.mp3' },
+            { file: 'file:///etc/passwd' },
+            { file: '/etc/passwd' },
+        ];
+        for (const body of bodies) {
+            for (const path of ['/api/library/track/queue', '/api/library/track/next']) {
+                const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                assert.equal(res.status, 400, `${path} ${JSON.stringify(body)}`);
+            }
+        }
+        // A valid path passes validation and gets as far as the (absent) MPD.
+        for (const path of ['/api/library/track/queue', '/api/library/track/next']) {
+            const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ file: 'Radiohead/Kid A/01.flac' }),
+            });
+            assert.equal(res.status, 503, path);
+        }
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
     }
 });

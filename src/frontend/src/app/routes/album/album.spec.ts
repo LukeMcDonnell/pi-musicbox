@@ -1,8 +1,10 @@
 import { TestBed } from '@angular/core/testing';
+import type { WritableSignal } from '@angular/core';
 import { Router, provideRouter } from '@angular/router';
-import type { AlbumResponse, AlbumSummary, Track } from '@musicbox/shared';
+import type { AlbumResponse, AlbumSummary, Snapshot, Track } from '@musicbox/shared';
 import { Album } from './album';
 import { LibraryStore } from '../../services/library-store';
+import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { PREFERENCES_KEY, Preferences } from '../../services/preferences';
 
@@ -43,6 +45,8 @@ function fakeStore(data: AlbumResponse = response()) {
         fetchAlbum: jasmine.createSpy('fetchAlbum').and.resolveTo(data),
         playAlbum: jasmine.createSpy('playAlbum').and.resolveTo(undefined),
         queueAlbum: jasmine.createSpy('queueAlbum').and.resolveTo(undefined),
+        queueTrack: jasmine.createSpy('queueTrack').and.resolveTo(undefined),
+        playTrackNext: jasmine.createSpy('playTrackNext').and.resolveTo(undefined),
         resolve: (path: string) => path,
     };
 }
@@ -62,6 +66,12 @@ function create(
     fixture.componentRef.setInput('album', album);
     fixture.componentRef.setInput('release', release);
     return fixture;
+}
+
+/** Only the queue length matters to the track buttons. */
+function setQueueLength(queueLength: number): void {
+    const api = TestBed.inject(MusicboxApi) as unknown as { _snapshot: WritableSignal<Snapshot | null> };
+    api._snapshot.set({ queueLength, queuePosition: queueLength > 0 ? 0 : null } as Snapshot);
 }
 
 describe('Album', () => {
@@ -413,6 +423,90 @@ describe('Album', () => {
         await first;
 
         expect(store.playAlbum).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers Play next and Queue on every track row', async () => {
+        const fixture = create(fakeStore());
+        fixture.detectChanges();
+        await fixture.whenStable();
+        fixture.detectChanges();
+        const el = fixture.nativeElement as HTMLElement;
+        expect(el.querySelector('[aria-label="Play Everything next"]')).not.toBeNull();
+        expect(el.querySelector('[aria-label="Add Kid A to the queue"]')).not.toBeNull();
+    });
+
+    it('queues and plays-next a single track by its file', async () => {
+        const store = fakeStore();
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        setQueueLength(3);
+        const [first, second] = fixture.componentInstance.tracks();
+
+        await fixture.componentInstance.queueTrack(first);
+        await fixture.componentInstance.playNext(second);
+        expect(store.queueTrack).toHaveBeenCalledWith('a/1.flac');
+        expect(store.playTrackNext).toHaveBeenCalledWith('a/2.flac');
+        expect(store.playAlbum).not.toHaveBeenCalled();
+        expect(TestBed.inject(NowPlayingSheet).open()).toBeFalse();
+    });
+
+    it('raises now-playing when a track goes into an empty queue, since it starts', async () => {
+        for (const button of ['queueTrack', 'playNext'] as const) {
+            TestBed.resetTestingModule();
+            const fixture = create(fakeStore());
+            fixture.detectChanges();
+            await fixture.whenStable();
+            setQueueLength(0);
+
+            await fixture.componentInstance[button](fixture.componentInstance.tracks()[0]);
+            const sheet = TestBed.inject(NowPlayingSheet);
+            expect(sheet.open()).withContext(button).toBeTrue();
+            expect(sheet.atQueue()).withContext(button).toBeFalse();
+        }
+    });
+
+    it('opens on the queue after a track is added when the user asked for that', async () => {
+        const fixture = create(fakeStore());
+        fixture.detectChanges();
+        await fixture.whenStable();
+        setQueueLength(3);
+        TestBed.inject(Preferences).set('openQueueOnAdd', true);
+
+        await fixture.componentInstance.playNext(fixture.componentInstance.tracks()[0]);
+        expect(TestBed.inject(NowPlayingSheet).atQueue()).toBeTrue();
+    });
+
+    it('leaves the screen alone when a track was refused', async () => {
+        const store = fakeStore();
+        store.queueTrack.and.rejectWith(new Error('cannot queue a track while a phone owns the DAC'));
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        setQueueLength(0);
+
+        await fixture.componentInstance.queueTrack(fixture.componentInstance.tracks()[0]);
+        expect(TestBed.inject(NowPlayingSheet).open()).toBeFalse();
+        expect(fixture.componentInstance.error()).toMatch(/phone owns the DAC/);
+    });
+
+    it('shares the busy guard between track and album buttons', async () => {
+        const store = fakeStore();
+        let release: () => void = () => {};
+        store.queueTrack.and.returnValue(new Promise<void>((r) => { release = r; }));
+        const fixture = create(store);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        const [first, second] = fixture.componentInstance.tracks();
+
+        const pending = fixture.componentInstance.queueTrack(first);
+        await fixture.componentInstance.playNext(second);
+        await fixture.componentInstance.play();
+        release();
+        await pending;
+
+        expect(store.playTrackNext).not.toHaveBeenCalled();
+        expect(store.playAlbum).not.toHaveBeenCalled();
     });
 
     it('reports an error instead of loading forever', async () => {

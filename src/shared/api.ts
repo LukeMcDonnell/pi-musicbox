@@ -661,7 +661,7 @@ export interface AlbumResponse {
      * and interleaves them.
      *
      * These carry no `id`: they are library songs, not queue entries, so there is
-     * nothing for `POST /api/queue/play/:id` to address. Play the album.
+     * nothing for `POST /api/queue/play/:id` to address. Queue one by its `file`.
      */
     tracks: Track[];
 }
@@ -718,6 +718,22 @@ export interface AlbumRef {
  * tag pair would queue all four self-titled Weezers. 409 while
  * a phone owns the DAC, for the same reason GET /api/queue is a 409 — MPD's queue
  * is not what anyone is looking at during a Bluetooth session.
+ */
+
+/** Names one library song for the two track POSTs below: its `Track.file`. */
+export interface TrackRef {
+    file: string;
+}
+
+/*
+ * PUTTING ONE TRACK IN THE QUEUE
+ *
+ *   POST /api/library/track/queue   appends it
+ *   POST /api/library/track/next    inserts it straight after the current track
+ *
+ * Both take a TrackRef and answer with a Snapshot. Into an EMPTY queue, both add
+ * the track and start playing it. `file` must be a library path — no URL, no
+ * absolute path. 409 while a phone owns the DAC, as for an album.
  */
 
 export interface HealthResponse {

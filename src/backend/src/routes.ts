@@ -42,6 +42,7 @@ import {
     type CdArtRestoreResponse,
     type SettingsResponse,
     type Snapshot,
+    type TrackRef,
 } from '../../shared/api.ts';
 import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
@@ -69,6 +70,19 @@ import type { SystemStatusReader } from './system-status.ts';
 
 /** How often to send an SSE comment so idle proxies and dead clients are noticed. */
 const SSE_HEARTBEAT_MS = 15_000;
+
+// An empty queue has nothing to follow, so both verbs add and play. With no
+// current song, position 0 is where `play` starts — so that is "next".
+export function trackAddCommands(
+    file: string,
+    next: boolean,
+    current: Pick<Snapshot, 'queueLength' | 'queuePosition'>,
+): string[] {
+    const add = `add ${quoteArg(file)}`;
+    if (current.queueLength === 0) return [add, 'play'];
+    if (!next) return [add];
+    return [`${add} ${quoteArg(current.queuePosition === null ? '0' : '+0')}`];
+}
 
 /**
  * Whether a request came from the box itself — which is how the panel is known.
@@ -519,6 +533,35 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         return ref.disc === undefined
             ? album
             : `${album} ${quoteArg('disc')} ${quoteArg(ref.disc)}`;
+    }
+
+    /** Only a library path: a URL would have MPD stream it, an absolute path read the disk. */
+    function trackRefFrom(body: unknown): TrackRef | string {
+        const { file } = (body ?? {}) as { file?: unknown };
+        if (typeof file !== 'string' || file === '') return "missing 'file'";
+        if (file.startsWith('/') || file.includes('://')) return "invalid 'file'";
+        return { file };
+    }
+
+    for (const [path, next] of [
+        ['/api/library/track/queue', false],
+        ['/api/library/track/next', true],
+    ] as const) {
+        app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+            const ref = trackRefFrom(request.body);
+            if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+            if (bridge.current.source === 'bluetooth') {
+                return reply.code(409).send({
+                    error: 'cannot queue a track while a phone owns the DAC',
+                });
+            }
+            try {
+                await bridge.runAll(trackAddCommands(ref.file, next, bridge.current));
+                return bridge.current;
+            } catch (err) {
+                return reply.code(503).send({ error: (err as Error).message });
+            }
+        });
     }
 
     /**

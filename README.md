@@ -1000,6 +1000,8 @@ GET  /api/library/albums?artist=<name>
 GET  /api/library/album?artist=<name>&album=<title>&release=<release>
 POST /api/library/queue    {albumArtist, album, release}   append an album
 POST /api/library/play     {albumArtist, album, release}   replace the queue and play
+POST /api/library/track/queue  {file}   append one track
+POST /api/library/track/next   {file}   insert one track after the current one
 
 GET   /api/panel                                   is there a backlight, is it on
 POST  /api/panel/backlight {on}                    409 unless the panel itself asks
@@ -1430,6 +1432,14 @@ the whole of *Music Bank*, and it works for both layouts — Blur's *13* keeps a
 exist matches nothing rather than erroring, so a stale request is inert. It earns
 its place on the big sets: the Dylan *Basement Tapes Complete* is 139 tracks over
 six discs.
+
+**Each track row carries Play next and Queue**, for building a queue a track at a
+time. Queue is MPD's `add`; Play next is `add <file> +0`, a position relative to
+the current song (MPD 0.23+). Into an empty queue, both add the track and start
+playing it — there is no current song to follow, and a lone track sitting stopped
+would read as a button that did nothing. Stopped with no current song, Play next
+inserts at position 0, which is where `play` starts. The `file` must be a library
+path: a URL or absolute path is a 400, so these cannot point MPD at a stream.
 
 Adding an album is MPD's own `findadd` — one command, not a track at a time, which
 would bump `queueVersion` once per track and make every client refetch the whole
