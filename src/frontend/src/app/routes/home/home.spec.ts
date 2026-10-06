@@ -318,6 +318,8 @@ describe('Home', () => {
         const fixture = create(albums(40), [], [], []);
         const img = (fixture.nativeElement as HTMLElement).querySelector('img')!;
         const uri = img.getAttribute('src')!;
+        // The thumbnail fails, then the original.
+        img.dispatchEvent(new Event('error'));
         img.dispatchEvent(new Event('error'));
         fixture.detectChanges();
         expect(fixture.componentInstance.coverOf(fixture.componentInstance.albums()[0])).toBeNull();

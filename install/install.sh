@@ -159,6 +159,10 @@ PACKAGES=(
     # CD playback; configured by setup-cd.sh. MPD reads the disc itself through
     # its built-in cdio_paranoia input, so eject is the only addition.
     eject
+
+    # Cover thumbnails, built in the background by the web server (thumbs.ts).
+    # A CLI rather than a native Node module, so the backend stays one file.
+    graphicsmagick
 )
 
 # NOTE: nodejs only, and never Debian's npm — which is 363 packages, because it

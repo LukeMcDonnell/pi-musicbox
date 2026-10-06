@@ -1923,3 +1923,56 @@ the GPU-raster A/B flag). The file is now written only when absent, and an expli
 `--url` replaces just the `KIOSK_URL` line. The flags that every panel needs live
 in the wrapper's `FLAGS`, which the script owns; `kiosk.conf` is for per-device
 experiments.
+
+## Cover thumbnails: one size, GraphicsMagick, built in the background (2026-10-06)
+
+Covers were served as originals: median 542KB, often 1000–1500px, drawn at
+48–152px. The panel's remaining scroll jank on the Library and album views was
+those covers. A temporary CSS rule hiding every `<app-cover-art>` image on short
+screens made scrolling "much smoother", judged by hand. With GPU raster off (the
+white-screen A/B) the CPU downscales each cover on every raster, and the virtual
+Library list re-decodes rows it destroyed.
+
+- **One size, 280px longest edge** (`ART_THUMB_EDGE`). The largest small use is a
+  Home card at up to 152 CSS px, and phones are ~3x DPI. 280 splits the difference
+  between sharp on the panel and acceptable on a phone.
+- **Thumbnails everywhere except the album and artist heroes and the large
+  now-playing cover.** The blurred backdrops use them too; blur hides the
+  resolution.
+- **New endpoints; `/api/art` is unchanged.** `/api/art/thumb?album=` and
+  `/api/cd/art/thumb?release=`. `thumbUriFor()` in `src/shared/api.ts` is the only
+  place that maps one to the other, and both sides import it. The wire contract did
+  not change: payloads still carry the original URI.
+- **GraphicsMagick, as a CLI.** `sharp` is a native module and would break the
+  single-file bundle and the one-runtime-dependency rule. A pure-JS decoder is slow
+  on a Pi. `gm` is 7 apt packages, handles the one PNG in the library, and with
+  `-size` lets libjpeg decode at reduced scale. `libjpeg-turbo-progs` (2 packages)
+  was the smaller option, but JPEG-only and sized in 1/8 steps.
+- **The server never runs it.** The backend has no `child_process`, and that rule
+  stands (see the Bluetooth control channel above). A first draft spawned `gm`
+  from the server, and the config suites caught it. The server drops a request
+  file in `/run/musicbox-thumbs/` instead: `library` for a full pass, `cd` for CD
+  covers only. `musicbox-thumbs.path` starts the helper, which `setup-server.sh`
+  installs. The request is the file's name, as with power, so there is nothing
+  to parse. A request made during a pass re-fires the path unit afterwards, so
+  passes never overlap and requests merge.
+- **Built in the background only, never on request.** On-demand conversion would
+  have spiked the CPU while you browse. The helper runs as the app user, one cover
+  at a time, and systemd throttles it: `Nice=19`, `CPUQuota=50%`,
+  `IOSchedulingClass=idle`. The server asks after each nightly scan, at every start
+  until a full pass has written `.complete`, and for each newly fetched CD cover.
+- **Sources come from MPD's index** (`mpc listall`): every directory holding songs
+  plus every top-level artist directory, which is exactly what `artUriFor()`
+  names. Covers are looked up with the same filenames in the same order as
+  `ART_FILENAMES`, and the tests hold the two lists equal. Cache names are
+  `sha1("<kind>:<key>")`, pinned to the same values in both suites, because bash
+  writes them and Node reads them.
+- **Unbuilt is a 404 with `no-store`, and the client falls back to the original.**
+  `ThumbSrc` tries the thumbnail, swaps to the original on the first error, and
+  emits `failed` (with the original URI, the key every "stop asking" cache already
+  uses) only if the original fails too. The fallback is per element and per URI,
+  so a recreated row or a new album tries the thumbnail again.
+- **A recorded failure is not retried until the cover changes** (`failed:<etag>`
+  in the `.src` sidecar). A cover that cannot be read, e.g. while the share is
+  down, keeps its existing thumbnail. Pruning only removes thumbnails whose source
+  has left MPD's index, and never when that list comes back empty.

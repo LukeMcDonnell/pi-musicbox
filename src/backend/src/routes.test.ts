@@ -18,6 +18,7 @@ import { open as fsOpen, constants as fsConstants } from 'node:fs/promises';
 import { mkdtemp, mkdir, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { thumbName } from './thumbs.ts';
 import { registerRoutes } from './routes.ts';
 import { BACKUP_MAX_BYTES, type LibraryState } from '../../shared/api.ts';
 import { registerStatic } from './static.ts';
@@ -78,6 +79,7 @@ async function startServer(
         bluetoothControl?: string;
         cdControl?: string;
         cdArtDir?: string;
+        thumbDir?: string;
         panel?: Panel;
         settings?: Settings;
         power?: Power;
@@ -103,6 +105,7 @@ async function startServer(
         bluetoothControl: opts.bluetoothControl ?? '/nonexistent-run-dir/control',
         cdControl: opts.cdControl ?? '/nonexistent-run-dir/cd-control',
         cdArtDir: opts.cdArtDir,
+        thumbDir: opts.thumbDir,
         panel: opts.panel,
         settings: opts.settings,
         power: opts.power,
@@ -1912,6 +1915,47 @@ test('a CD cover is served from the cache, and only for a release ID', async () 
             const ok = await fetch(`http://127.0.0.1:${port}/api/cd/art?release=${id}`);
             assert.equal(ok.status, 200);
             assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+        } finally {
+            routes.closeStreams();
+            await app.close();
+        }
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test('a built thumbnail is served with an etag; an unbuilt one is a 404 nobody caches', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'musicbox-thumbs-'));
+    const album = 'Radiohead/OK Computer (1997)';
+    const id = '8d0bc6d4-8700-44e8-90c8-b86c23e7ff14';
+    try {
+        const { app, routes, port } = await startServer({ thumbDir: dir });
+        const url = (path: string) => `http://127.0.0.1:${port}${path}`;
+        try {
+            assert.equal((await fetch(url('/api/art/thumb'))).status, 400);
+            assert.equal((await fetch(url('/api/cd/art/thumb?release=..%2Fx'))).status, 400);
+
+            const missing = await fetch(url(`/api/art/thumb?album=${encodeURIComponent(album)}`));
+            assert.equal(missing.status, 404);
+            assert.equal(missing.headers.get('cache-control'), 'no-store');
+            assert.deepEqual(await missing.json(), { error: 'no thumbnail yet' });
+
+            await writeFile(join(dir, `${thumbName('album', album)}.jpg`), 'SMALL JPEG');
+            const ok = await fetch(url(`/api/art/thumb?album=${encodeURIComponent(album)}`));
+            assert.equal(ok.status, 200);
+            assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+            assert.match(ok.headers.get('cache-control') ?? '', /max-age=\d{5,}/);
+            assert.equal(await ok.text(), 'SMALL JPEG');
+            const etag = ok.headers.get('etag')!;
+            const again = await fetch(url(`/api/art/thumb?album=${encodeURIComponent(album)}`), {
+                headers: { 'if-none-match': etag },
+            });
+            assert.equal(again.status, 304);
+
+            await writeFile(join(dir, `${thumbName('release', id)}.jpg`), 'CD JPEG');
+            const cd = await fetch(url(`/api/cd/art/thumb?release=${id}`));
+            assert.equal(cd.status, 200);
+            assert.equal(await cd.text(), 'CD JPEG');
         } finally {
             routes.closeStreams();
             await app.close();

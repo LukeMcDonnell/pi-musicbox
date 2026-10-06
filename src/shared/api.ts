@@ -46,6 +46,27 @@ export function isCdTrack(track: { file?: string } | null | undefined): boolean 
     return track?.file?.startsWith(CD_URI_PREFIX) ?? false;
 }
 
+/** Longest edge of a cover thumbnail, in pixels. One size serves every small cover. */
+export const ART_THUMB_EDGE = 280;
+
+const THUMB_ROUTES: ReadonlyArray<readonly [string, string]> = [
+    ['/api/art?', '/api/art/thumb?'],
+    ['/api/cd/art?', '/api/cd/art/thumb?'],
+];
+
+/**
+ * The thumbnail URI for a cover URI, root-relative or with an origin; null for
+ * anything that has no thumbnail. A thumbnail may 404 until it has been built.
+ */
+export function thumbUriFor(uri: string): string | null {
+    for (const [from, to] of THUMB_ROUTES) {
+        const at = uri.indexOf(from);
+        // Only as the path itself: query values are encoded, so a match after a '?' is not one.
+        if (at !== -1 && !uri.slice(0, at).includes('?')) return uri.slice(0, at) + to + uri.slice(at + from.length);
+    }
+    return null;
+}
+
 /**
  * Where the online lookup has got to. `off` is the setting; `not-found` covers a
  * disc MusicBrainz does not know and one whose table of contents was unreadable.

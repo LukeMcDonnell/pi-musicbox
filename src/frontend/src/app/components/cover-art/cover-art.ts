@@ -1,4 +1,5 @@
 import { booleanAttribute, ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ThumbSrc } from '../thumb-src/thumb-src';
 
 /*
   A cover, a picture, or the placeholder that stands in for one.
@@ -19,15 +20,25 @@ import { booleanAttribute, ChangeDetectionStrategy, Component, input, output } f
   the picture arrives and is never drawn until a scroll or a right-click forces
   a repaint. Measured, not guessed — `loading="lazy"` was the other suspect and
   was ruled out. Do not add it back; see decisions.md.
+
+  `thumb` asks for the small thumbnail first (ThumbSrc), for every cover but the
+  heroes and now-playing's large one.
 */
 @Component({
     selector: 'app-cover-art',
+    imports: [ThumbSrc],
     template: `
         <span class="col-start-1 row-start-1"><ng-content /></span>
         @if (uri(); as src) {
-            <img class="col-start-1 row-start-1 h-full w-full object-cover" [src]="src" alt=""
-                 [attr.width]="width()" [attr.height]="height()"
-                 [attr.loading]="lazy() ? 'lazy' : null" (error)="failed.emit(src)">
+            @if (thumb()) {
+                <img class="col-start-1 row-start-1 h-full w-full object-cover" [appThumbSrc]="src" alt=""
+                     [attr.width]="width()" [attr.height]="height()"
+                     [attr.loading]="lazy() ? 'lazy' : null" (failed)="failed.emit($event)">
+            } @else {
+                <img class="col-start-1 row-start-1 h-full w-full object-cover" [src]="src" alt=""
+                     [attr.width]="width()" [attr.height]="height()"
+                     [attr.loading]="lazy() ? 'lazy' : null" (error)="failed.emit(src)">
+            }
         }
     `,
     host: { class: 'grid place-items-center overflow-hidden' },
@@ -43,6 +54,9 @@ export class CoverArt {
 
     /** Off-screen lists and shelves set this; the heroes and now-playing do not. */
     readonly lazy = input(false, { transform: booleanAttribute });
+
+    /** Show the thumbnail, falling back to the original. Not for heroes. */
+    readonly thumb = input(false, { transform: booleanAttribute });
 
     /** The URI that failed, so the screen can stop asking for it. */
     readonly failed = output<string>();

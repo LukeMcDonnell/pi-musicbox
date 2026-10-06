@@ -32,7 +32,7 @@ export const ARTIST_ROW_HEIGHT = 64;
                        active:bg-raised"
                 (click)="open.emit()">
             <app-cover-art class="size-12 flex-none rounded-full bg-surface" [uri]="cover()"
-                           [width]="48" [height]="48" lazy (failed)="failed.emit($event)">
+                           [width]="48" [height]="48" lazy thumb (failed)="failed.emit($event)">
                 <svg lucideUserRound class="size-5 text-muted" aria-hidden="true"></svg>
             </app-cover-art>
             <span class="min-w-0 flex-1 flex place-items-center">

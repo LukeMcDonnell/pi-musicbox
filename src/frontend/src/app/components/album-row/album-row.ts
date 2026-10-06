@@ -34,7 +34,7 @@ export const ALBUM_ROW_HEIGHT = 64;
                        gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised"
                 (click)="open.emit()">
             <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="cover()"
-                           [width]="48" [height]="48" lazy (failed)="failed.emit($event)">
+                           [width]="48" [height]="48" lazy thumb (failed)="failed.emit($event)">
                 <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
             </app-cover-art>
             <span class="min-w-0 flex-1">

@@ -47,6 +47,7 @@ import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
 import { albumsFromSongs, createLibrary, releaseFilter } from './library.ts';
+import { createThumbHandler } from './thumbs.ts';
 import type { LibraryNotes } from './library-notes.ts';
 import {
     BluetoothUnavailableError,
@@ -94,6 +95,8 @@ export interface RouteOptions {
     cdControl?: string;
     /** Where looked-up CD covers are cached. See config.cdArtDir. */
     cdArtDir?: string;
+    /** Built cover thumbnails. See config.thumbDir and thumbs.ts. */
+    thumbDir?: string;
     /** The panel's backlight. Absent on a build with no panel support wired up. */
     panel?: Panel;
     /** The box's settings store. See settings.ts for what belongs in it. */
@@ -1076,6 +1079,16 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         const { release } = request.query as { release?: string };
         if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
         return cdArt(request, reply);
+    });
+
+    // Thumbnails: built in the background by thumbs.ts, never on request. 404 until built.
+    const thumbDir = opts.thumbDir ?? '/nonexistent-thumbs';
+    app.get('/api/art/thumb', createThumbHandler(thumbDir, 'album', 'album'));
+    const cdThumb = createThumbHandler(thumbDir, 'release', 'release');
+    app.get('/api/cd/art/thumb', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { release } = request.query as { release?: string };
+        if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
+        return cdThumb(request, reply);
     });
 
     return {

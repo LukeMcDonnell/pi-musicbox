@@ -201,7 +201,9 @@ anything itself) plus `mpd` and `mpc`. Its header carries the contract with
 before adding packages. `bluez-alsa-utils` and `bluez-tools` give the Bluetooth
 A2DP sink, configured by `setup-bluetooth.sh`. `eject` is for `setup-cd.sh`; MPD
 reads CDs through its built-in `cdio_paranoia` input, so playback needs nothing
-else. Ripping (`cdparanoia` / `libcdio-utils`) is still TODO.
+else. Ripping (`cdparanoia` / `libcdio-utils`) is still TODO. `graphicsmagick`
+(7 packages) builds the cover thumbnails; the server spawns `gm`, so it is a
+tool beside the runtime, not a Node dependency.
 
 `mpd` alone costs **118 packages** with `--no-install-recommends`. See
 `decisions.md` for why that is accepted.
@@ -310,6 +312,14 @@ installed on the device.
 A `.path` unit can only *start* a unit, and the service is already running — so
 restarting on deploy needs the one-shot in between. The payoff is that a deploy
 is just an rsync: **no sudo anywhere in the dev loop.**
+
+The same script installs three request-file helpers, each a tmpfiles directory, a
+`.path` unit and a oneshot. They exist because the server has no `child_process`
+and may not act for itself:
+
+- `musicbox-power` (root): restart or shut down
+- `musicbox-restore` (root): swap in a backup
+- `musicbox-thumbs` (the app user, throttled): build cover thumbnails
 
 #### The ordering that costs real money
 

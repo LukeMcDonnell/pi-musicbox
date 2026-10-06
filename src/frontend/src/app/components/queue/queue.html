@@ -30,7 +30,7 @@
             <!-- Lazy, with the box fixed by width/height: a long queue is
                  mostly off screen, and an unfetched cover costs nothing. -->
             <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="artOf(row)"
-                           [width]="48" [height]="48" lazy (failed)="onArtError($event)">
+                           [width]="48" [height]="48" lazy thumb (failed)="onArtError($event)">
               @if (isCd(row)) {
                 <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
               } @else {

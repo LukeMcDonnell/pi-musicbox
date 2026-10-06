@@ -41,6 +41,8 @@ describe('AlbumRow', () => {
         const { fixture, host } = create({ cover: '/api/art?album=x' });
         const failed: string[] = [];
         fixture.componentInstance.failed.subscribe((uri) => failed.push(uri));
+        // The thumbnail fails, then the original.
+        host.querySelector('img')!.dispatchEvent(new Event('error'));
         host.querySelector('img')!.dispatchEvent(new Event('error'));
         expect(failed).toEqual(['/api/art?album=x']);
     });

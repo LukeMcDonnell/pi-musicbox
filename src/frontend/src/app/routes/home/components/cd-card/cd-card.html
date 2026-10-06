@@ -1,7 +1,7 @@
 @if (cd(); as disc) {
   <section aria-label="Audio CD" class="mb-4 flex items-center gap-4 rounded-md bg-surface p-3">
     <app-cover-art class="size-14 flex-none rounded-md bg-raised" [uri]="cover()"
-                   [width]="56" [height]="56" (failed)="coverFailed.set($event)">
+                   [width]="56" [height]="56" thumb (failed)="coverFailed.set($event)">
       <svg lucideDisc3 class="size-8 text-muted" aria-hidden="true"></svg>
     </app-cover-art>
     <span class="min-w-0 flex-1">

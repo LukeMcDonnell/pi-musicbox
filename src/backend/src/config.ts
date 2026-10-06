@@ -47,6 +47,10 @@ export interface Config {
     cdControl: string;
     /** Looked-up CD covers. Beside the database by default; never under backend/. */
     cdArtDir: string;
+    /** Cover thumbnails, built by the musicbox-thumbs helper. Regenerable, so never backed up. */
+    thumbDir: string;
+    /** Where the server asks that helper for a build. On tmpfs, like powerDir. */
+    thumbRequestDir: string;
     /**
      * The SQLite file holding the box's own state — settings now, favourites
      * and recent plays later.
@@ -84,6 +88,8 @@ export const DEFAULTS: Config = {
     cdState: DEFAULT_CD_STATE_PATH,
     cdControl: DEFAULT_CD_CONTROL_PATH,
     cdArtDir: '/var/lib/musicbox/data/cd-art',
+    thumbDir: '/var/lib/musicbox/data/thumbs',
+    thumbRequestDir: '/run/musicbox-thumbs',
     dbPath: '/var/lib/musicbox/data/musicbox.db',
     powerDir: '/run/musicbox-power',
     mpdStateDir: '/var/lib/mpd',
@@ -156,6 +162,10 @@ export function loadConfig(
         cdArtDir:
             pick('MUSICBOX_CD_ART_DIR') ??
             (pick('MUSICBOX_DB') ? join(dirname(pick('MUSICBOX_DB')!), 'cd-art') : DEFAULTS.cdArtDir),
+        thumbDir:
+            pick('MUSICBOX_THUMB_DIR') ??
+            (pick('MUSICBOX_DB') ? join(dirname(pick('MUSICBOX_DB')!), 'thumbs') : DEFAULTS.thumbDir),
+        thumbRequestDir: pick('MUSICBOX_THUMB_REQUEST_DIR') ?? DEFAULTS.thumbRequestDir,
         powerDir: pick('MUSICBOX_POWER_DIR') ?? DEFAULTS.powerDir,
         mpdStateDir: pick('MUSICBOX_MPD_STATE_DIR') ?? DEFAULTS.mpdStateDir,
         restoreDir: pick('MUSICBOX_RESTORE_DIR') ?? DEFAULTS.restoreDir,

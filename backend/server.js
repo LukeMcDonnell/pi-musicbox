@@ -7990,7 +7990,7 @@ var require_thread_stream = __commonJS({
     var { version } = require_package();
     var { EventEmitter } = __require("events");
     var { Worker } = __require("worker_threads");
-    var { join: join8 } = __require("path");
+    var { join: join9 } = __require("path");
     var { pathToFileURL } = __require("url");
     var { wait } = require_wait();
     var {
@@ -8041,7 +8041,7 @@ var require_thread_stream = __commonJS({
     function createWorker(stream, opts) {
       const { filename, workerData } = opts;
       const bundlerOverrides = "__bundlerPathsOverrides" in globalThis ? globalThis.__bundlerPathsOverrides : {};
-      const toExecute = bundlerOverrides["thread-stream-worker"] || join8(__dirname, "lib", "worker.js");
+      const toExecute = bundlerOverrides["thread-stream-worker"] || join9(__dirname, "lib", "worker.js");
       const worker = new Worker(toExecute, {
         ...opts.workerOpts,
         name: opts.workerOpts?.name || "thread-stream",
@@ -8509,7 +8509,7 @@ var require_transport = __commonJS({
     var { createRequire } = __require("module");
     var { existsSync } = __require("node:fs");
     var getCallers = require_caller();
-    var { join: join8, isAbsolute, sep: sep2 } = __require("node:path");
+    var { join: join9, isAbsolute, sep: sep2 } = __require("node:path");
     var { fileURLToPath } = __require("node:url");
     var sleep = require_atomic_sleep();
     var onExit = require_on_exit_leak_free();
@@ -8662,7 +8662,7 @@ var require_transport = __commonJS({
         throw new Error("only one of target or targets can be specified");
       }
       if (targets) {
-        target = bundlerOverrides["pino-worker"] || join8(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join9(__dirname, "worker.js");
         options.targets = targets.filter((dest) => dest.target).map((dest) => {
           return {
             ...dest,
@@ -8680,7 +8680,7 @@ var require_transport = __commonJS({
           });
         });
       } else if (pipeline) {
-        target = bundlerOverrides["pino-worker"] || join8(__dirname, "worker.js");
+        target = bundlerOverrides["pino-worker"] || join9(__dirname, "worker.js");
         options.pipelines = [pipeline.map((dest) => {
           return {
             ...dest,
@@ -8703,7 +8703,7 @@ var require_transport = __commonJS({
           return origin;
         }
         if (origin === "pino/file") {
-          return join8(__dirname, "..", "file.js");
+          return join9(__dirname, "..", "file.js");
         }
         let fixTarget2;
         for (const filePath of callers) {
@@ -9683,7 +9683,7 @@ var require_safe_stable_stringify = __commonJS({
               return circularValue;
             }
             let res = "";
-            let join8 = ",";
+            let join9 = ",";
             const originalIndentation = indentation;
             if (Array.isArray(value)) {
               if (value.length === 0) {
@@ -9697,7 +9697,7 @@ var require_safe_stable_stringify = __commonJS({
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join8 = `,
+                join9 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9705,13 +9705,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join8;
+                res += join9;
               }
               const tmp = stringifyFnReplacer(String(i), value, stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join8}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join9}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9732,7 +9732,7 @@ ${originalIndentation}`;
             let separator = "";
             if (spacer !== "") {
               indentation += spacer;
-              join8 = `,
+              join9 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9746,13 +9746,13 @@ ${indentation}`;
               const tmp = stringifyFnReplacer(key2, value, stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join8;
+                separator = join9;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...":${whitespace}"${getItemCount(removedKeys)} not stringified"`;
-              separator = join8;
+              separator = join9;
             }
             if (spacer !== "" && separator.length > 1) {
               res = `
@@ -9793,7 +9793,7 @@ ${originalIndentation}`;
             }
             const originalIndentation = indentation;
             let res = "";
-            let join8 = ",";
+            let join9 = ",";
             if (Array.isArray(value)) {
               if (value.length === 0) {
                 return "[]";
@@ -9806,7 +9806,7 @@ ${originalIndentation}`;
                 indentation += spacer;
                 res += `
 ${indentation}`;
-                join8 = `,
+                join9 = `,
 ${indentation}`;
               }
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
@@ -9814,13 +9814,13 @@ ${indentation}`;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
                 res += tmp2 !== void 0 ? tmp2 : "null";
-                res += join8;
+                res += join9;
               }
               const tmp = stringifyArrayReplacer(String(i), value[i], stack, replacer, spacer, indentation);
               res += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res += `${join8}"... ${getItemCount(removedKeys)} not stringified"`;
+                res += `${join9}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               if (spacer !== "") {
                 res += `
@@ -9833,7 +9833,7 @@ ${originalIndentation}`;
             let whitespace = "";
             if (spacer !== "") {
               indentation += spacer;
-              join8 = `,
+              join9 = `,
 ${indentation}`;
               whitespace = " ";
             }
@@ -9842,7 +9842,7 @@ ${indentation}`;
               const tmp = stringifyArrayReplacer(key2, value[key2], stack, replacer, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}:${whitespace}${tmp}`;
-                separator = join8;
+                separator = join9;
               }
             }
             if (spacer !== "" && separator.length > 1) {
@@ -9900,20 +9900,20 @@ ${originalIndentation}`;
               indentation += spacer;
               let res2 = `
 ${indentation}`;
-              const join9 = `,
+              const join10 = `,
 ${indentation}`;
               const maximumValuesToStringify = Math.min(value.length, maximumBreadth);
               let i = 0;
               for (; i < maximumValuesToStringify - 1; i++) {
                 const tmp2 = stringifyIndent(String(i), value[i], stack, spacer, indentation);
                 res2 += tmp2 !== void 0 ? tmp2 : "null";
-                res2 += join9;
+                res2 += join10;
               }
               const tmp = stringifyIndent(String(i), value[i], stack, spacer, indentation);
               res2 += tmp !== void 0 ? tmp : "null";
               if (value.length - 1 > maximumBreadth) {
                 const removedKeys = value.length - maximumBreadth - 1;
-                res2 += `${join9}"... ${getItemCount(removedKeys)} not stringified"`;
+                res2 += `${join10}"... ${getItemCount(removedKeys)} not stringified"`;
               }
               res2 += `
 ${originalIndentation}`;
@@ -9929,16 +9929,16 @@ ${originalIndentation}`;
               return '"[Object]"';
             }
             indentation += spacer;
-            const join8 = `,
+            const join9 = `,
 ${indentation}`;
             let res = "";
             let separator = "";
             let maximumPropertiesToStringify = Math.min(keyLength, maximumBreadth);
             if (isTypedArrayWithEntries(value)) {
-              res += stringifyTypedArray(value, join8, maximumBreadth);
+              res += stringifyTypedArray(value, join9, maximumBreadth);
               keys = keys.slice(value.length);
               maximumPropertiesToStringify -= value.length;
-              separator = join8;
+              separator = join9;
             }
             if (deterministic) {
               keys = sort(keys, comparator);
@@ -9949,13 +9949,13 @@ ${indentation}`;
               const tmp = stringifyIndent(key2, value[key2], stack, spacer, indentation);
               if (tmp !== void 0) {
                 res += `${separator}${strEscape(key2)}: ${tmp}`;
-                separator = join8;
+                separator = join9;
               }
             }
             if (keyLength > maximumBreadth) {
               const removedKeys = keyLength - maximumBreadth;
               res += `${separator}"...": "${getItemCount(removedKeys)} not stringified"`;
-              separator = join8;
+              separator = join9;
             }
             if (separator !== "") {
               res = `
@@ -37304,6 +37304,8 @@ var DEFAULTS = {
   cdState: DEFAULT_CD_STATE_PATH,
   cdControl: DEFAULT_CD_CONTROL_PATH,
   cdArtDir: "/var/lib/musicbox/data/cd-art",
+  thumbDir: "/var/lib/musicbox/data/thumbs",
+  thumbRequestDir: "/run/musicbox-thumbs",
   dbPath: "/var/lib/musicbox/data/musicbox.db",
   powerDir: "/run/musicbox-power",
   mpdStateDir: "/var/lib/mpd",
@@ -37356,6 +37358,8 @@ function loadConfig(confPath = DEFAULT_CONF_PATH, env = process.env) {
     cdControl: pick("MUSICBOX_CD_CONTROL") ?? DEFAULTS.cdControl,
     dbPath: pick("MUSICBOX_DB") ?? DEFAULTS.dbPath,
     cdArtDir: pick("MUSICBOX_CD_ART_DIR") ?? (pick("MUSICBOX_DB") ? join(dirname2(pick("MUSICBOX_DB")), "cd-art") : DEFAULTS.cdArtDir),
+    thumbDir: pick("MUSICBOX_THUMB_DIR") ?? (pick("MUSICBOX_DB") ? join(dirname2(pick("MUSICBOX_DB")), "thumbs") : DEFAULTS.thumbDir),
+    thumbRequestDir: pick("MUSICBOX_THUMB_REQUEST_DIR") ?? DEFAULTS.thumbRequestDir,
     powerDir: pick("MUSICBOX_POWER_DIR") ?? DEFAULTS.powerDir,
     mpdStateDir: pick("MUSICBOX_MPD_STATE_DIR") ?? DEFAULTS.mpdStateDir,
     restoreDir: pick("MUSICBOX_RESTORE_DIR") ?? DEFAULTS.restoreDir,
@@ -38514,6 +38518,52 @@ async function collectRecent(bridge, limit) {
   return [...albums.values()];
 }
 
+// src/thumbs.ts
+import { createHash as createHash2 } from "node:crypto";
+import { createReadStream as createReadStream3 } from "node:fs";
+import { access, stat as stat4, writeFile } from "node:fs/promises";
+import { join as join3 } from "node:path";
+var THUMBS_COMPLETE_MARKER = ".complete";
+function thumbName(kind, key) {
+  return createHash2("sha1").update(`${kind}:${key}`).digest("hex");
+}
+function createThumbRequests(requestDir, thumbDir) {
+  return {
+    request: async (what) => {
+      try {
+        await writeFile(join3(requestDir, what), "");
+      } catch {
+      }
+    },
+    built: async () => {
+      try {
+        await access(join3(thumbDir, THUMBS_COMPLETE_MARKER));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+}
+function createThumbHandler(dir, kind, param) {
+  return async function thumbHandler(request, reply) {
+    const key = request.query[param];
+    if (key === void 0) return reply.code(400).send({ error: `missing '${param}' query parameter` });
+    const path = join3(dir, `${thumbName(kind, key)}.jpg`);
+    let info;
+    try {
+      info = await stat4(path);
+    } catch {
+      return reply.code(404).header("cache-control", "no-store").send({ error: "no thumbnail yet" });
+    }
+    const etag = etagFor({ path, size: info.size, mtimeMs: info.mtimeMs });
+    reply.header("etag", etag).header("cache-control", `public, max-age=${ART_MAX_AGE_S}`).header("content-type", "image/jpeg");
+    if (request.headers["if-none-match"] === etag) return reply.code(304).send();
+    reply.header("content-length", String(info.size));
+    return reply.send(createReadStream3(path));
+  };
+}
+
 // src/bluetooth.ts
 var DEFAULT_STATE_PATH = "/run/musicbox/bluetooth.json";
 var DEFAULT_CONTROL_PATH = "/run/musicbox/control";
@@ -38617,8 +38667,8 @@ async function sendControl(verb, path = DEFAULT_CONTROL_PATH) {
 }
 
 // src/cd-lookup.ts
-import { mkdir, rename, stat as stat4, writeFile } from "node:fs/promises";
-import { join as join3 } from "node:path";
+import { mkdir, rename, stat as stat5, writeFile as writeFile2 } from "node:fs/promises";
+import { join as join4 } from "node:path";
 var MUSICBRAINZ = "https://musicbrainz.org/ws/2";
 var COVER_ART_ARCHIVE = "https://coverartarchive.org";
 var TIMEOUT_MS = 1e4;
@@ -38636,10 +38686,10 @@ function createCdArtResolver(artDir) {
   return {
     resolve: async (releaseId) => {
       if (!isReleaseId(releaseId)) return null;
-      const path = join3(artDir, `${releaseId}.jpg`);
+      const path = join4(artDir, `${releaseId}.jpg`);
       stats++;
       try {
-        const s = await stat4(path);
+        const s = await stat5(path);
         return { path, size: s.size, mtimeMs: s.mtimeMs };
       } catch {
         return null;
@@ -38702,11 +38752,11 @@ function createCdLookup(opts) {
     headers: { "user-agent": opts.userAgent, accept: "application/json" },
     signal: AbortSignal.timeout(TIMEOUT_MS)
   });
-  const artPath = (releaseId) => join3(opts.artDir, `${releaseId}.jpg`);
+  const artPath = (releaseId) => join4(opts.artDir, `${releaseId}.jpg`);
   const cover = async (release) => {
     const path = artPath(release.releaseId);
     try {
-      await stat4(path);
+      await stat5(path);
       return cdArtUri(release.releaseId);
     } catch {
     }
@@ -38719,8 +38769,9 @@ function createCdLookup(opts) {
       }
       const bytes = Buffer.from(await res.arrayBuffer());
       await mkdir(opts.artDir, { recursive: true });
-      await writeFile(`${path}.tmp`, bytes);
+      await writeFile2(`${path}.tmp`, bytes);
       await rename(`${path}.tmp`, path);
+      opts.onCover?.(release.releaseId);
       return cdArtUri(release.releaseId);
     } catch (err) {
       log("warn", `cd: cover for ${release.releaseId} failed: ${err.message}`);
@@ -38773,8 +38824,8 @@ function createCdLookup(opts) {
 }
 
 // src/power.ts
-import { access, writeFile as writeFile2, constants as fsConstants2 } from "node:fs/promises";
-import { join as join4 } from "node:path";
+import { access as access2, writeFile as writeFile3, constants as fsConstants2 } from "node:fs/promises";
+import { join as join5 } from "node:path";
 var DEFAULT_POWER_DIR = "/run/musicbox-power";
 var POWER_ACTIONS = ["restart", "shutdown"];
 function isPowerAction(value) {
@@ -38790,7 +38841,7 @@ function createPower(dir = DEFAULT_POWER_DIR) {
   return {
     async available() {
       try {
-        await access(dir, fsConstants2.W_OK);
+        await access2(dir, fsConstants2.W_OK);
         return true;
       } catch {
         return false;
@@ -38798,7 +38849,7 @@ function createPower(dir = DEFAULT_POWER_DIR) {
     },
     async request(action) {
       try {
-        await writeFile2(join4(dir, action), "");
+        await writeFile3(join5(dir, action), "");
       } catch (err) {
         const reason = err.code ?? "unknown error";
         throw new PowerUnavailableError(
@@ -38882,7 +38933,7 @@ function createSettings(db) {
 }
 
 // src/library-scan.ts
-import { stat as stat5 } from "node:fs/promises";
+import { stat as stat6 } from "node:fs/promises";
 var TICK_MS = 6e4;
 var BOOT_DELAY_MS = 12e4;
 var BOOT_RETRY_MS = 3e4;
@@ -38941,7 +38992,7 @@ async function probeRoot(root) {
       timer = setTimeout(() => resolve2(false), PROBE_TIMEOUT_MS);
     });
     return await Promise.race([
-      stat5(root).then(
+      stat6(root).then(
         (s) => s.isDirectory(),
         () => false
       ),
@@ -39224,9 +39275,9 @@ function createLibraryScanner(opts) {
 }
 
 // src/backup.ts
-import { access as access2, mkdir as mkdir2, mkdtemp, readdir, readFile as readFile2, rename as rename2, rm, writeFile as writeFile3, constants as fsConstants3 } from "node:fs/promises";
+import { access as access3, mkdir as mkdir2, mkdtemp, readdir, readFile as readFile2, rename as rename2, rm, writeFile as writeFile4, constants as fsConstants3 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname as dirname4, join as join5 } from "node:path";
+import { dirname as dirname4, join as join6 } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 // src/db.ts
@@ -39584,10 +39635,10 @@ async function readBackup(archive, known = SCHEMA_VERSION) {
   for (const required of [DB_MEMBER, ...MPD_REQUIRED.map((f) => `mpd/${f}`)]) {
     if (!names.has(required)) throw new BackupError(`backup is missing ${required}`, 400);
   }
-  const scratch = await mkdtemp(join5(tmpdir(), "musicbox-backup-check-"));
+  const scratch = await mkdtemp(join6(tmpdir(), "musicbox-backup-check-"));
   try {
-    const path = join5(scratch, DB_MEMBER);
-    await writeFile3(path, entries.find((e) => e.name === DB_MEMBER).data);
+    const path = join6(scratch, DB_MEMBER);
+    await writeFile4(path, entries.find((e) => e.name === DB_MEMBER).data);
     checkDbFile(path, known);
   } catch (err) {
     throw new BackupError(`backup database is unusable: ${err.message}`, 400);
@@ -39599,8 +39650,8 @@ async function readBackup(archive, known = SCHEMA_VERSION) {
 function createBackups(opts) {
   const { mpdDir, restoreDir } = opts;
   const now = opts.now ?? Date.now;
-  const request = join5(restoreDir, "request");
-  const payload = join5(restoreDir, "payload");
+  const request = join6(restoreDir, "request");
+  const payload = join6(restoreDir, "payload");
   let staging = false;
   async function pending() {
     return await readOptional(request) !== null;
@@ -39609,10 +39660,10 @@ function createBackups(opts) {
     pending,
     async create() {
       const createdAt = now();
-      const scratch = await mkdtemp(join5(tmpdir(), "musicbox-backup-"));
+      const scratch = await mkdtemp(join6(tmpdir(), "musicbox-backup-"));
       const entries = [];
       try {
-        const dbCopy = join5(scratch, DB_MEMBER);
+        const dbCopy = join6(scratch, DB_MEMBER);
         opts.db.snapshot(dbCopy);
         const manifest = {
           format: BACKUP_FORMAT,
@@ -39628,23 +39679,23 @@ function createBackups(opts) {
         await rm(scratch, { recursive: true, force: true });
       }
       for (const file of MPD_REQUIRED) {
-        const data = await readOptional(join5(mpdDir, file));
-        if (!data) throw new BackupError(`cannot read ${join5(mpdDir, file)} \u2014 is MPD installed?`, 503);
+        const data = await readOptional(join6(mpdDir, file));
+        if (!data) throw new BackupError(`cannot read ${join6(mpdDir, file)} \u2014 is MPD installed?`, 503);
         entries.push({ name: `mpd/${file}`, data });
       }
       for (const file of MPD_OPTIONAL) {
-        const data = await readOptional(join5(mpdDir, file));
+        const data = await readOptional(join6(mpdDir, file));
         if (data) entries.push({ name: `mpd/${file}`, data });
       }
       let playlists = [];
       try {
-        playlists = (await readdir(join5(mpdDir, "playlists"))).sort();
+        playlists = (await readdir(join6(mpdDir, "playlists"))).sort();
       } catch {
       }
       for (const file of playlists) {
         const name = `mpd/playlists/${file}`;
         if (!isAllowedMember(name)) continue;
-        const data = await readOptional(join5(mpdDir, "playlists", file));
+        const data = await readOptional(join6(mpdDir, "playlists", file));
         if (data) entries.push({ name, data });
       }
       return {
@@ -39655,7 +39706,7 @@ function createBackups(opts) {
     async restore(archive) {
       if (archive.length > BACKUP_MAX_BYTES) throw new BackupError("backup is too large", 400);
       try {
-        await access2(restoreDir, fsConstants3.W_OK);
+        await access3(restoreDir, fsConstants3.W_OK);
       } catch {
         throw new BackupError("restore is not available \u2014 is setup-server.sh installed?", 503);
       }
@@ -39665,13 +39716,13 @@ function createBackups(opts) {
       staging = true;
       try {
         const entries = await readBackup(archive);
-        const next = await mkdtemp(join5(restoreDir, "payload.tmp-"));
+        const next = await mkdtemp(join6(restoreDir, "payload.tmp-"));
         try {
           for (const entry of entries) {
             if (entry.name === MANIFEST_MEMBER) continue;
-            const target = join5(next, entry.name);
+            const target = join6(next, entry.name);
             await mkdir2(dirname4(target), { recursive: true });
-            await writeFile3(target, entry.data, { mode: 420 });
+            await writeFile4(target, entry.data, { mode: 420 });
           }
           await rm(payload, { recursive: true, force: true });
           await rename2(next, payload);
@@ -39679,7 +39730,7 @@ function createBackups(opts) {
           await rm(next, { recursive: true, force: true });
           throw err;
         }
-        await writeFile3(request, "");
+        await writeFile4(request, "");
       } finally {
         staging = false;
       }
@@ -40278,6 +40329,14 @@ function registerRoutes(app, opts) {
     if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
     return cdArt(request, reply);
   });
+  const thumbDir = opts.thumbDir ?? "/nonexistent-thumbs";
+  app.get("/api/art/thumb", createThumbHandler(thumbDir, "album", "album"));
+  const cdThumb = createThumbHandler(thumbDir, "release", "release");
+  app.get("/api/cd/art/thumb", async (request, reply) => {
+    const { release } = request.query;
+    if (!isReleaseId(release)) return reply.code(400).send({ error: "'release' must be a MusicBrainz release ID" });
+    return cdThumb(request, reply);
+  });
   return {
     closeStreams: () => {
       for (const close of [...streams]) {
@@ -40380,7 +40439,7 @@ function createCdSession(deps) {
 }
 
 // src/library-notes.ts
-import { open, stat as stat6 } from "node:fs/promises";
+import { open, stat as stat7 } from "node:fs/promises";
 
 // src/nfo.ts
 var NFO_MAX_BYTES = 65536;
@@ -40444,7 +40503,7 @@ var realNotesDeps = {
   readNfo: readNfoFile,
   rootReadable: async (root) => {
     try {
-      return (await stat6(root)).isDirectory();
+      return (await stat7(root)).isDirectory();
     } catch {
       return false;
     }
@@ -40573,7 +40632,7 @@ function upsert(db, directory, kind, rating, biography, at) {
 
 // src/panel.ts
 import { readFileSync as readFileSync2, readdirSync, writeFileSync } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var BACKLIGHT_ROOT = "/sys/class/backlight";
 var defaultPanelDeps = {
   root: BACKLIGHT_ROOT,
@@ -40585,7 +40644,7 @@ function findDevice(deps, explicit) {
   if (explicit) return explicit;
   try {
     const entries = deps.listDir(deps.root).sort();
-    return entries.length > 0 ? join6(deps.root, entries[0]) : null;
+    return entries.length > 0 ? join7(deps.root, entries[0]) : null;
   } catch {
     return null;
   }
@@ -40596,7 +40655,7 @@ function createPanel(options = {}) {
   let max = 0;
   if (device !== null) {
     try {
-      max = Number.parseInt(deps.readFile(join6(device, "max_brightness")).trim(), 10);
+      max = Number.parseInt(deps.readFile(join7(device, "max_brightness")).trim(), 10);
     } catch {
       max = 0;
     }
@@ -40605,7 +40664,7 @@ function createPanel(options = {}) {
   const read = () => {
     if (!supported) return null;
     try {
-      const raw = deps.readFile(join6(device, "brightness")).trim();
+      const raw = deps.readFile(join7(device, "brightness")).trim();
       const value = Number.parseInt(raw, 10);
       return Number.isFinite(value) ? value : null;
     } catch (err) {
@@ -40623,7 +40682,7 @@ function createPanel(options = {}) {
     set(on) {
       if (!supported) return false;
       try {
-        deps.writeFile(join6(device, "brightness"), String(on ? max : 0));
+        deps.writeFile(join7(device, "brightness"), String(on ? max : 0));
         return true;
       } catch (err) {
         options.onError?.(err);
@@ -40634,8 +40693,8 @@ function createPanel(options = {}) {
 }
 
 // src/cd-art-backup.ts
-import { mkdir as mkdir3, readdir as readdir2, readFile as readFile3, rename as rename3, writeFile as writeFile4 } from "node:fs/promises";
-import { join as join7 } from "node:path";
+import { mkdir as mkdir3, readdir as readdir2, readFile as readFile3, rename as rename3, writeFile as writeFile5 } from "node:fs/promises";
+import { join as join8 } from "node:path";
 import { gunzipSync as gunzipSync2, gzipSync as gzipSync2 } from "node:zlib";
 var CD_ART_BACKUP_FORMAT = 1;
 var MANIFEST_MEMBER2 = "manifest.json";
@@ -40696,7 +40755,7 @@ function createCdArtBackups(opts) {
         const name = `cd-art/${file}`;
         if (coverRelease(name) === null) continue;
         try {
-          entries.push({ name, data: await readFile3(join7(opts.artDir, file)) });
+          entries.push({ name, data: await readFile3(join8(opts.artDir, file)) });
         } catch (err) {
           if (err.code !== "ENOENT") throw err;
         }
@@ -40711,8 +40770,8 @@ function createCdArtBackups(opts) {
       const covers = readCdArtBackup(archive);
       await mkdir3(opts.artDir, { recursive: true });
       for (const { releaseId, data } of covers) {
-        const path = join7(opts.artDir, `${releaseId}.jpg`);
-        await writeFile4(`${path}.tmp`, data, { mode: 420 });
+        const path = join8(opts.artDir, `${releaseId}.jpg`);
+        await writeFile5(`${path}.tmp`, data, { mode: 420 });
         await rename3(`${path}.tmp`, path);
       }
       return covers.length;
@@ -40919,7 +40978,7 @@ function createPlayWatch(plays) {
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-06T03:40:22Z" : "dev";
+var BUILD = true ? "2026-10-06T06:55:25Z" : "dev";
 async function main() {
   const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
   const config = loadConfig(confPath);
@@ -40956,6 +41015,7 @@ async function main() {
     musicRoot: config.musicRoot,
     log: (level, msg) => app.log[level](msg)
   });
+  const thumbs = createThumbRequests(config.thumbRequestDir, config.thumbDir);
   let routes;
   const scanner = createLibraryScanner({
     bridge,
@@ -40971,6 +41031,7 @@ async function main() {
     onScanComplete: async () => {
       await notes.harvest();
       routes.invalidateLibrary();
+      await thumbs.request("library");
     }
   });
   const panel = createPanel({
@@ -40987,6 +41048,7 @@ async function main() {
     bluetoothControl: config.bluetoothControl,
     cdControl: config.cdControl,
     cdArtDir: config.cdArtDir,
+    thumbDir: config.thumbDir,
     panel,
     settings,
     power: createPower(config.powerDir),
@@ -41021,7 +41083,8 @@ async function main() {
       db,
       artDir: config.cdArtDir,
       userAgent: `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`,
-      log: (level, msg) => app.log[level](msg)
+      log: (level, msg) => app.log[level](msg),
+      onCover: () => void thumbs.request("cd")
     }),
     lookupEnabled: () => settings.all().cdLookup,
     log: (level, msg) => app.log[level](msg)
@@ -41068,6 +41131,9 @@ async function main() {
     };
     armInitialHarvest(0);
   }
+  void thumbs.built().then((done) => {
+    if (!done) setTimeout(() => void thumbs.request("library"), 6e4).unref();
+  });
   const shutdown = async (signal) => {
     app.log.info(`${signal} received, shutting down`);
     bridge.stop();

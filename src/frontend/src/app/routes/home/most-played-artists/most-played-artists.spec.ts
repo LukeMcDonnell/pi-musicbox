@@ -164,6 +164,8 @@ describe('MostPlayedArtists', () => {
     it('stops asking for a picture that 404s', async () => {
         const { fixture } = await create();
         const img = (fixture.nativeElement as HTMLElement).querySelector('li img')!;
+        // The thumbnail fails, then the original.
+        img.dispatchEvent(new Event('error'));
         img.dispatchEvent(new Event('error'));
         fixture.detectChanges();
         expect(fixture.componentInstance.artOf(artist(0))).toBeNull();

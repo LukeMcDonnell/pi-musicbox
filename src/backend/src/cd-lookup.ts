@@ -117,6 +117,8 @@ export interface CdLookupOptions {
     now?: () => number;
     log?: (level: 'warn' | 'info', message: string) => void;
     minIntervalMs?: number;
+    /** A newly saved cover, so its thumbnail can be built. */
+    onCover?: (releaseId: string) => void;
 }
 
 export interface CdLookup {
@@ -171,6 +173,7 @@ export function createCdLookup(opts: CdLookupOptions): CdLookup {
             await mkdir(opts.artDir, { recursive: true });
             await writeFile(`${path}.tmp`, bytes);
             await rename(`${path}.tmp`, path);
+            opts.onCover?.(release.releaseId);
             return cdArtUri(release.releaseId);
         } catch (err) {
             log('warn', `cd: cover for ${release.releaseId} failed: ${(err as Error).message}`);

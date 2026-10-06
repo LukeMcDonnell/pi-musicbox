@@ -56,7 +56,7 @@
                          gap-3 rounded-md px-2 py-2 text-left select-none active:bg-raised"
                   (click)="open(album)">
             <app-cover-art class="size-12 flex-none rounded bg-surface" [uri]="coverOf(album)"
-                           [width]="48" [height]="48" lazy (failed)="onCoverError($event)">
+                           [width]="48" [height]="48" lazy thumb (failed)="onCoverError($event)">
               <svg lucideDisc3 class="size-5 text-muted" aria-hidden="true"></svg>
             </app-cover-art>
             <span class="min-w-0 flex-1">

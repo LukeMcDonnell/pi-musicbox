@@ -77,7 +77,7 @@ describe('CdCard', () => {
         expect(el.textContent).toContain('Ten');
         expect(el.textContent).toContain('Pearl Jam · 1991');
         expect(el.textContent).not.toContain('Audio CD');
-        expect(el.querySelector('img')?.getAttribute('src')).toBe('/api/cd/art?release=8d0bc6d4-8700-44e8-90c8-b86c23e7ff14');
+        expect(el.querySelector('img')?.getAttribute('src')).toBe('/api/cd/art/thumb?release=8d0bc6d4-8700-44e8-90c8-b86c23e7ff14');
     });
 
     it('says it is looking the disc up', () => {

@@ -32,6 +32,7 @@ import type { PlaybackCommand } from '@musicbox/shared';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { Queue } from '../queue/queue';
+import { ThumbSrc } from '../thumb-src/thumb-src';
 
 /** Seconds as m:ss, or a dash when there is nothing to show. */
 export function clock(seconds: number | null): string {
@@ -104,6 +105,7 @@ const SYNC_TIMEOUT_MS = 500;
         LucideEject,
         LucideX,
         Queue,
+        ThumbSrc,
     ],
     templateUrl: './now-playing.html',
     // No min-h-dvh: the content sets the height now — one viewport of

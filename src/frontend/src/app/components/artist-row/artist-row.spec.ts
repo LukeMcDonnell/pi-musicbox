@@ -32,6 +32,8 @@ describe('ArtistRow', () => {
         const fixture = create('/api/art?album=Radiohead');
         const failed = jasmine.createSpy('failed');
         fixture.componentInstance.failed.subscribe(failed);
+        // The thumbnail fails, then the original.
+        fixture.nativeElement.querySelector('img').dispatchEvent(new Event('error'));
         fixture.nativeElement.querySelector('img').dispatchEvent(new Event('error'));
         expect(failed).toHaveBeenCalledWith('/api/art?album=Radiohead');
     });

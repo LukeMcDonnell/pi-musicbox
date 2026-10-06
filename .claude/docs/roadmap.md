@@ -137,13 +137,10 @@ The page renders correctly at 800×480 on the dev machine, which is why this was
 not caught: headless Chrome uses `--disable-gpu`, i.e. software rasterisation —
 the one path that never exercises the fault.
 
-**Direction, not yet a decision.** Blur cost scales with the source resolution, so
-blurring a 1000×1000 JPEG at sigma 172 is paying twice over; a small downscaled
-source with a proportionally smaller sigma should look near-identical for almost
-nothing. `/api/art` serving a thumbnail size would fix the backdrop and the
-library list at the same time, and it is now the OUTSTANDING half — the other,
-virtualising the artist list, has landed. It is also the half that matters for
-cost-per-decode, which virtualisation did nothing about.
+**Thumbnails landed (2026-10-06).** Every small cover and both blurred backdrops
+now use a 280px thumbnail from `/api/art/thumb`. See `decisions.md`, "Cover
+thumbnails". If the white screen recurs with GPU raster off, it is no longer
+full-size covers being decoded.
 
 Still confirm which of the two actually causes the crash before fixing both — the
 panel is the only place that can answer it, and `--disable-gpu-rasterization` via

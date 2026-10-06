@@ -1,4 +1,5 @@
 import { Component, computed, inject, output, signal } from '@angular/core';
+import { ThumbSrc } from '../thumb-src/thumb-src';
 import {
     LucideBluetooth,
     LucideDisc3,
@@ -29,7 +30,7 @@ import { MusicboxApi } from '../../services/musicbox-api';
 */
 @Component({
     selector: 'app-now-playing-mini',
-    imports: [LucideBluetooth, LucideDisc3, LucideMusic, LucidePause, LucidePlay, LucideSkipForward],
+    imports: [LucideBluetooth, LucideDisc3, LucideMusic, LucidePause, LucidePlay, LucideSkipForward, ThumbSrc],
     templateUrl: './now-playing-mini.html',
     // overflow-hidden clips the viewport-sized backdrop to the bar.
     host: { class: 'block overflow-hidden bg-surface' },

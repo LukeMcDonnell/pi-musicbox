@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { LucideBluetooth, LucideDisc3, LucideMusic } from '@lucide/angular';
+import { ThumbSrc } from '../thumb-src/thumb-src';
 import { MusicboxApi } from '../../services/musicbox-api';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 
@@ -21,7 +22,7 @@ import { NowPlayingSheet } from '../../services/now-playing-sheet';
 */
 @Component({
     selector: 'app-now-playing-micro',
-    imports: [LucideBluetooth, LucideDisc3, LucideMusic],
+    imports: [LucideBluetooth, LucideDisc3, LucideMusic, ThumbSrc],
     template: `
       <button class="flex h-full w-full cursor-pointer touch-manipulation items-center justify-center
                      py-2 select-none active:bg-raised max-[46rem]:py-1"
@@ -30,8 +31,8 @@ import { NowPlayingSheet } from '../../services/now-playing-sheet';
         <span class="grid size-[60px] flex-none place-items-center overflow-hidden rounded bg-raised
                      max-[46rem]:size-10">
           @if (artUri(); as uri) {
-            <img class="h-full w-full object-cover" [src]="uri" alt=""
-                 width="60" height="60" (error)="onArtError(uri)">
+            <img class="h-full w-full object-cover" [appThumbSrc]="uri" alt=""
+                 width="60" height="60" (failed)="onArtError($event)">
           } @else if (onBluetooth()) {
             <svg lucideBluetooth class="size-6 text-muted max-[46rem]:size-5" aria-hidden="true"></svg>
           } @else if (onCd()) {

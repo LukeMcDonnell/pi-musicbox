@@ -25,7 +25,7 @@ import type { AlbumIdentity } from '@musicbox/shared';
                        active:bg-raised"
                 (click)="open.emit()">
             <app-cover-art class="aspect-square w-full rounded-md bg-surface" [uri]="cover()"
-                           lazy (failed)="failed.emit($event)">
+                           lazy thumb (failed)="failed.emit($event)">
                 <svg lucideDisc3 class="size-8 text-muted" aria-hidden="true"></svg>
             </app-cover-art>
             <span class="w-full min-w-0">

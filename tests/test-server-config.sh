@@ -311,6 +311,92 @@ check "sudo is never invoked" "1" \
     "$(grep -qE '^[[:space:]]*sudo ' "$REPO/tools/dev-push.sh"; echo $?)"
 check "dev-push never builds on the device" "1" "$(has 'ssh.*npm' "$REPO/tools/dev-push.sh")"
 
+banner "cover thumbnails: a throttled helper builds them, the server never runs it"
+BACKEND_MUSIC_ROOT_FOR_THUMBS="$(grep -oE "musicRoot: '[^']*'" "$REPO/src/backend/src/config.ts" | head -1 | sed "s/.*: '//; s/'$//")"
+THUMBS="$OUT/musicbox-thumbs"
+TUNIT="$OUT/musicbox-thumbs.service"
+check "the helper is executable"          "755" "$(stat -c %a "$THUMBS")"
+check "it runs as the app user"           "0" "$(hasre '^User=musicbox$' "$TUNIT")"
+check "it never competes with the panel"  "0" "$(hasre '^Nice=19$' "$TUNIT")"
+check "at most half a core"               "0" "$(hasre '^CPUQuota=50%$' "$TUNIT")"
+check "and idle I/O"                      "0" "$(hasre '^IOSchedulingClass=idle$' "$TUNIT")"
+check "a long first build is not killed"  "0" "$(hasre '^TimeoutStartSec=infinity$' "$TUNIT")"
+check "it reads the server's config"      "0" "$(hasre '^EnvironmentFile=-/etc/musicbox/server.conf$' "$TUNIT")"
+check "a full pass is requested by name"  "0" "$(hasre '^PathExists=/run/musicbox-thumbs/library$' "$OUT/musicbox-thumbs.path")"
+check "and a CD pass"                     "0" "$(hasre '^PathExists=/run/musicbox-thumbs/cd$' "$OUT/musicbox-thumbs.path")"
+check "the request dir is on tmpfs, the app user's" "0" \
+    "$(hasre '^d /run/musicbox-thumbs 0750 musicbox musicbox -$' "$OUT/musicbox-thumbs.conf")"
+ART_NAMES="$(awk '/^export const ART_FILENAMES = \[/,/\]/' "$REPO/src/backend/src/art.ts" | grep -oE "'[^']+'" | tr -d "'" | tr '\n' ' ')"
+HELPER_NAMES="$(grep -oE '^readonly NAMES=\([^)]*\)' "$THUMBS" | sed 's/^readonly NAMES=(//; s/)$//') "
+check "the helper looks for the same covers, in art.ts's order" "$ART_NAMES" "$HELPER_NAMES"
+check "and makes them ART_THUMB_EDGE" \
+    "$(grep -oE 'ART_THUMB_EDGE = [0-9]+' "$REPO/src/shared/api.ts" | grep -oE '[0-9]+$')" \
+    "$(grep -oE '^readonly EDGE=[0-9]+' "$THUMBS" | grep -oE '[0-9]+$')"
+check "its music root is the backend's default" "$BACKEND_MUSIC_ROOT_FOR_THUMBS" \
+    "$(grep -oE 'MUSICBOX_MUSIC_ROOT:-[^}]*' "$THUMBS" | sed 's/.*:-//')"
+
+TT="$WORK/thumbs-run"
+ID="8d0bc6d4-8700-44e8-90c8-b86c23e7ff14"
+OKC="Radiohead/OK Computer (1997)"
+# Pinned in src/backend/src/thumbs.test.ts too: the helper writes these names, the server reads them.
+OKC_HASH="0631821edeb32cb920ab2a8f89507ea4fc0824e5"
+CD_HASH="38075632807adfad84ebd6380904d66f5e79ffca"
+mkdir -p "$TT/bin" "$TT/music/$OKC" "$TT/music/NoArt/Album" "$TT/data/cd-art" "$TT/req"
+echo jpeg > "$TT/music/$OKC/folder.jpg"
+echo jpeg > "$TT/music/Radiohead/folder.jpg"
+echo jpeg > "$TT/data/cd-art/$ID.jpg"
+printf '%s\n' "$OKC/01 Airbag.flac" "NoArt/Album/01.flac" "@eaDir/x/01.flac" > "$TT/listing"
+cat > "$TT/bin/mpc" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == listall ]] && cat "$STUB_DIR/listing"
+STUB
+cat > "$TT/bin/gm" <<'STUB'
+#!/usr/bin/env bash
+# convert -limit threads 1 -size WxH <src> ... jpg:<dest>
+src="$7"; dest="${*: -1}"; dest="${dest#jpg:}"
+if [[ -f "$STUB_DIR/gm-fail" ]] && grep -qxF "$src" "$STUB_DIR/gm-fail"; then echo "Corrupt JPEG data" >&2; exit 1; fi
+echo "thumb of $src" > "$dest"
+STUB
+chmod +x "$TT/bin/"*
+run_thumbs() { # run_thumbs <library|cd>
+    : > "$TT/req/$1"
+    STUB_DIR="$TT" PATH="$TT/bin:$PATH" MUSICBOX_THUMB_REQUEST_DIR="$TT/req" \
+        MUSICBOX_DB="$TT/data/musicbox.db" MUSICBOX_MUSIC_ROOT="$TT/music" bash "$THUMBS" 2>&1
+}
+T="$TT/data/thumbs"
+summary="$(run_thumbs library)"
+check "a full pass builds album, artist and CD covers" "0" \
+    "$(printf '%s' "$summary" | grep -qF '3 built, 0 current, 2 without art, 0 failed, 0 pruned'; echo $?)"
+check "under the name the server computes" "thumb of $TT/music/$OKC/folder.jpg" "$(cat "$T/$OKC_HASH.jpg" 2>/dev/null)"
+check "CD covers too"                     "0" "$(if [[ -f "$T/$CD_HASH.jpg" ]]; then echo 0; else echo 1; fi)"
+check "junk directories are never walked" "0" "$(grep -c . <(ls "$T"/*.jpg 2>/dev/null) | grep -qx 3; echo $?)"
+check "the request is consumed"           "1" "$(if [[ -e "$TT/req/library" ]]; then echo 0; else echo 1; fi)"
+check "a full pass marks itself complete" "0" "$(if [[ -f "$T/.complete" ]]; then echo 0; else echo 1; fi)"
+check "a second pass converts nothing" "0" \
+    "$(run_thumbs library | grep -qF '0 built, 3 current'; echo $?)"
+
+touch -d '2020-01-01' "$TT/music/$OKC/folder.jpg"
+echo "$TT/music/$OKC/folder.jpg" > "$TT/gm-fail"
+summary="$(run_thumbs library)"
+check "a changed cover that will not convert fails, once" "0" \
+    "$(printf '%s' "$summary" | grep -qF '1 failed'; echo $?)"
+check "and says why"                      "0" "$(printf '%s' "$summary" | grep -qF 'Corrupt JPEG data'; echo $?)"
+check "leaving no thumbnail to serve"     "1" "$(if [[ -e "$T/$OKC_HASH.jpg" ]]; then echo 0; else echo 1; fi)"
+check "and it is not retried until the cover changes" "0" \
+    "$(run_thumbs library | grep -qF '0 built, 3 current, 2 without art, 0 failed'; echo $?)"
+
+: > "$TT/listing"
+check "an empty listing (MPD down) prunes nothing" "0" "$(run_thumbs library | grep -qF '0 pruned'; echo $?)"
+printf '%s\n' "NoArt/Album/01.flac" > "$TT/listing"
+check "a full pass prunes what left the library" "0" "$(run_thumbs library | grep -qF '2 pruned'; echo $?)"
+check "but keeps the CD covers"           "0" "$(if [[ -f "$T/$CD_HASH.jpg" ]]; then echo 0; else echo 1; fi)"
+
+ID2="0c3a9a5e-1d8d-4b0e-9f6c-3b7d0f3e2a11"
+echo jpeg > "$TT/data/cd-art/$ID2.jpg"
+summary="$(run_thumbs cd)"
+check "a CD request builds only the new CD cover" "0" \
+    "$(printf '%s' "$summary" | grep -qF 'thumbnails (cd): 1 built, 1 current'; echo $?)"
+
 banner "album art: the music root must agree with MPD's music_directory"
 # If these two drift, EVERY art request 404s and nothing else misbehaves — a
 # miserable thing to debug from the symptom. So compare the literals directly.

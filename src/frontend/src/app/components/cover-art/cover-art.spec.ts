@@ -5,7 +5,7 @@ import { CoverArt } from './cover-art';
 @Component({
     imports: [CoverArt],
     template: `
-        <app-cover-art [uri]="uri" [width]="width" [height]="height" [lazy]="lazy"
+        <app-cover-art [uri]="uri" [width]="width" [height]="height" [lazy]="lazy" [thumb]="thumb"
                        (failed)="failed.push($event)">
             <svg class="icon" aria-hidden="true"></svg>
         </app-cover-art>
@@ -16,10 +16,11 @@ class Host {
     width: number | null = null;
     height: number | null = null;
     lazy = false;
+    thumb = false;
     readonly failed: string[] = [];
 }
 
-function create(over: Partial<Pick<Host, 'uri' | 'width' | 'height' | 'lazy'>> = {}) {
+function create(over: Partial<Pick<Host, 'uri' | 'width' | 'height' | 'lazy' | 'thumb'>> = {}) {
     TestBed.configureTestingModule({ imports: [Host] });
     const fixture = TestBed.createComponent(Host);
     Object.assign(fixture.componentInstance, over);
@@ -63,6 +64,25 @@ describe('CoverArt', () => {
         TestBed.resetTestingModule();
         expect(create({ uri: '/x', lazy: true }).host.querySelector('img')!.getAttribute('loading'))
             .toBe('lazy');
+    });
+
+    it('shows the original unless asked for the thumbnail', () => {
+        expect(create({ uri: '/api/art?album=x' }).host.querySelector('img')!.getAttribute('src'))
+            .toBe('/api/art?album=x');
+    });
+
+    it('with thumb, asks for the thumbnail and still reports the original when both fail', () => {
+        const { fixture, host } = create({ uri: '/api/art?album=x', thumb: true, lazy: true, width: 48, height: 48 });
+        const img = () => host.querySelector('img')!;
+        expect(img().getAttribute('src')).toBe('/api/art/thumb?album=x');
+        expect(img().getAttribute('loading')).toBe('lazy');
+        expect(img().getAttribute('width')).toBe('48');
+        img().dispatchEvent(new Event('error'));
+        fixture.detectChanges();
+        expect(img().getAttribute('src')).toBe('/api/art?album=x');
+        expect(fixture.componentInstance.failed).toEqual([]);
+        img().dispatchEvent(new Event('error'));
+        expect(fixture.componentInstance.failed).toEqual(['/api/art?album=x']);
     });
 
     // decoding="async" is what stopped covers painting; see decisions.md.

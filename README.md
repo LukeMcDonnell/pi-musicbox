@@ -981,7 +981,8 @@ SSE carries state, REST carries commands.
 
 ```
 GET  /api/health     GET /api/status    GET /api/events (SSE)    GET /api/queue
-GET  /api/art?album=<url-encoded library directory>
+GET  /api/art?album=<url-encoded library directory>       the original cover
+GET  /api/art/thumb?album=<...>  /api/cd/art/thumb?release=<mbid>   280px thumbnail; 404 until built
 POST /api/playback/{play,pause,stop,next,previous}
 POST /api/queue/play/<song id>
 
@@ -1578,6 +1579,28 @@ for 2 minutes panics it, and the panic reboots the board 10 seconds later.
 `kernel.panic_on_rcu_stall=1` does the same for a CPU that stops responding. That
 needs no help from the wedged clock path, unlike `reboot`. Playback stops for
 about two and a half minutes instead of indefinitely.
+
+## Cover thumbnails
+
+Every small cover (rows, cards, the queue, the mini bar, and the blurred
+backdrops) uses a 280px thumbnail. The album and artist heroes and the large
+now-playing cover use the original. Originals average over 500KB at
+1000–1500px, and redrawing them while scrolling made the panel janky: with covers
+hidden, scrolling was much smoother.
+
+- **Built in the background, never on request, and never by the server.** The
+  server drops a request file. `musicbox-thumbs.path` then runs a helper (installed
+  by `setup-server.sh`) that walks MPD's index and converts one cover at a time
+  with `gm` (GraphicsMagick, from `install.sh`). It runs at nice 19, with at most
+  half a core and idle I/O. This happens after each nightly scan, at startup until
+  a first build completes, and for each new CD cover. The first build covers
+  about 4,000 covers; after that only changes are rebuilt.
+- **Stored in** `/var/lib/musicbox/data/thumbs/`. They can be regenerated, so they
+  are not backed up.
+- **Not built yet is a 404**, sent `no-store`. The UI then shows the original, so
+  nothing is ever missing, just slower until the thumbnail exists.
+- Watch it: `journalctl -u musicbox-thumbs`. To rebuild now:
+  `touch /run/musicbox-thumbs/library` (as `musicbox`).
 
 ## Known issue: the box sometimes freezes outright
 

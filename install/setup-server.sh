@@ -85,6 +85,13 @@ readonly RESTORE_DIR="/run/musicbox-restore"
 # Must match install/setup-mpd.sh and mpdStateDir in src/backend/src/config.ts.
 readonly MPD_STATE_DIR="/var/lib/mpd"
 
+# Cover thumbnails: the server asks, this helper builds. See src/backend/src/thumbs.ts.
+readonly THUMBS_HELPER="/usr/local/bin/musicbox-thumbs"
+readonly THUMBS_UNIT="${UNIT_DIR}/musicbox-thumbs.service"
+readonly THUMBS_PATH_UNIT="${UNIT_DIR}/musicbox-thumbs.path"
+readonly THUMBS_TMPFILES="/etc/tmpfiles.d/musicbox-thumbs.conf"
+readonly THUMBS_DIR="/run/musicbox-thumbs"
+
 DRY_RUN=0
 ASSUME_YES=0
 MODE="apply"
@@ -480,6 +487,166 @@ WantedBy=multi-user.target
 UNIT
 }
 
+gen_thumbs_tmpfiles() {
+    cat <<CONF
+# musicbox: where the server asks for cover thumbnails. On tmpfs, like the power requests.
+d ${THUMBS_DIR} 0750 ${APP_USER} ${APP_USER} -
+CONF
+}
+
+gen_thumbs_helper() {
+    cat <<HEAD
+#!/usr/bin/env bash
+#
+# musicbox — build cover thumbnails for the web server. Installed by setup-server.sh.
+#
+# Started by musicbox-thumbs.path when the server drops a request; throttled by its
+# unit (Nice, CPUQuota, idle I/O). The server serves what is here and never runs a
+# process itself. The request is the file's NAME: \`library\` is a full pass, \`cd\`
+# the CD covers only. See src/backend/src/thumbs.ts and .claude/docs/decisions.md.
+set -euo pipefail
+
+readonly DEFAULT_DATA_DIR="${DATA_DIR}"
+readonly REQ_DIR="\${MUSICBOX_THUMB_REQUEST_DIR:-${THUMBS_DIR}}"
+HEAD
+    cat <<'BODY'
+data_dir="$(dirname "${MUSICBOX_DB:-${DEFAULT_DATA_DIR}/musicbox.db}")"
+readonly THUMB_DIR="${MUSICBOX_THUMB_DIR:-${data_dir}/thumbs}"
+readonly CD_ART_DIR="${MUSICBOX_CD_ART_DIR:-${data_dir}/cd-art}"
+readonly MUSIC_ROOT="${MUSICBOX_MUSIC_ROOT:-/srv/music/Music}"
+export MPD_HOST="${MUSICBOX_MPD_HOST:-127.0.0.1}" MPD_PORT="${MUSICBOX_MPD_PORT:-6600}"
+readonly EDGE=280
+# The same names in the same order as ART_FILENAMES in src/backend/src/art.ts.
+readonly NAMES=(cover.jpg cover.jpeg cover.png folder.jpg folder.jpeg folder.png front.jpg front.png)
+
+full=0
+[[ -e "${REQ_DIR}/library" ]] && full=1
+# Removed before working, so a request made during this pass starts another.
+rm -f "${REQ_DIR}/library" "${REQ_DIR}/cd"
+mkdir -p "$THUMB_DIR"
+
+built=0 current=0 without=0 failed=0 pruned=0 library=0
+declare -A keep=()
+
+# thumb <kind> <key> <cover file, or empty>
+thumb() {
+    local name tag recorded="" err
+    name="$(printf '%s:%s' "$1" "$2" | sha1sum)"
+    name="${name%% *}"
+    keep["$name"]=1
+    # No cover, or the share is down: either way keep any thumbnail already built.
+    if [[ -z "$3" ]] || ! tag="$(stat -L -c '%Y %s' "$3" 2>/dev/null)"; then
+        without=$((without + 1))
+        return 0
+    fi
+    [[ -f "${THUMB_DIR}/${name}.src" ]] && recorded="$(<"${THUMB_DIR}/${name}.src")"
+    # A recorded failure is not retried until the cover itself changes.
+    if [[ "$recorded" == "$tag" || "$recorded" == "failed:${tag}" ]]; then
+        current=$((current + 1))
+        return 0
+    fi
+    if err="$(gm convert -limit threads 1 -size "$((EDGE * 2))x$((EDGE * 2))" "$3" -auto-orient             -thumbnail "${EDGE}x${EDGE}>" -strip -quality 80 "jpg:${THUMB_DIR}/${name}.tmp.jpg" 2>&1)"; then
+        mv -f "${THUMB_DIR}/${name}.tmp.jpg" "${THUMB_DIR}/${name}.jpg"
+        printf '%s' "$tag" > "${THUMB_DIR}/${name}.src"
+        built=$((built + 1))
+    else
+        failed=$((failed + 1))
+        [[ "$failed" -eq 1 ]] && echo "thumbnails: ${1} '${2}' failed: ${err}"
+        rm -f "${THUMB_DIR}/${name}.tmp.jpg" "${THUMB_DIR}/${name}.jpg"
+        printf 'failed:%s' "$tag" > "${THUMB_DIR}/${name}.src"
+    fi
+}
+
+# The first cover file in a library directory, or nothing.
+cover_in() {
+    local n
+    for n in "${NAMES[@]}"; do
+        if [[ -f "${MUSIC_ROOT}/${1:+$1/}${n}" ]]; then
+            printf '%s' "${MUSIC_ROOT}/${1:+$1/}${n}"
+            return 0
+        fi
+    done
+}
+
+if [[ "$full" -eq 1 ]]; then
+    # Every directory a cover URI can name: each song's directory, and each top-level one.
+    listing="$(mpc listall 2>/dev/null)" || listing=""
+    while IFS= read -r dir; do
+        library=$((library + 1))
+        thumb album "$dir" "$(cover_in "$dir")"
+    done < <(printf '%s\n' "$listing" | awk -F/ '
+        NF == 0 { next }
+        NF == 1 { print ""; next }
+        { dir = $1; for (i = 2; i < NF; i++) dir = dir "/" $i; print dir; print $1 }' \
+        | grep -v -e '@eaDir' -e '#recycle' | sort -u)
+fi
+
+for cover in "$CD_ART_DIR"/*.jpg; do
+    [[ -e "$cover" ]] || continue
+    id="$(basename "$cover" .jpg)"
+    [[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || continue
+    thumb release "$id" "$cover"
+done
+
+# Only a full pass knows what has left the library, and an empty listing is MPD down.
+if [[ "$full" -eq 1 && "$library" -gt 0 ]]; then
+    for src in "$THUMB_DIR"/*.src; do
+        [[ -e "$src" ]] || continue
+        stem="$(basename "$src" .src)"
+        [[ -n "${keep[$stem]+set}" ]] && continue
+        rm -f "${THUMB_DIR}/${stem}".*
+        pruned=$((pruned + 1))
+    done
+    if [[ $((built + current)) -gt 0 ]]; then date -Is > "${THUMB_DIR}/.complete"; fi
+fi
+
+what="cd"
+[[ "$full" -eq 1 ]] && what="library"
+echo "thumbnails (${what}): ${built} built, ${current} current, ${without} without art, ${failed} failed, ${pruned} pruned, in ${SECONDS}s"
+BODY
+}
+
+gen_thumbs_unit() {
+    cat <<UNIT
+[Unit]
+Description=musicbox cover thumbnails, requested by the web server
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_USER}
+# The server's own config, for the same database directory and MPD address.
+EnvironmentFile=-${CONF_FILE}
+ExecStart=${THUMBS_HELPER}
+# A first build is most of an hour, slow on purpose.
+TimeoutStartSec=infinity
+# Never at the panel's expense: half a core at most, and only when idle.
+Nice=19
+CPUQuota=50%
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+SyslogIdentifier=musicbox-thumbs
+UNIT
+}
+
+gen_thumbs_path_unit() {
+    cat <<UNIT
+[Unit]
+Description=Watch for a cover thumbnail request from the web server
+
+[Path]
+# The request is the NAME. A request left by a pass in progress fires another.
+PathExists=${THUMBS_DIR}/library
+PathExists=${THUMBS_DIR}/cd
+Unit=musicbox-thumbs.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
 emit_all() {
     local dest="$1"
     mkdir -p "$dest"
@@ -495,7 +662,11 @@ emit_all() {
     gen_restore_helper    > "${dest}/musicbox-restore"
     gen_restore_unit      > "${dest}/musicbox-restore.service"
     gen_restore_path_unit > "${dest}/musicbox-restore.path"
-    chmod 0755 "${dest}/musicbox-power" "${dest}/musicbox-restore"
+    gen_thumbs_tmpfiles  > "${dest}/musicbox-thumbs.conf"
+    gen_thumbs_helper    > "${dest}/musicbox-thumbs"
+    gen_thumbs_unit      > "${dest}/musicbox-thumbs.service"
+    gen_thumbs_path_unit > "${dest}/musicbox-thumbs.path"
+    chmod 0755 "${dest}/musicbox-power" "${dest}/musicbox-restore" "${dest}/musicbox-thumbs"
     printf '  wrote server.conf musicbox-server.service musicbox-server-restart.service musicbox-server.path -> %s\n' "$dest"
 }
 
@@ -590,6 +761,22 @@ do_apply() {
     if install_if_changed "$tmp" "$RESTORE_PATH_UNIT" 0644; then ok "$RESTORE_PATH_UNIT"; changed=1
     else skip "$RESTORE_PATH_UNIT already current"; fi
 
+    tmp="$(mktemp)"; gen_thumbs_tmpfiles > "$tmp"
+    if install_if_changed "$tmp" "$THUMBS_TMPFILES" 0644; then ok "$THUMBS_TMPFILES"; changed=1
+    else skip "$THUMBS_TMPFILES already current"; fi
+
+    tmp="$(mktemp)"; gen_thumbs_helper > "$tmp"
+    if install_if_changed "$tmp" "$THUMBS_HELPER" 0755; then ok "$THUMBS_HELPER"; changed=1
+    else skip "$THUMBS_HELPER already current"; fi
+
+    tmp="$(mktemp)"; gen_thumbs_unit > "$tmp"
+    if install_if_changed "$tmp" "$THUMBS_UNIT" 0644; then ok "$THUMBS_UNIT"; changed=1
+    else skip "$THUMBS_UNIT already current"; fi
+
+    tmp="$(mktemp)"; gen_thumbs_path_unit > "$tmp"
+    if install_if_changed "$tmp" "$THUMBS_PATH_UNIT" 0644; then ok "$THUMBS_PATH_UNIT"; changed=1
+    else skip "$THUMBS_PATH_UNIT already current"; fi
+
     phase "Enabling"
     if dry; then
         printf '    %s[dry-run]%s would enable musicbox-server.service and musicbox-server.path\n' \
@@ -610,6 +797,10 @@ do_apply() {
     systemd-tmpfiles --create "$RESTORE_TMPFILES" >/dev/null 2>&1 || true
     systemctl enable musicbox-restore.path >/dev/null 2>&1 || true
     systemctl start  musicbox-restore.path >/dev/null 2>&1 || true
+    systemd-tmpfiles --create "$THUMBS_TMPFILES" >/dev/null 2>&1 || true
+    systemctl enable musicbox-thumbs.path >/dev/null 2>&1 || true
+    systemctl start  musicbox-thumbs.path >/dev/null 2>&1 || true
+    command -v gm >/dev/null 2>&1 || warn "gm not found — cover thumbnails need graphicsmagick (run install.sh)"
     ok "units enabled"
 
     if [[ ! -f "${DEPLOY_DIR}/backend/server.js" ]]; then
@@ -660,14 +851,15 @@ do_revert() {
     phase "Removing the server"
 
     local u
-    for u in musicbox-restore.path musicbox-power.path musicbox-server.path musicbox-server.service; do
+    for u in musicbox-thumbs.path musicbox-restore.path musicbox-power.path musicbox-server.path musicbox-server.service; do
         if systemctl list-unit-files "$u" >/dev/null 2>&1; then
             run systemctl disable --now "$u" >/dev/null 2>&1 || true
         fi
     done
     run rm -f "$SERVICE" "$RESTART_UNIT" "$PATH_UNIT" "$CONF_FILE" \
         "$POWER_UNIT" "$POWER_PATH_UNIT" "$POWER_HELPER" "$POWER_TMPFILES" \
-        "$RESTORE_UNIT" "$RESTORE_PATH_UNIT" "$RESTORE_HELPER" "$RESTORE_TMPFILES"
+        "$RESTORE_UNIT" "$RESTORE_PATH_UNIT" "$RESTORE_HELPER" "$RESTORE_TMPFILES" \
+        "$THUMBS_UNIT" "$THUMBS_PATH_UNIT" "$THUMBS_HELPER" "$THUMBS_TMPFILES"
     run systemctl daemon-reload
     ok "units and configuration removed"
     # The database is DATA, not configuration. Settings, and later favourites and

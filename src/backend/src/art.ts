@@ -28,12 +28,9 @@
  *   which routers and proxies are entitled to normalise back. One
  *   encodeURIComponent into `?album=` has none of those hazards.
  *
- * NO RESIZING
- *   These files are large — median 542KB, max 1.48MB — and the panel is 800x480.
- *   Resizing would need sharp (a native module, which breaks the single-file
- *   esbuild bundle and the one-runtime-dependency rule) or a pure-JS decoder
- *   (slow on a Pi, and bundle bloat). The per-album key plus a week of cache is
- *   the mitigation instead: one fetch per album, not one per track.
+ * ORIGINALS ONLY
+ *   This serves the file as it is. Small covers use thumbnails, built in the
+ *   background by thumbs.ts; see .claude/docs/decisions.md.
  */
 
 import { createReadStream } from 'node:fs';

@@ -30,6 +30,7 @@ import { createCdArtBackups } from './cd-art-backup.ts';
 import { createFavourites } from './favourites.ts';
 import { createPlays } from './plays.ts';
 import { createPlayWatch } from './play-watch.ts';
+import { createThumbRequests } from './thumbs.ts';
 
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
@@ -85,6 +86,9 @@ async function main(): Promise<void> {
         log: (level, msg) => app.log[level](msg),
     });
 
+    // Cover thumbnails are built by the musicbox-thumbs helper, never here. See thumbs.ts.
+    const thumbs = createThumbRequests(config.thumbRequestDir, config.thumbDir);
+
     // Assigned below, before anything can call it: a harvest only runs after a
     // scan, and a scan only after scanner.start().
     let routes: RouteHandle;
@@ -106,6 +110,7 @@ async function main(): Promise<void> {
         onScanComplete: async () => {
             await notes.harvest();
             routes.invalidateLibrary();
+            await thumbs.request('library');
         },
     });
 
@@ -130,6 +135,7 @@ async function main(): Promise<void> {
         bluetoothControl: config.bluetoothControl,
         cdControl: config.cdControl,
         cdArtDir: config.cdArtDir,
+        thumbDir: config.thumbDir,
         panel,
         settings,
         power: createPower(config.powerDir),
@@ -175,6 +181,7 @@ async function main(): Promise<void> {
             artDir: config.cdArtDir,
             userAgent: `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`,
             log: (level, msg) => app.log[level](msg),
+            onCover: () => void thumbs.request('cd'),
         }),
         lookupEnabled: () => settings.all().cdLookup,
         log: (level, msg) => app.log[level](msg),
@@ -236,6 +243,12 @@ async function main(): Promise<void> {
         };
         armInitialHarvest(0);
     }
+
+    // The first build, on a box that has never completed one; after that the nightly
+    // scan keeps them current. Asked again at every start until one completes.
+    void thumbs.built().then((done) => {
+        if (!done) setTimeout(() => void thumbs.request('library'), 60_000).unref();
+    });
 
     const shutdown = async (signal: string) => {
         app.log.info(`${signal} received, shutting down`);
