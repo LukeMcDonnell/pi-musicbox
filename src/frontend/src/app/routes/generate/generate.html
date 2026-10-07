@@ -1,0 +1,137 @@
+<section aria-label="Generate a playlist" class="flex min-h-full flex-col">
+  <div class="hidden short:flex sticky top-0 px-4 py-0 bg-bg z-1">
+    <button class="flex py-4 cursor-pointer touch-manipulation" (click)="back()" aria-label="Back">
+      <svg lucideChevronLeft class="size-6 text-muted" aria-hidden="true"></svg>
+      <h2 class="flex-none font-bold text-muted">Back</h2>
+    </button>
+  </div>
+
+  <div class="flex-1 px-4 pt-4 short:pt-0">
+    <h1 class="text-2xl font-bold">Generate</h1>
+
+    <h2 class="pt-4 pb-2 text-[0.85rem] font-semibold tracking-wide text-muted uppercase">From</h2>
+    <div class="flex flex-wrap gap-2">
+      @for (list of lists; track list.id) {
+        <button type="button" [attr.aria-pressed]="hasList(list.id)"
+                class="min-h-10 cursor-pointer touch-manipulation rounded-full border px-4 text-[0.95rem]
+                       select-none active:bg-raised"
+                [class]="hasList(list.id) ? 'border-accent bg-accent text-on-accent font-semibold' : 'border-raised text-text'"
+                (click)="toggleList(list.id)">
+          {{ list.label }}
+        </button>
+      }
+    </div>
+
+    <div class="flex items-baseline justify-between pt-5">
+      <h2 class="text-[0.85rem] font-semibold tracking-wide text-muted uppercase">Artist popularity</h2>
+      <span class="text-[0.95rem] text-accent tabular-nums">{{ filters().popularity.min }}–{{ filters().popularity.max }}%</span>
+    </div>
+    <app-range-slider label="Artist popularity" [min]="0" [max]="100" [step]="5" [format]="percent"
+                      [value]="filters().popularity" (valueChange)="setPopularity($event)" />
+
+    <div class="flex items-baseline justify-between pt-3">
+      <h2 class="text-[0.85rem] font-semibold tracking-wide text-muted uppercase">Library popularity</h2>
+      <span class="text-[0.95rem] text-accent tabular-nums">
+        {{ filters().libraryPopularity.min }}–{{ filters().libraryPopularity.max }}%
+      </span>
+    </div>
+    <app-range-slider label="Library popularity" [min]="0" [max]="100" [step]="5" [format]="percent"
+                      [value]="filters().libraryPopularity" (valueChange)="setLibraryPopularity($event)" />
+
+    <div class="flex items-baseline justify-between pt-3">
+      <h2 class="text-[0.85rem] font-semibold tracking-wide text-muted uppercase">Era</h2>
+      <span class="text-[0.95rem] text-accent tabular-nums">
+        @if (filters().years === null) { Any } @else { {{ years().min }}–{{ years().max }} }
+      </span>
+    </div>
+    <app-range-slider label="Era" [min]="yearBounds().min" [max]="yearBounds().max"
+                      [value]="years()" (valueChange)="setYears($event)" />
+
+    <div class="flex flex-col pt-3">
+      <button type="button" aria-haspopup="dialog"
+              class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center gap-3 border-t border-raised
+                     text-left select-none active:bg-raised"
+              (click)="picking.set('artists')">
+        <span class="flex-none text-[1rem]">Artist</span>
+        <span class="min-w-0 flex-1 truncate text-end text-[0.95rem] font-semibold text-accent">
+          {{ summaryOf(effective().artists) }}
+        </span>
+        <svg lucideChevronRight class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+      </button>
+      <button type="button" aria-haspopup="dialog"
+              class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center gap-3 border-t border-raised
+                     text-left select-none active:bg-raised"
+              (click)="picking.set('related')">
+        <span class="flex-none text-[1rem]">Related to artists</span>
+        <span class="min-w-0 flex-1 truncate text-end text-[0.95rem] font-semibold text-accent">
+          {{ summaryOf(effective().related) }}
+        </span>
+        <svg lucideChevronRight class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+      </button>
+      <button type="button" aria-haspopup="dialog"
+              class="flex min-h-14 w-full cursor-pointer touch-manipulation items-center gap-3 border-y border-raised
+                     text-left select-none active:bg-raised"
+              (click)="picking.set('genres')">
+        <span class="flex-none text-[1rem]">Genre / style</span>
+        <span class="min-w-0 flex-1 truncate text-end text-[0.95rem] font-semibold text-accent">
+          {{ summaryOf(effective().genres) }}
+        </span>
+        <svg lucideChevronRight class="size-5 flex-none text-muted" aria-hidden="true"></svg>
+      </button>
+    </div>
+
+    <h2 class="pt-5 pb-2 text-[0.85rem] font-semibold tracking-wide text-muted uppercase">Length</h2>
+    <div class="flex flex-wrap gap-2 pb-4" role="radiogroup" aria-label="Length">
+      @for (n of lengths; track n) {
+        <button type="button" role="radio" [attr.aria-checked]="length() === n"
+                class="min-h-10 min-w-16 cursor-pointer touch-manipulation rounded-full border px-4 text-[0.95rem]
+                       tabular-nums select-none active:bg-raised"
+                [class]="length() === n ? 'border-accent bg-accent text-on-accent font-semibold' : 'border-raised text-text'"
+                (click)="setLength(n)">
+          {{ n }}
+        </button>
+      }
+    </div>
+  </div>
+
+  <div class="sticky bottom-0 flex items-center gap-2 border-t border-raised bg-bg px-4 py-2">
+    <div class="min-w-0 flex-1">
+      @if (error(); as message) {
+        <p class="truncate text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+      } @else {
+        <p class="truncate text-[0.95rem] text-muted tabular-nums" aria-live="polite">
+          @if (count(); as n) {
+            {{ n.toLocaleString() }} {{ n === 1 ? 'track matches' : 'tracks match' }}
+          } @else if (count() === 0) {
+            Nothing matches
+          } @else {
+            Counting…
+          }
+        </p>
+      }
+    </div>
+    <button type="button"
+            class="min-h-11 cursor-pointer touch-manipulation rounded-full px-4 text-[0.95rem] text-muted
+                   select-none active:bg-raised disabled:opacity-40"
+            [disabled]="isDefault()" (click)="reset()">
+      Reset
+    </button>
+    <button type="button"
+            class="flex min-h-11 cursor-pointer touch-manipulation items-center gap-2 rounded-full bg-accent px-5
+                   text-[0.95rem] font-semibold text-on-accent select-none active:bg-raised disabled:opacity-40"
+            [disabled]="busy() || count() === 0" (click)="play()">
+      <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
+      Play
+    </button>
+  </div>
+
+  <app-multi-pick title="Artists" [options]="artistOptions()"
+                  [selected]="effective().artists" (selectedChange)="setArtists($event)"
+                  [open]="picking() === 'artists'" (openChange)="$event || picking.set(null)" />
+  <app-multi-pick title="Related to artists" [options]="artistOptions()"
+                  [selected]="effective().related" (selectedChange)="setRelated($event)"
+                  [open]="picking() === 'related'" (openChange)="$event || picking.set(null)" />
+  <app-multi-pick title="Genres and styles" [options]="genreOptions()"
+                  [selected]="effective().genres" (selectedChange)="setGenres($event)"
+                  [open]="picking() === 'genres'" (openChange)="$event || picking.set(null)" />
+</section>

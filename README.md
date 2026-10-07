@@ -713,9 +713,9 @@ out of ten, and an artist biography. They are stored in the box's own database
 (`library_note`, schema v5) rather than read when a screen asks for them, so they
 survive the share being unmounted, which it normally is. Nothing else about them
 is new: everything else in those files — title, label, release date, MusicBrainz
-ids — is already a tag MPD hands over, and the tags are the better source. Expect
-the biography to be missing: only 60 of 506 artists here have one the box can
-reach.
+ids — is already a tag MPD hands over, and the tags are the better source. Only
+60 of 506 artists here have a biography in the files; the rest get Wikipedia's —
+see "What the internet knows" below.
 
 On screen, the rating shows as a red heart and a percentage — `♥ 85%` — **on
 albums only**, beside an album in an artist's list and on the album screen
@@ -1003,6 +1003,8 @@ POST /api/library/play     {albumArtist, album, release, start?}   replace the q
 POST /api/library/next     {albumArtist, album, release}   insert an album after the current track
 POST /api/library/track/queue  {file}   append one track
 POST /api/library/track/next   {file}   insert one track after the current one
+POST /api/library/tracks/play  {files}  replace the queue with these tracks and play (at most 100)
+POST /api/library/tracks/queue {files}  append these tracks
 
 GET    /api/playlists                    GET /api/playlist?name=   one, with tracks
 POST   /api/playlists        {name}      create an empty playlist
@@ -1010,6 +1012,7 @@ POST   /api/playlist/rename  {from, to}  DELETE /api/playlist?name=
 POST   /api/playlist/play    {name}      POST /api/playlist/queue  {name}
 POST   /api/playlist/add     {name, file, pos?}   append one song, or insert at pos; 404 rather than create
 POST   /api/playlist/add-album {name, albumArtist, album, release}   append an album's tracks
+POST   /api/playlist/add-tracks {name, files}   append several tracks
 POST   /api/playlist/move    {name, from, to, file}   POST /api/playlist/remove {name, pos, file}
 POST   /api/playlist/shuffle {name}      put the tracks in a random order, in place
 POST   /api/queue/save{,/append,/replace}  {name}   the queue (less CD tracks) as a playlist
@@ -1305,6 +1308,52 @@ MPD has no "create" command. A new playlist is built under a scratch name (add
 one song, delete it), then renamed onto the name you typed. `rename` refuses a
 name that is taken, so a clash can never touch an existing playlist.
 
+### Generating a queue
+
+The wand beside + on Playlists opens a filter screen. Play replaces the queue
+with a random pick of what matches and starts it. The filters are:
+
+- **From**: one or more lists: favourite albums, recently played albums, the
+  25 most played artists, unplayed artists, albums or tracks, and recently added
+  albums.
+- **Artist popularity** and **Library popularity**: 0–100% ranges.
+- **Era**: a range of years.
+- **Artist**, **Related to artists** and **Genre / style**: searchable
+  checklists. Related to artists picks from the same artist list.
+- **Length**: 25, 50, 100 or 250 tracks.
+
+Filters combine with AND; the choices inside one filter combine with OR. A
+filter left empty, or a range left at full width, doesn't narrow anything. A
+narrowed range leaves out tracks that have no value for it. The live count at
+the bottom is asked for once the filters stop changing for a quarter of a
+second.
+
+- **Both popularity sliders use ListenBrainz listen counts.**
+  - Artist popularity ranks a track against the rest of its own album artist's
+    tracks. 80–100% means each artist's hits; 0–20% means the deep cuts.
+  - Library popularity ranks it against every track in the library, so
+    80–100% means the most-played songs overall.
+  - The two combine: Artist 80–100% with Library 0–40% gives the hits of the
+    less-known artists.
+- **Related to artists** means ListenBrainz's similar artists, the ones the
+  artist screen shows: for each artist chosen, up to 12 that the library holds.
+  The chosen artists themselves are left out, so pick them under Artist as
+  well if you want both. If nothing is known about an artist's neighbours,
+  that artist contributes no tracks.
+- **Genres** are the files' own `Genre` tags plus the artist's MusicBrainz
+  genres.
+- **Years** come from `OriginalDate`, else `Date`.
+
+The pick never repeats a recording, and it keeps one artist from playing twice
+in a row wherever the mix allows. The filters are this screen's, so they are
+saved per device.
+
+The server matches against an in-memory index of every song. It reads the
+library with `find` in windows of 1,000, because `listallinfo` overflows MPD's
+output buffer. The index is built on first use: about 9s for 42,343 songs on
+the box, and about 10 MB once built. After that a count takes 40–150 ms. A scan
+drops the index, and so does a metadata harvest that touched any artist.
+
 ### The queue on screen
 
 The now-playing screen is exactly one viewport tall; the queue lives underneath
@@ -1395,6 +1444,33 @@ carry it and **940 of those disagree with `Date`**. AC/DC's entire catalogue is
 stamped 2020 by `Date`; `Back in Black` is 2003 against 1980. Sorting an artist's
 albums on `Date` is wrong for a third of this library and visibly contradicts the
 year in the folder name on disk.
+
+### What the internet knows
+
+The artist screen adds a biography, genres, the artist's popular tracks and the
+similar artists this library also holds; the album screen adds an About section
+and marks its three most-listened tracks. Sources: Wikipedia's article intro
+(found through Wikidata from the MusicBrainz ids in the tags), MusicBrainz's
+genres, and ListenBrainz's similar artists and listen counts — matched by
+recording id, never by title. A biography from the share's `.nfo` still wins.
+
+It is harvested into the database in the background — two minutes after start,
+after each scan, and every six hours — so pages never wait on the internet and
+an offline box shows what it last fetched. ListenBrainz's listen counts need a
+user token from listenbrainz.org/settings, placed by hand:
+
+```sh
+sudo install -m 0640 -o root -g musicbox /dev/stdin /etc/musicbox/listenbrainz-token <<< 'your-token'
+sudo systemctl restart musicbox-server
+```
+
+Not in `server.conf`, which `setup-server.sh` rewrites. Without it, everything
+but popular tracks still works.
+
+Settings → Status shows a run's progress, how the last one ended, and how much
+of the library has a biography, similar artists, listen counts and an album
+intro. The first run takes over an hour: ListenBrainz's similar-artists
+endpoint answers one artist at a time, in 6–24s each from the box.
 
 ### Search
 

@@ -1,0 +1,44 @@
+@if (files(); as list) {
+  <!-- z-35, as the power dialog: over the menu and mini bar, under the sheet and keyboard. -->
+  <div class="fixed inset-0 z-[35] grid place-items-center bg-black/70 p-4" (click)="close()">
+    <div class="flex max-h-full w-full max-w-sm flex-col rounded-xl border border-raised bg-surface p-4"
+         role="dialog" aria-modal="true" aria-labelledby="playlist-add-title"
+         (click)="$event.stopPropagation()">
+      <div class="flex items-center gap-1">
+        @if (naming()) {
+          <button type="button"
+                  class="-ms-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                         rounded-full text-muted select-none active:bg-raised"
+                  aria-label="Back" (click)="naming.set(false)">
+            <svg lucideChevronLeft class="size-6" aria-hidden="true"></svg>
+          </button>
+        }
+        <h2 id="playlist-add-title" class="min-w-0 truncate text-lg font-bold">
+          {{ naming() ? 'New playlist' : 'Add to playlist' }}
+        </h2>
+      </div>
+      @if (!naming()) {
+        <p class="truncate text-[0.9rem] text-muted">
+          {{ subtitle() }}{{ subtitle() ? ' · ' : '' }}{{ list.length }} {{ list.length === 1 ? 'track' : 'tracks' }}
+        </p>
+      }
+
+      @if (error(); as message) {
+        <p class="pt-2 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+      }
+
+      <div class="flex min-h-0 flex-col gap-2 overflow-y-auto pt-4">
+        <app-playlist-picker [naming]="naming()" [busy]="busy()" createLabel="Create and add"
+                             (newPlaylist)="naming.set(true)" (picked)="addTo($event)"
+                             (create)="addTo($event, true)" />
+      </div>
+
+      <button #cancel type="button"
+              class="mt-3 min-h-11 w-full flex-none cursor-pointer touch-manipulation rounded-full
+                     text-[0.95rem] font-semibold text-muted select-none active:bg-raised"
+              (click)="close()">
+        Cancel
+      </button>
+    </div>
+  </div>
+}

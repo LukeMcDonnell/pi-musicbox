@@ -3,7 +3,14 @@
   <div class="sticky top-0 z-1 flex w-full items-center gap-3 bg-bg py-2">
     <h1 class="text-2xl shrink-0 font-bold me-4">Playlists</h1>
     <button type="button"
-            class="-me-3 ms-auto grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+            class="ms-auto grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                   rounded-full text-accent select-none active:bg-raised"
+            aria-label="Generate a playlist"
+            (click)="generate()">
+      <svg lucideWandSparkles class="size-7" aria-hidden="true"></svg>
+    </button>
+    <button type="button"
+            class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
                    rounded-full text-accent select-none active:bg-raised"
             aria-label="New playlist" aria-haspopup="dialog"
             (click)="dialog.set({ kind: 'create' })">

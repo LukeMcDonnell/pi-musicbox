@@ -49,6 +49,12 @@ export class PlaylistsStore {
         this.box.setPlaylists(playlists);
     }
 
+    /** Append several library songs, in order. */
+    async addTracks(name: string, files: string[]): Promise<void> {
+        const { playlists } = await this.api.postJson<PlaylistsResponse>('/api/playlist/add-tracks', { name, files });
+        this.box.setPlaylists(playlists);
+    }
+
     /** Move a track, naming the file at `from` so a stale screen is refused. */
     moveTrack(name: string, from: number, to: number, file: string): Promise<PlaylistResponse> {
         return this.api.postJson<PlaylistResponse>('/api/playlist/move', { name, from, to, file });

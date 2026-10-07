@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { thumbName } from './thumbs.ts';
 import { registerRoutes } from './routes.ts';
-import { BACKUP_MAX_BYTES, type LibraryState } from '../../shared/api.ts';
+import { BACKUP_MAX_BYTES, MAX_TRACKS, type LibraryState } from '../../shared/api.ts';
 import { registerStatic } from './static.ts';
 import { MpdBridge } from './mpd/bridge.ts';
 import {
@@ -44,6 +44,7 @@ import type { CdArtBackups } from './cd-art-backup.ts';
 import { createFavourites, type Favourites } from './favourites.ts';
 import { releaseFilter } from './release.ts';
 import { createPlays, type Plays, type TrackPlay } from './plays.ts';
+import type { InfoLookup } from './library.ts';
 import type { LibrarySong } from './mpd/bridge.ts';
 import type { SystemStatusReader } from './system-status.ts';
 
@@ -90,6 +91,7 @@ async function startServer(
         cdArtBackups?: CdArtBackups;
         favourites?: Favourites;
         plays?: Plays;
+        info?: InfoLookup;
         systemStatus?: SystemStatusReader;
     } = {},
 ) {
@@ -117,6 +119,7 @@ async function startServer(
         cdArtBackups: opts.cdArtBackups,
         favourites: opts.favourites,
         plays: opts.plays,
+        info: opts.info,
         systemStatus: opts.systemStatus,
     });
     // Composed as production composes it: the JSON 404 for /api/* lives here.
@@ -1979,6 +1982,7 @@ test('system status is 503 without a reader, and its answer with one', async () 
         memory: null, disk: null, temperatures: [], underVoltage: null,
         thumbnails: { state: 'never' as const, scope: null, progress: null, total: null,
             startedAt: null, finishedAt: null, built: null, failed: null },
+        metadata: null,
     };
     for (const [reader, code] of [[undefined, 503], [{ read: async () => status }, 200]] as const) {
         const { app, routes, port } = await startServer({ systemStatus: reader });
@@ -2315,4 +2319,115 @@ test('search answers with ranked groups from the indexes', async (t) => {
     assert.equal(body.query, 'kid a');
     assert.deepEqual(body.groups.map((g) => g.kind), ['album']);
     assert.equal(body.groups[0].items.length, 1);
+});
+
+test('an album carries its Wikipedia intro and its listen counts by file', async (t) => {
+    const info: InfoLookup = {
+        artist: () => null,
+        album: (mbid) => (mbid === 'rg-one' ? { about: 'One is an album.', aboutUrl: 'https://en.wikipedia.org/wiki/One' } : null),
+        listens: (ids) => new Map(ids.filter((id) => id === 'rec-1').map((id) => [id, 42])),
+    };
+    const { port, bridge } = await serverFor(t, { info });
+    const tracks = [song('A', 'One', '1'), song('A', 'One', '2')];
+    tracks[0]!.mbReleaseGroupId = 'rg-one';
+    tracks[0]!.mbRecordingId = 'rec-1';
+    tracks[1]!.mbRecordingId = 'rec-2';
+    stockLibrary(bridge, tracks);
+    const res = await api(port, '/api/library/album?artist=A&album=One&release=mb:A/One');
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.about, { text: 'One is an album.', url: 'https://en.wikipedia.org/wiki/One' });
+    assert.deepEqual(res.body.listens, { 'A/One/1.flac': 42 });
+});
+
+test('without a harvest an album still answers, with no intro and no counts', async (t) => {
+    const { port, bridge } = await serverFor(t);
+    stockLibrary(bridge, [song('A', 'One', '1')]);
+    const res = await api(port, '/api/library/album?artist=A&album=One&release=mb:A/One');
+    assert.equal(res.body.about, null);
+    assert.deepEqual(res.body.listens, {});
+});
+
+test('a list of tracks plays or queues in one batch, and is validated like a single track', async () => {
+    const { app, bridge, routes, port } = await startServer();
+    try {
+        const post = (path: string, body: unknown) =>
+            fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        const ran: string[][] = [];
+        bridge.runAll = async (commands: string[]) => {
+            ran.push(commands);
+        };
+        const files = ['Tool/Lateralus/02.flac', 'Tool/Ænima/04.flac'];
+
+        assert.equal((await post('/api/library/tracks/play', { files })).status, 200);
+        assert.deepEqual(ran.pop(), ['clear', 'add "Tool/Lateralus/02.flac"', 'add "Tool/Ænima/04.flac"', 'play']);
+        // The dead bridge's queue is empty, so queueing starts playback.
+        assert.equal((await post('/api/library/tracks/queue', { files })).status, 200);
+        assert.deepEqual(ran.pop(), ['add "Tool/Lateralus/02.flac"', 'add "Tool/Ænima/04.flac"', 'play']);
+
+        for (const body of [{}, { files: [] }, { files: 'a.flac' }, { files: ['ok.flac', '/etc/passwd'] },
+            { files: Array.from({ length: MAX_TRACKS + 1 }, (_, i) => `${i}.flac`) }]) {
+            for (const path of ['/api/library/tracks/play', '/api/library/tracks/queue', '/api/playlist/add-tracks']) {
+                assert.equal((await post(path, { name: 'Mix', ...body })).status, 400, `${path} ${JSON.stringify(body).slice(0, 40)}`);
+            }
+        }
+        assert.equal(ran.length, 0);
+
+        await bridge.setBluetooth(PHONE);
+        for (const path of ['/api/library/tracks/play', '/api/library/tracks/queue']) {
+            assert.equal((await post(path, { files })).status, 409, path);
+        }
+        // A playlist touches no queue, so it is allowed; the dead MPD answers.
+        assert.equal((await post('/api/playlist/add-tracks', { name: 'Mix', files })).status, 503);
+        assert.equal((await post('/api/playlist/add-tracks', { name: 'a/b', files })).status, 400);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
+});
+
+test('the generator offers its options, counts matches, and plays a length of them', async () => {
+    const plays = memoryPlays();
+    plays.record(played('Tool', 'Ænima', '1'));
+    const { app, bridge, routes, port } = await startServer({ plays });
+    try {
+        const post = (path: string, body: unknown) =>
+            fetch(`http://127.0.0.1:${port}${path}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        const library = [song('Tool', 'Ænima', '1', '1996'), song('Tool', 'Ænima', '2', '1996'), song('Low', 'Things', '1', '2005')];
+        bridge.songsWindow = async (offset: number) => (offset === 0 ? library : []);
+        const ran: string[][] = [];
+        bridge.runAll = async (commands: string[]) => {
+            ran.push(commands);
+        };
+
+        const options = await (await fetch(`http://127.0.0.1:${port}/api/generator/options`)).json();
+        assert.deepEqual(options, { genres: [{ name: 'Rock', tracks: 3 }], years: { min: 1996, max: 2005 } });
+
+        const count = await post('/api/generator/count', { filters: { lists: ['unplayed-tracks'] } });
+        assert.deepEqual(await count.json(), { count: 2 });
+
+        const filters = { years: { min: 1990, max: 1999 }, lists: ['unplayed-tracks'] };
+        assert.equal((await post('/api/generator/play', { filters, length: 25 })).status, 200);
+        assert.deepEqual(ran.pop(), ['clear', 'add "Tool/Ænima/2.flac"', 'play']);
+
+        assert.equal((await post('/api/generator/play', { filters: { artists: ['Nobody'] }, length: 25 })).status, 400);
+        assert.equal((await post('/api/generator/play', { filters: {}, length: 0 })).status, 400);
+        assert.equal((await post('/api/generator/count', { filters: { lists: ['bogus'] } })).status, 400);
+        assert.equal(ran.length, 0);
+
+        await bridge.setBluetooth(PHONE);
+        assert.equal((await post('/api/generator/play', { filters: {}, length: 25 })).status, 409);
+    } finally {
+        bridge.stop();
+        routes.closeStreams();
+        await app.close();
+    }
 });

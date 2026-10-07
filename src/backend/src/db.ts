@@ -153,6 +153,29 @@ export const MIGRATIONS: readonly string[] = [
         info       TEXT,
         fetched_at INTEGER NOT NULL
     ) STRICT;`,
+    // v10 — what the internet knows about the library, keyed by MusicBrainz id.
+    // See enrich.ts. A row with nothing in it is a remembered miss.
+    `CREATE TABLE artist_info (
+        mbid       TEXT PRIMARY KEY,
+        bio        TEXT,
+        bio_url    TEXT,
+        genres     TEXT NOT NULL,
+        similar    TEXT,
+        fetched_at INTEGER NOT NULL,
+        listens_at INTEGER
+    ) STRICT;
+     CREATE TABLE album_info (
+        mbid       TEXT PRIMARY KEY,
+        about      TEXT,
+        about_url  TEXT,
+        fetched_at INTEGER NOT NULL
+    ) STRICT;
+     CREATE TABLE recording_listens (
+        mbid        TEXT PRIMARY KEY,
+        artist_mbid TEXT NOT NULL,
+        listens     INTEGER NOT NULL
+    ) STRICT;
+     CREATE INDEX recording_listens_artist ON recording_listens (artist_mbid);`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

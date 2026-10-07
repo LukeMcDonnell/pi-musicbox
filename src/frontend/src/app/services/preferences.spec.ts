@@ -92,4 +92,44 @@ describe('Preferences', () => {
         expect(prefs.favouritesSortBy()).toBe(DEFAULTS.favouritesSortBy);
         expect(prefs.favouritesSortDescending()).toBe(DEFAULTS.favouritesSortDescending);
     });
+
+    it('remembers the generator, and drops stored filters it cannot trust', () => {
+        const prefs = fresh();
+        expect(prefs.generatorFilters()).toEqual(DEFAULTS.generatorFilters);
+        expect(prefs.generatorLength()).toBe(50);
+        const filters = {
+            lists: ['unplayed-albums' as const],
+            popularity: { min: 80, max: 100 },
+            libraryPopularity: { min: 0, max: 40 },
+            years: { min: 1990, max: 1999 },
+            artists: ['Tool'],
+            related: ['Low'],
+            genres: ['Rock'],
+        };
+        prefs.set('generatorFilters', filters);
+        prefs.set('generatorLength', 100);
+        const reloaded = fresh();
+        expect(reloaded.generatorFilters()).toEqual(filters);
+        expect(reloaded.generatorLength()).toBe(100);
+
+        for (const bad of [
+            { ...filters, lists: ['nope'] },
+            { ...filters, popularity: { min: 90, max: 10 } },
+            { ...filters, libraryPopularity: { min: 0, max: 101 } },
+            { ...filters, artists: 'Tool' },
+            { ...filters, related: [1] },
+            null,
+        ]) {
+            localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ generatorFilters: bad, generatorLength: 7 }));
+            const guarded = fresh();
+            expect(guarded.generatorFilters()).toEqual(DEFAULTS.generatorFilters);
+            expect(guarded.generatorLength()).toBe(50);
+        }
+    });
+
+    it('keeps generator filters saved before library popularity existed', () => {
+        const older = { lists: ['unplayed-tracks'], popularity: { min: 80, max: 100 }, years: null, artists: [], genres: [] };
+        localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ generatorFilters: older }));
+        expect(fresh().generatorFilters()).toEqual({ ...older, libraryPopularity: { min: 0, max: 100 }, related: [] } as never);
+    });
 });

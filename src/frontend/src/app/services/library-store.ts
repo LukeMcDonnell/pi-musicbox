@@ -31,6 +31,7 @@ import type {
     RecentlyAddedAlbum,
     SearchResponse,
     TrackRef,
+    TracksRef,
     RecentlyAddedResponse,
 } from '@musicbox/shared';
 import { RECENTLY_ADDED_LIMIT } from '@musicbox/shared';
@@ -203,6 +204,16 @@ export class LibraryStore {
     /** Insert one track after the current one; into an empty queue it also starts playing. */
     async playTrackNext(file: string): Promise<void> {
         await this.api.post('/api/library/track/next', { file } satisfies TrackRef);
+    }
+
+    /** Replace the queue with these songs, in order, and play them. */
+    async playTracks(files: string[]): Promise<void> {
+        await this.api.post('/api/library/tracks/play', { files } satisfies TracksRef);
+    }
+
+    /** Append these songs; into an empty queue they also start playing. */
+    async queueTracks(files: string[]): Promise<void> {
+        await this.api.post('/api/library/tracks/queue', { files } satisfies TracksRef);
     }
 
     /** Resolve a server-supplied path. See ApiClient.resolve — never bypass it. */

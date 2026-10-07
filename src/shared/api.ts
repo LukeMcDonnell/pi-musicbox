@@ -640,6 +640,8 @@ export interface AlbumsResponse {
      * artists list. Unlike `image` it is also far too big to put on that list.
      */
     biography: string | null;
+    /** The Wikipedia article when `biography` came from there rather than the share. */
+    biographyUrl: string | null;
     /**
      * The artist's rating, as on ArtistSummary — and, like it, shown by nothing.
      * Only albums display a rating; see the note there.
@@ -647,6 +649,12 @@ export interface AlbumsResponse {
     rating: number | null;
     /** Oldest first; undated albums last. */
     albums: AlbumSummary[];
+    /** MusicBrainz's genres for the artist, most voted first. Empty until harvested. */
+    artistGenres: string[];
+    /** The artist's most-listened tracks in this library per ListenBrainz, one per recording. */
+    popular: Track[];
+    /** Artists ListenBrainz finds similar that are also in this library, most similar first. */
+    similar: ArtistSummary[];
 }
 
 export interface AlbumResponse {
@@ -665,6 +673,10 @@ export interface AlbumResponse {
      * nothing for `POST /api/queue/play/:id` to address. Queue one by its `file`.
      */
     tracks: Track[];
+    /** The album's Wikipedia intro, or null. */
+    about: { text: string; url: string } | null;
+    /** ListenBrainz listen counts by `Track.file`, for the tracks that have one. */
+    listens: Record<string, number>;
 }
 
 /** The body of POST /api/library/play: an album, and optionally the track to start on. */
@@ -734,6 +746,13 @@ export interface AlbumRef {
 export interface TrackRef {
     file: string;
 }
+
+/** Several library songs, in order — the body of the `/tracks/` routes. At most MAX_TRACKS. */
+export interface TracksRef {
+    files: string[];
+}
+
+export const MAX_TRACKS = 100;
 
 /*
  * PUTTING ONE TRACK IN THE QUEUE
@@ -1254,6 +1273,39 @@ export interface ThumbnailStatus {
     failed: number | null;
 }
 
+/** The online metadata harvest. See enrich.ts. */
+export interface MetadataStatus {
+    /** The phase of a run in progress, or null when idle. Albums go first. */
+    phase: 'albums' | 'artists' | null;
+    /** Of the current phase: items done and due. */
+    progress: number | null;
+    total: number | null;
+    startedAt: number | null;
+    /** The last run since the server started, or null. */
+    lastRun: {
+        finishedAt: number;
+        albums: number;
+        artists: number;
+        /** Artists whose similar-artists call failed, asked again next run. */
+        unsure: number;
+        /** Why it stopped early, or null when it finished. */
+        stopped: string | null;
+    } | null;
+    /** What the database holds, against what the library has. */
+    coverage: {
+        artists: number;
+        libraryArtists: number | null;
+        bios: number;
+        similar: number;
+        listens: number;
+        albums: number;
+        libraryAlbums: number | null;
+        abouts: number;
+    };
+    /** Without one, listen counts are not fetched. */
+    hasToken: boolean;
+}
+
 export interface SystemStatus {
     /** Since the box booted, not since this server started. */
     uptimeSeconds: number;
@@ -1268,4 +1320,86 @@ export interface SystemStatus {
     /** The Pi's under-voltage alarm; null where there is none (any dev machine). */
     underVoltage: boolean | null;
     thumbnails: ThumbnailStatus;
+    /** Null on a server with no harvest wired up. */
+    metadata: MetadataStatus | null;
+}
+
+/*
+ * PLAYLIST GENERATOR
+ *
+ *   GET  /api/generator/options   the genres and years there are to choose from
+ *   POST /api/generator/count     { filters } -> { count }
+ *   POST /api/generator/play      { filters, length } -> replaces the queue and plays
+ *
+ * AND across filters, OR within one. An empty filter, or a range at its full
+ * extent, constrains nothing; a narrowed range drops tracks with no value.
+ * `popularity` ranks a track within its album artist; `libraryPopularity` within
+ * the whole library. Both are percentiles of ListenBrainz listens.
+ */
+export const GENERATOR_LISTS = [
+    { id: 'favourite-albums', label: 'Favourite Albums' },
+    { id: 'recent-albums', label: 'Recently Played Albums' },
+    { id: 'most-played-artists', label: 'Most Played Artists' },
+    { id: 'unplayed-artists', label: 'Unplayed Artists' },
+    { id: 'unplayed-albums', label: 'Unplayed Albums' },
+    { id: 'unplayed-tracks', label: 'Unplayed Tracks' },
+    { id: 'recently-added', label: 'Recently Added Albums' },
+] as const;
+
+export type GeneratorList = (typeof GENERATOR_LISTS)[number]['id'];
+
+export interface Range {
+    min: number;
+    max: number;
+}
+
+export interface GeneratorFilters {
+    lists: GeneratorList[];
+    /** Percent, 0–100. */
+    popularity: Range;
+    /** Percent, 0–100. Absent from filters saved before it existed. */
+    libraryPopularity: Range;
+    /** Years, inclusive; null is any. */
+    years: Range | null;
+    /** `AlbumArtist` names. */
+    artists: string[];
+    /** `AlbumArtist` names whose similar artists are wanted. Absent from filters saved before it existed. */
+    related: string[];
+    /** As `GeneratorOptions.genres` spells them; matched without regard to case. */
+    genres: string[];
+}
+
+/** Filters that constrain nothing. */
+export const GENERATOR_ANY: Readonly<GeneratorFilters> = {
+    lists: [],
+    popularity: { min: 0, max: 100 },
+    libraryPopularity: { min: 0, max: 100 },
+    years: null,
+    artists: [],
+    related: [],
+    genres: [],
+};
+
+export const GENERATOR_LENGTHS = [25, 50, 100, 250] as const;
+export const GENERATOR_DEFAULT_LENGTH = 50;
+
+export interface GeneratorGenre {
+    name: string;
+    tracks: number;
+}
+
+export interface GeneratorOptions {
+    /** Most tracks first. */
+    genres: GeneratorGenre[];
+    /** The library's earliest and latest years; null for a library with no dates. */
+    years: Range | null;
+}
+
+export interface GeneratorCount {
+    count: number;
+}
+
+export interface GeneratorPlay {
+    filters: GeneratorFilters;
+    length: number;
 }

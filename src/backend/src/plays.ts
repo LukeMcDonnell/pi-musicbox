@@ -38,6 +38,8 @@ export interface Plays {
     recentAlbums(limit: number): RecentPlayAlbum[];
     /** Artists, most played first, all time. */
     mostPlayedArtists(limit: number): MostPlayedArtist[];
+    /** Every file ever played. */
+    playedFiles(): string[];
     /** Record one play: a new row, or a bump of the count and the timestamp. */
     record(play: TrackPlay): void;
     onChange(listener: PlaysListener): () => void;
@@ -131,6 +133,7 @@ export function createPlays(db: Db, now: () => number = Date.now): Plays {
     return {
         recentAlbums,
         mostPlayedArtists,
+        playedFiles: () => db.all<{ file: string }>('SELECT file FROM track_play').map((row) => row.file),
         record(play) {
             // The tags are rewritten on conflict, so a retag corrects the row the
             // next time that song plays.

@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { Favourites } from './routes/favourites/favourites';
+import { Generate } from './routes/generate/generate';
 import { Home } from './routes/home/home';
 import { MostPlayedArtists } from './routes/home/most-played-artists/most-played-artists';
 import { RecentPlays } from './routes/home/recent-plays/recent-plays';
@@ -41,6 +42,7 @@ export const routes: Routes = [
     { path: 'playlists', component: Playlists, title: 'Playlists · musicbox' },
     // By query parameter, as artist and album are.
     { path: 'playlists/playlist', component: Playlist, title: 'Playlist · musicbox' },
+    { path: 'playlists/generate', component: Generate, title: 'Generate · musicbox' },
     { path: 'settings', component: Settings, title: 'Settings · musicbox' },
     // The panel never types a URL, but a phone can hold a stale bookmark.
     { path: '**', redirectTo: 'home' },

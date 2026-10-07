@@ -70,6 +70,8 @@ export interface Config {
     mpdStateDir: string;
     /** Where a validated restore is staged for the root helper. On tmpfs, like powerDir. */
     restoreDir: string;
+    /** Its own file because setup-server.sh rewrites server.conf, and no script writes this. */
+    listenBrainzTokenFile: string;
     logLevel: string;
 }
 
@@ -94,6 +96,7 @@ export const DEFAULTS: Config = {
     powerDir: '/run/musicbox-power',
     mpdStateDir: '/var/lib/mpd',
     restoreDir: '/run/musicbox-restore',
+    listenBrainzTokenFile: '/etc/musicbox/listenbrainz-token',
     logLevel: 'info',
 };
 
@@ -169,6 +172,16 @@ export function loadConfig(
         powerDir: pick('MUSICBOX_POWER_DIR') ?? DEFAULTS.powerDir,
         mpdStateDir: pick('MUSICBOX_MPD_STATE_DIR') ?? DEFAULTS.mpdStateDir,
         restoreDir: pick('MUSICBOX_RESTORE_DIR') ?? DEFAULTS.restoreDir,
+        listenBrainzTokenFile: pick('MUSICBOX_LISTENBRAINZ_TOKEN_FILE') ?? DEFAULTS.listenBrainzTokenFile,
         logLevel: pick('MUSICBOX_LOG_LEVEL') ?? DEFAULTS.logLevel,
     };
+}
+
+/** The token, or null when the file is absent or empty. */
+export function readToken(path: string): string | null {
+    try {
+        return readFileSync(path, 'utf8').trim() || null;
+    } catch {
+        return null;
+    }
 }

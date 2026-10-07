@@ -1,8 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
-import type { AlbumSummary, ArtistSummary } from '@musicbox/shared';
-import { Artist } from './artist';
+import type { AlbumSummary, ArtistSummary, Track } from '@musicbox/shared';
+import { Artist, titleCase } from './artist';
+import { IS_PANEL } from '../../services/panel-client';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { PREFERENCES_KEY } from '../../services/preferences';
@@ -29,6 +30,8 @@ function fakeStore(albums: AlbumSummary[] = [], artists: ArtistSummary[] | null 
         playAlbum: jasmine.createSpy('playAlbum').and.resolveTo(undefined),
         queueAlbum: jasmine.createSpy('queueAlbum').and.resolveTo(undefined),
         playAlbumNext: jasmine.createSpy('playAlbumNext').and.resolveTo(undefined),
+        playTracks: jasmine.createSpy('playTracks').and.resolveTo(undefined),
+        queueTracks: jasmine.createSpy('queueTracks').and.resolveTo(undefined),
         fetchAlbums: jasmine
             .createSpy('fetchAlbums')
             .and.resolveTo({ albumArtist: 'Radiohead', image: '/api/art?album=Radiohead', albums }),
@@ -36,10 +39,14 @@ function fakeStore(albums: AlbumSummary[] = [], artists: ArtistSummary[] | null 
     };
 }
 
-function create(store: ReturnType<typeof fakeStore>, name = 'Radiohead') {
+function create(store: ReturnType<typeof fakeStore>, name = 'Radiohead', panel = false) {
     TestBed.configureTestingModule({
         imports: [Artist],
-        providers: [provideRouter([]), { provide: LibraryStore, useValue: store }],
+        providers: [
+            provideRouter([]),
+            { provide: LibraryStore, useValue: store },
+            { provide: IS_PANEL, useValue: panel },
+        ],
     });
     const fixture = TestBed.createComponent(Artist);
     fixture.componentRef.setInput('name', name);
@@ -242,5 +249,138 @@ describe('Artist', () => {
         fixture.detectChanges();
         await fixture.whenStable();
         expect(fixture.componentInstance.image()).toBeNull();
+    });
+
+    describe('with harvested metadata', () => {
+        function hit(n: number): Track {
+            return {
+                file: `Radiohead/Kid A/${n}.flac`,
+                title: `Hit ${n}`,
+                album: 'Kid A',
+                albumArtist: 'Radiohead',
+                release: 'mb:kid-a',
+                duration: 200,
+                image: null,
+            };
+        }
+
+        function enriched(over: Record<string, unknown> = {}) {
+            const store = fakeStore([album()]);
+            store.fetchAlbums.and.resolveTo({
+                albumArtist: 'Radiohead',
+                image: null,
+                albums: [album()],
+                biography: 'Radiohead are an English rock band.',
+                biographyUrl: 'https://en.wikipedia.org/wiki/Radiohead',
+                rating: null,
+                artistGenres: ['art rock', 'r&b'],
+                popular: [1, 2, 3, 4, 5, 6, 7].map(hit),
+                similar: [{ name: 'Portishead', directory: 'Portishead', albumCount: 3, trackCount: 30, duration: 1, image: null }],
+                ...over,
+            });
+            return store;
+        }
+
+        async function render(store: ReturnType<typeof fakeStore>, panel = false) {
+            const fixture = create(store, 'Radiohead', panel);
+            fixture.detectChanges();
+            await fixture.whenStable();
+            fixture.detectChanges();
+            return { fixture, el: fixture.nativeElement as HTMLElement };
+        }
+
+        it('title-cases MusicBrainz genres', () => {
+            expect(titleCase('alternative rock')).toBe('Alternative Rock');
+            expect(titleCase('r&b')).toBe('R&B');
+        });
+
+        it('shows the genres and credits a Wikipedia biography with a link', async () => {
+            const { el } = await render(enriched());
+            expect(el.textContent).toContain('Art Rock, R&B');
+            const link = el.querySelector<HTMLAnchorElement>('a[href="https://en.wikipedia.org/wiki/Radiohead"]');
+            expect(link?.textContent?.trim()).toBe('From Wikipedia');
+        });
+
+        it('credits Wikipedia without a link on the panel, which has nowhere to go back to', async () => {
+            const { el } = await render(enriched(), true);
+            expect(el.textContent).toContain('From Wikipedia');
+            expect(el.querySelector('a[href^="https://en.wikipedia.org"]')).toBeNull();
+        });
+
+        it('folds the popular tracks to five until asked for more', async () => {
+            const { fixture, el } = await render(enriched());
+            expect(fixture.componentInstance.popularShown().length).toBe(5);
+            const more = [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Show more')!;
+            more.click();
+            fixture.detectChanges();
+            expect(fixture.componentInstance.popularShown().length).toBe(7);
+        });
+
+        it('plays a popular track by playing its album from that track', async () => {
+            const store = enriched();
+            const { fixture } = await render(store);
+            await fixture.componentInstance.playPopular(hit(3));
+            expect(store.playAlbum).toHaveBeenCalledWith(
+                { albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' },
+                'Radiohead/Kid A/3.flac',
+            );
+        });
+
+        it('orders the sections albums, popular tracks, bio, similar artists', async () => {
+            const { el } = await render(enriched());
+            const headings = [...el.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+            expect(headings).toEqual(['Back', 'Popular tracks', 'Artist Bio', 'Similar artists in your library']);
+            const albumList = el.querySelector('ul')!;
+            const popular = [...el.querySelectorAll('h2')].find((h) => h.textContent?.includes('Popular'))!;
+            expect(albumList.compareDocumentPosition(popular) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+
+        it('plays a popular track from its Play button, and opens its album from the row', async () => {
+            const store = enriched();
+            const { fixture, el } = await render(store);
+            const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+            el.querySelector<HTMLButtonElement>('[aria-label="Play Hit 1"]')!.click();
+            await fixture.whenStable();
+            expect(store.playAlbum).toHaveBeenCalledWith(
+                { albumArtist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' },
+                'Radiohead/Kid A/1.flac',
+            );
+            [...el.querySelectorAll('button')].find((b) => b.textContent?.includes('Hit 2'))!.click();
+            expect(navigate).toHaveBeenCalledWith(['/library/album'], {
+                queryParams: { artist: 'Radiohead', album: 'Kid A', release: 'mb:kid-a' },
+            });
+        });
+
+        it('plays, queues or adds to a playlist every popular track from the heading', async () => {
+            const store = enriched();
+            const { fixture, el } = await render(store);
+            const all = [1, 2, 3, 4, 5, 6, 7].map((n) => `Radiohead/Kid A/${n}.flac`);
+
+            el.querySelector<HTMLButtonElement>('[aria-label="Play the popular tracks"]')!.click();
+            await fixture.whenStable();
+            expect(store.playTracks).toHaveBeenCalledWith(all);
+
+            el.querySelector<HTMLButtonElement>('[aria-label="Add the popular tracks to the queue"]')!.click();
+            await fixture.whenStable();
+            expect(store.queueTracks).toHaveBeenCalledWith(all);
+
+            el.querySelector<HTMLButtonElement>('[aria-label="Add the popular tracks to a playlist"]')!.click();
+            fixture.detectChanges();
+            expect(fixture.componentInstance.playlistFiles()).toEqual(all);
+            expect(el.querySelector('[role="dialog"]')?.textContent).toContain('7 tracks');
+        });
+
+        it('lists similar artists from the library', async () => {
+            const { el } = await render(enriched());
+            expect(el.textContent).toContain('Similar artists in your library');
+            expect(el.textContent).toContain('Portishead');
+        });
+
+        it('shows none of it when nothing was harvested', async () => {
+            const { el } = await render(enriched({ biography: null, artistGenres: [], popular: [], similar: [] }));
+            expect(el.textContent).not.toContain('Popular');
+            expect(el.textContent).not.toContain('Similar artists');
+            expect(el.textContent).not.toContain('Wikipedia');
+        });
     });
 });

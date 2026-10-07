@@ -20,6 +20,7 @@ import {
     BACKUP_CONTENT_TYPE,
     BACKUP_MAX_BYTES,
     CD_ART_BACKUP_MAX_BYTES,
+    MAX_TRACKS,
     MOST_PLAYED_ARTISTS_LIMIT,
     MOST_PLAYED_ARTISTS_MAX,
     RECENTLY_ADDED_LIMIT,
@@ -33,6 +34,8 @@ import {
     type ArtistsResponse,
     type FavouriteAlbum,
     type FavouritesResponse,
+    type GeneratorCount,
+    type GeneratorOptions,
     type HealthResponse,
     type LibraryState,
     type MostPlayedArtistsResponse,
@@ -49,12 +52,14 @@ import {
     type SettingsResponse,
     type Snapshot,
     type TrackRef,
+    type TracksRef,
 } from '../../shared/api.ts';
 import type { MpdBridge } from './mpd/bridge.ts';
 import { quoteArg } from './mpd/protocol.ts';
 import { createArtHandler, createArtResolver } from './art.ts';
-import { albumsFromSongs, createLibrary, releaseFilter } from './library.ts';
+import { albumsFromSongs, createLibrary, listensByFile, releaseFilter, type InfoLookup } from './library.ts';
 import { createSearch } from './search.ts';
+import { MOST_PLAYED_ARTISTS, RECENTLY_ADDED_ALBUMS, createGenerator, filtersFrom, lengthFrom } from './generator.ts';
 import { createThumbHandler } from './thumbs.ts';
 import type { LibraryNotes } from './library-notes.ts';
 import {
@@ -158,6 +163,8 @@ export interface RouteOptions {
     plays?: Plays;
     /** Ratings and biographies read off the share. See library-notes.ts. */
     notes?: LibraryNotes;
+    /** What the internet knows about the library, harvested. See enrich.ts. */
+    info?: InfoLookup;
     /** Uptime, temperatures and the like for Settings → Status. See system-status.ts. */
     systemStatus?: SystemStatusReader;
 }
@@ -180,6 +187,8 @@ export interface RouteHandle {
      * just wrote. Without this they would not appear until the next restart.
      */
     invalidateLibrary: () => void;
+    /** Drop the generator's index, whose listens and genres a harvest just changed. */
+    invalidateGenerator: () => void;
 }
 
 /** MPD commands for each API verb. `previous` is spelled `previous` in MPD too. */
@@ -459,8 +468,20 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
      * changes what they assert.
      */
 
-    const library = createLibrary(bridge, opts.notes);
+    const library = createLibrary(bridge, opts.notes, opts.info);
     const search = createSearch(library, bridge);
+    const generator = createGenerator({
+        bridge,
+        info: opts.info,
+        sources: {
+            favouriteReleases: () => (favourites?.all() ?? []).map((a) => a.release),
+            recentReleases: () => (plays?.recentAlbums(RECENT_PLAYS_LIMIT) ?? []).map((a) => a.release),
+            mostPlayedArtists: () => (plays?.mostPlayedArtists(MOST_PLAYED_ARTISTS) ?? []).map((a) => a.name),
+            playedFiles: () => plays?.playedFiles() ?? [],
+            recentlyAddedReleases: async () => (await library.recentlyAdded(RECENTLY_ADDED_ALBUMS)).map((a) => a.release),
+        },
+        log: (message) => app.log.info(message),
+    });
 
     /*
      * A database scan invalidates the index.
@@ -478,6 +499,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         if (subsystems.includes('database') || subsystems.includes('update')) {
             library.invalidate();
             search.invalidate();
+            generator.invalidate();
         }
     });
 
@@ -499,8 +521,7 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             return reply.code(400).send({ error: "missing 'artist' query parameter" });
         }
         try {
-            const { image, biography, rating, albums } = await library.albumsOf(artist);
-            const body: AlbumsResponse = { albumArtist: artist, image, biography, rating, albums };
+            const body: AlbumsResponse = { albumArtist: artist, ...(await library.albumsOf(artist)) };
             return body;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -528,7 +549,15 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
             // facts about these very rows, and a second query could disagree.
             const [summary] = albumsFromSongs(artist, songs, opts.notes);
             favourites?.refresh(summary);
-            const body: AlbumResponse = { album: summary, tracks: songs.map((s) => s.track) };
+            const info = opts.info;
+            const group = summary.mbReleaseGroupId;
+            const about = info === undefined || group === undefined ? null : info.album(group);
+            const body: AlbumResponse = {
+                album: summary,
+                tracks: songs.map((s) => s.track),
+                about: about === null ? null : { text: about.about, url: about.aboutUrl },
+                listens: info === undefined ? {} : Object.fromEntries(listensByFile(songs, info)),
+            };
             return body;
         } catch (err) {
             return reply.code(503).send({ error: (err as Error).message });
@@ -637,6 +666,40 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         });
     }
 
+    function tracksRefFrom(body: unknown): TracksRef | string {
+        const { files } = (body ?? {}) as { files?: unknown };
+        if (!Array.isArray(files) || files.length === 0) return "missing 'files'";
+        if (files.length > MAX_TRACKS) return `at most ${MAX_TRACKS} 'files'`;
+        for (const file of files) {
+            if (typeof trackRefFrom({ file }) === 'string') return "invalid 'files'";
+        }
+        return { files: files as string[] };
+    }
+
+    // A list of songs in one batch: Play replaces the queue, Queue appends and plays into an empty one.
+    for (const [path, replace] of [
+        ['/api/library/tracks/play', true],
+        ['/api/library/tracks/queue', false],
+    ] as const) {
+        app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+            const ref = tracksRefFrom(request.body);
+            if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+            if (bridge.current.source === 'bluetooth') {
+                return reply.code(409).send({ error: 'cannot queue tracks while a phone owns the DAC' });
+            }
+            const adds = ref.files.map((file) => `add ${quoteArg(file)}`);
+            const commands = replace
+                ? ['clear', ...adds, 'play']
+                : [...adds, ...(bridge.current.queueLength === 0 ? ['play'] : [])];
+            try {
+                await bridge.runAll(commands);
+                return bridge.current;
+            } catch (err) {
+                return reply.code(503).send({ error: (err as Error).message });
+            }
+        });
+    }
+
     function playlistFailure(reply: FastifyReply, err: unknown) {
         if (err instanceof PlaylistNotFoundError) return reply.code(404).send({ error: err.message });
         if (err instanceof PlaylistExistsError) return reply.code(409).send({ error: err.message });
@@ -728,6 +791,20 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         }
         try {
             const body: PlaylistsResponse = { playlists: await playlists.addTrack(name, ref.file, pos) };
+            return body;
+        } catch (err) {
+            return playlistFailure(reply, err);
+        }
+    });
+
+    // Touches no queue either.
+    app.post('/api/playlist/add-tracks', async (request: FastifyRequest, reply: FastifyReply) => {
+        const name = playlistName(request.body, 'name');
+        if (typeof name !== 'string') return reply.code(400).send(name);
+        const ref = tracksRefFrom(request.body);
+        if (typeof ref === 'string') return reply.code(400).send({ error: ref });
+        try {
+            const body: PlaylistsResponse = { playlists: await playlists.saveQueue(name, ref.files, 'append') };
             return body;
         } catch (err) {
             return playlistFailure(reply, err);
@@ -1459,6 +1536,45 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         return opts.systemStatus.read();
     });
 
+    app.get('/api/generator/options', async (_request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const body: GeneratorOptions = await generator.options();
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    app.post('/api/generator/count', async (request: FastifyRequest, reply: FastifyReply) => {
+        const filters = filtersFrom((request.body as { filters?: unknown } | null)?.filters);
+        if (typeof filters === 'string') return reply.code(400).send({ error: filters });
+        try {
+            const body: GeneratorCount = { count: await generator.count(filters) };
+            return body;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
+    app.post('/api/generator/play', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { filters: rawFilters, length: rawLength } = (request.body ?? {}) as { filters?: unknown; length?: unknown };
+        const filters = filtersFrom(rawFilters);
+        if (typeof filters === 'string') return reply.code(400).send({ error: filters });
+        const length = lengthFrom(rawLength);
+        if (typeof length === 'string') return reply.code(400).send({ error: length });
+        if (bridge.current.source === 'bluetooth') {
+            return reply.code(409).send({ error: 'cannot play while a phone owns the DAC' });
+        }
+        try {
+            const files = await generator.generate(filters, length);
+            if (files.length === 0) return reply.code(400).send({ error: 'no tracks match' });
+            await bridge.runAll(['clear', ...files.map((file) => `add ${quoteArg(file)}`), 'play']);
+            return bridge.current;
+        } catch (err) {
+            return reply.code(503).send({ error: (err as Error).message });
+        }
+    });
+
     return {
         closeStreams: () => {
             for (const close of [...streams]) {
@@ -1473,6 +1589,8 @@ export function registerRoutes(app: FastifyInstance, opts: RouteOptions): RouteH
         invalidateLibrary: () => {
             library.invalidate();
             search.invalidate();
+            generator.invalidate();
         },
+        invalidateGenerator: () => generator.invalidate(),
     };
 }

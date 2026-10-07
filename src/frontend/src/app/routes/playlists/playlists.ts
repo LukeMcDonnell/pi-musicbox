@@ -6,6 +6,7 @@ import {
     LucideListEnd,
     LucidePlay,
     LucidePlus,
+    LucideWandSparkles,
 } from '@lucide/angular';
 import type { PlaylistSummary } from '@musicbox/shared';
 import {
@@ -29,6 +30,7 @@ import { runtime } from '../album/album';
         LucideListEnd,
         LucidePlay,
         LucidePlus,
+        LucideWandSparkles,
         PlaylistDialog,
     ],
     templateUrl: './playlists.html',
@@ -62,6 +64,10 @@ export class Playlists {
 
     subtitleOf(playlist: PlaylistSummary): string {
         return summaryOf(playlist);
+    }
+
+    generate(): void {
+        void this.router.navigate(['/playlists/generate']);
     }
 
     open(playlist: PlaylistSummary): void {

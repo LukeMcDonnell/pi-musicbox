@@ -1,7 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucidePlay, LucideUserRound } from '@lucide/angular';
-import type { AlbumSummary } from '@musicbox/shared';
+import {
+    LucideChevronLeft,
+    LucideDisc3,
+    LucideEllipsisVertical,
+    LucideListEnd,
+    LucideListPlus,
+    LucidePlay,
+    LucideUserRound,
+} from '@lucide/angular';
+import type { AlbumSummary, ArtistSummary, Track } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
@@ -11,6 +19,13 @@ import { FavouriteButton } from '../../components/favourite-button/favourite-but
 import { CoverArt } from '../../components/cover-art/cover-art';
 import { AlbumMenu } from '../../components/album-menu/album-menu';
 import { MusicboxApi } from '../../services/musicbox-api';
+import { TrackMenu } from '../../components/track-menu/track-menu';
+import { AboutText } from '../../components/about-text/about-text';
+import { PlaylistAdd } from '../../components/playlist-add/playlist-add';
+import { clock } from '../../components/now-playing/now-playing';
+
+/** Popular tracks shown before "Show more". */
+export const POPULAR_FOLDED = 5;
 
 /*
   One artist: their picture as a hero, then their albums oldest first.
@@ -26,13 +41,18 @@ import { MusicboxApi } from '../../services/musicbox-api';
 @Component({
     selector: 'app-artist',
     imports: [
+        AboutText,
         AlbumMenu,
+        PlaylistAdd,
+        TrackMenu,
         CoverArt,
         FavouriteButton,
         Rating,
         LucideChevronLeft,
         LucideDisc3,
         LucideEllipsisVertical,
+        LucideListEnd,
+        LucideListPlus,
         LucidePlay,
         LucideUserRound,
     ],
@@ -81,27 +101,40 @@ export class Artist {
     private readonly artistImage = signal<string | null>(null);
 
     /**
-     * The artist's biography, from the same response as the picture.
-     *
-     * EXPECT IT TO BE NULL: 446 of this library's 506 artists have none the box
-     * can reach, so the hero has to read well without one. It comes from the
-     * NAS's `.nfo` files by way of the backend's harvest, never from MPD.
-     *
-     * The response carries the artist's RATING too, and nothing reads it: only
-     * albums show a rating. See decisions.md.
+     * The share's `.nfo` biography, else Wikipedia's; null until harvested, so
+     * the hero must read well without one. The response's RATING is read by
+     * nothing: only albums show one. See decisions.md.
      */
     readonly biography = signal<string | null>(null);
 
-    /**
-     * Whether the biography is expanded. Collapsed to three lines by default:
-     * they run to ~1,000 characters and the hero is the top of the screen, not
-     * the point of it.
-     */
-    readonly bioOpen = signal(false);
+    /** Set when the biography is Wikipedia's rather than the share's. */
+    readonly biographyUrl = signal<string | null>(null);
 
-    toggleBio(): void {
-        this.bioOpen.update((open) => !open);
-    }
+    /** MusicBrainz's genres, most voted first. */
+    readonly genres = signal<string[]>([]);
+    readonly genreLine = computed(() => {
+        const genres = this.genres();
+        return genres.length === 0 ? null : genres.map(titleCase).join(', ');
+    });
+
+    /** The artist's most-listened tracks in the library, per ListenBrainz. */
+    readonly popular = signal<Track[]>([]);
+    readonly popularOpen = signal(false);
+    readonly popularShown = computed(() =>
+        this.popularOpen() ? this.popular() : this.popular().slice(0, POPULAR_FOLDED),
+    );
+
+    /** Similar artists the library also holds. */
+    readonly similar = signal<ArtistSummary[]>([]);
+
+    /** Every popular track's file, not only the ones unfolded. */
+    readonly popularFiles = computed(() => this.popular().flatMap((t) => (t.file === undefined ? [] : [t.file])));
+
+    /** The files being added to a playlist, while that dialog is open. */
+    readonly playlistFiles = signal<string[] | null>(null);
+
+    /** The popular track whose ⋮ menu is open, or null. */
+    readonly menuTrack = signal<Track | null>(null);
 
     private readonly artFailed = signal<string | null>(null);
 
@@ -123,7 +156,11 @@ export class Artist {
             this.albums.set(null);
             this.artistImage.set(null);
             this.biography.set(null);
-            this.bioOpen.set(false);
+            this.biographyUrl.set(null);
+            this.genres.set([]);
+            this.popular.set([]);
+            this.popularOpen.set(false);
+            this.similar.set([]);
             this.error.set(null);
             this.notice.set(null);
             if (name !== '') void this.load(name);
@@ -133,11 +170,15 @@ export class Artist {
     private async load(name: string): Promise<void> {
         const request = ++this.request;
         try {
-            const { albums, image, biography } = await this.library.fetchAlbums(name);
+            const body = await this.library.fetchAlbums(name);
             if (request === this.request) {
-                this.artistImage.set(image);
-                this.biography.set(biography);
-                this.albums.set(albums);
+                this.artistImage.set(body.image);
+                this.biography.set(body.biography);
+                this.biographyUrl.set(body.biographyUrl ?? null);
+                this.genres.set(body.artistGenres ?? []);
+                this.popular.set(body.popular ?? []);
+                this.similar.set(body.similar ?? []);
+                this.albums.set(body.albums);
             }
         } catch (err) {
             if (request === this.request) this.error.set((err as Error).message);
@@ -159,6 +200,74 @@ export class Artist {
 
     onCoverError(uri: string): void {
         this.coverFailed.update((failed) => new Set(failed).add(uri));
+    }
+
+    pictureOf(artist: ArtistSummary): string | null {
+        if (!artist.image) return null;
+        const uri = this.library.resolve(artist.image);
+        return this.coverFailed().has(uri) ? null : uri;
+    }
+
+    durationOf(track: Track): string {
+        return clock(track.duration ?? null);
+    }
+
+    /** The track's own album, from that track — the same as Play on the album screen. */
+    async playPopular(track: Track): Promise<void> {
+        if (track.albumArtist === undefined || track.album === undefined || track.release === undefined) return;
+        const ref = { albumArtist: track.albumArtist, album: track.album, release: track.release };
+        const ok = await this.send(() => this.library.playAlbum(ref, track.file));
+        if (ok && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+    }
+
+    async queueTrack(track: Track): Promise<void> {
+        const file = track.file;
+        if (file === undefined) return;
+        const ok = await this.send(() => this.library.queueTrack(file));
+        if (ok && this.prefs.openQueueOnAdd()) this.sheet.showQueue();
+    }
+
+    async playTrackNext(track: Track): Promise<void> {
+        const file = track.file;
+        if (file === undefined) return;
+        const starts = this.api.snapshot()?.queueLength === 0;
+        if (!(await this.send(() => this.library.playTrackNext(file)))) return;
+        if (starts) {
+            if (this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+        } else if (this.prefs.openQueueOnAdd()) {
+            this.sheet.showQueue();
+        }
+    }
+
+    async playPopularAll(): Promise<void> {
+        const files = this.popularFiles();
+        if (files.length === 0) return;
+        const ok = await this.send(() => this.library.playTracks(files));
+        if (ok && this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+    }
+
+    async queuePopularAll(): Promise<void> {
+        const files = this.popularFiles();
+        if (files.length === 0) return;
+        // Read before sending: the server starts playback only into an empty queue.
+        const starts = this.api.snapshot()?.queueLength === 0;
+        if (!(await this.send(() => this.library.queueTracks(files)))) return;
+        if (starts) {
+            if (this.prefs.openNowPlayingOnPlay()) this.sheet.show();
+        } else if (this.prefs.openQueueOnAdd()) {
+            this.sheet.showQueue();
+        }
+    }
+
+    openAlbumOf(track: Track): void {
+        if (track.albumArtist === undefined || track.album === undefined || track.release === undefined) return;
+        void this.router.navigate(['/library/album'], {
+            queryParams: { artist: track.albumArtist, album: track.album, release: track.release },
+        });
+    }
+
+    openArtist(name: string): void {
+        void this.router.navigate(['/library/artist'], { queryParams: { name } });
     }
 
     /**
@@ -233,6 +342,14 @@ export class Artist {
         // only real history does that. See decisions.md.
         this.history.back(['/library']);
     }
+}
+
+/** MusicBrainz genres are lower case: "alternative rock" reads as "Alternative Rock", "r&b" as "R&B". */
+export function titleCase(genre: string): string {
+    return genre
+        .split(' ')
+        .map((word) => (word.includes('&') ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)))
+        .join(' ');
 }
 
 function refOf(album: AlbumSummary) {

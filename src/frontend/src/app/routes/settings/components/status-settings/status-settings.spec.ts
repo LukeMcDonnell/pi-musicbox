@@ -1,12 +1,14 @@
 import { signal } from '@angular/core';
 import { TestBed, fakeAsync, flushMicrotasks, tick } from '@angular/core/testing';
-import type { LibraryState, SystemStatus, ThumbnailStatus } from '@musicbox/shared';
+import type { LibraryState, MetadataStatus, SystemStatus, ThumbnailStatus } from '@musicbox/shared';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
 import { libraryState } from '../../../../testing/fixtures';
 import {
     STATUS_POLL_MS,
     StatusSettings,
+    metadataCoverageLabels,
+    metadataRunLabel,
     thumbnailLabel,
     uptimeLabel,
     usageLabel,
@@ -29,9 +31,16 @@ function systemStatus(overrides: Partial<SystemStatus> = {}): SystemStatus {
         temperatures: [{ name: 'cpu-thermal', celsius: 52.1 }],
         underVoltage: false,
         thumbnails: NEVER,
+        metadata: null,
         ...overrides,
     };
 }
+
+const IDLE: MetadataStatus = {
+    phase: null, progress: null, total: null, startedAt: null, lastRun: null,
+    coverage: { artists: 500, libraryArtists: 509, bios: 480, similar: 450, listens: 470, albums: 3105, libraryAlbums: 3105, abouts: 2800 },
+    hasToken: true,
+};
 
 function create(opts: { status?: SystemStatus; library?: LibraryState | null; fail?: boolean } = {}) {
     const library = signal<LibraryState | null>(opts.library === undefined ? libraryState() : opts.library);
@@ -88,6 +97,34 @@ describe('status labels', () => {
     });
 });
 
+describe('metadata labels', () => {
+    const now = Date.now();
+
+    it('says what a run is doing', () => {
+        expect(metadataRunLabel({ ...IDLE, phase: 'artists', progress: 42, total: 509 }, now)).toBe('Fetching artists — 42 of 509');
+    });
+
+    it('says how the last run went', () => {
+        expect(metadataRunLabel(IDLE, now)).toContain('Not run since the server started');
+        const last = { finishedAt: now, albums: 0, artists: 0, unsure: 0, stopped: null };
+        expect(metadataRunLabel({ ...IDLE, lastRun: last }, now)).toBe('Up to date — last checked just now.');
+        expect(metadataRunLabel({ ...IDLE, lastRun: { ...last, albums: 3, artists: 1, unsure: 2 } }, now)).toBe(
+            'Last run finished just now — 3 albums, 1 artist updated. 2 artists to retry for similar artists.',
+        );
+        expect(metadataRunLabel({ ...IDLE, lastRun: { ...last, stopped: 'musicbrainz.org: fetch failed' } }, now)).toContain(
+            'stopped just now: musicbrainz.org: fetch failed',
+        );
+    });
+
+    it('counts coverage against the library, and leaves listens out without a token', () => {
+        expect(metadataCoverageLabels(IDLE)).toEqual([
+            'Biographies for 480 of 509 artists, similar artists for 450, listen counts for 470.',
+            'Album intros for 2,800 of 3,105 albums.',
+        ]);
+        expect(metadataCoverageLabels({ ...IDLE, hasToken: false })[0]).not.toContain('listen counts');
+    });
+});
+
 describe('StatusSettings', () => {
     afterEach(() => TestBed.resetTestingModule());
 
@@ -139,6 +176,19 @@ describe('StatusSettings', () => {
         const bar = (fixture.nativeElement as HTMLElement).querySelector('[role="progressbar"]')!;
         expect(bar.getAttribute('aria-valuenow')).toBe('25');
         expect((bar.firstElementChild as HTMLElement).style.width).toBe('25%');
+        fixture.destroy();
+    }));
+
+    it('draws progress while metadata is fetched, and warns without a token', fakeAsync(() => {
+        const { fixture } = create({
+            status: systemStatus({ metadata: { ...IDLE, phase: 'albums', progress: 200, total: 800, hasToken: false } }),
+        });
+        flushMicrotasks();
+        fixture.detectChanges();
+        const bar = (fixture.nativeElement as HTMLElement).querySelector('[aria-label="Online metadata"]')!;
+        expect((bar.firstElementChild as HTMLElement).style.width).toBe('25%');
+        expect(text(fixture)).toContain('Fetching albums — 200 of 800');
+        expect(text(fixture)).toContain('No ListenBrainz token');
         fixture.destroy();
     }));
 

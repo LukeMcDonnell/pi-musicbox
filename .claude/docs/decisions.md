@@ -2058,3 +2058,116 @@ Library list re-decodes rows it destroyed.
 - **Ranking is the server's**, so the panel and phones agree: exact, leading whole
   words, prefix, start of a word, anywhere; then the shorter name. Groups are
   ordered by their best hit; a tie goes artist, album, track.
+
+## Online metadata: Wikipedia via Wikidata, MusicBrainz genres, ListenBrainz listens (2026-10-07)
+
+Bios, album write-ups, artist genres, similar artists and popular tracks come
+from the internet, harvested by `enrich.ts` into SQLite (schema v10) and read
+from there. A page never waits on a fetch; offline, the box shows what it last
+fetched.
+
+- **Last.fm was the first plan and lost to a measurement.** The tags carry a
+  MusicBrainz recording id on all but 6 of 42,363 songs, and ListenBrainz's
+  listen counts are keyed by that same id — so an album's top tracks are an
+  exact join, not title matching. Matching on titles gave Metallica's Toronto
+  bootlegs 15 of 16 hits from the studio versions; the ids correctly give 0.
+  Spike over 30 artists and 59 albums: Wikipedia bio 29/30, album intro 56/59,
+  MusicBrainz genres 27/30 artists, ListenBrainz similar artists 29/30.
+- **ListenBrainz's popularity endpoint needs a user token** (401 otherwise,
+  "bad actors and AI scrapers"; uncached artists only). It lives in
+  `/etc/musicbox/listenbrainz-token`, not `server.conf`, because
+  `setup-server.sh` rewrites that file. No token: everything else still runs.
+- **Wikipedia is reached by SPARQL, not MusicBrainz url-rels.** Wikidata's P434
+  (artist) and P436 (release group) map 200 MusicBrainz ids to English articles in
+  one ~6s query; 185 of 200 release groups resolved, against 56/59 through
+  url-rels — the same coverage without ~3,600 MusicBrainz calls at one a second.
+  Text is the article's plain intro (`prop=extracts&exintro`, 20 titles a call).
+- **"Album review" is the Wikipedia intro.** No critic's review has a legal API.
+- **The share's `.nfo` biography still wins** over Wikipedia's — it is what the
+  library's owner filed. `biographyUrl` is set only when the text is Wikipedia's.
+- **Rate limits, as published (checked 2026-10-07).** MusicBrainz: ~1 request/s
+  per IP on average, else 503 for everything. ListenBrainz: "never more than ONE
+  call per second" per application, 429 with `X-RateLimit-Reset-In`. Wikidata
+  SPARQL: 60s of query time a minute per user agent + IP, 5 parallel, 30
+  errors/min, 60s deadline. Wikipedia: no hard read limit, serial requests. The
+  harvester is serial with `HOST_INTERVAL_MS` spacing (1s everywhere but
+  Wikipedia's 200ms) and backs off on 429/503. ListenBrainz was 400ms at first —
+  under the limit only because each artist also waits on MusicBrainz. The CD
+  lookup keeps its own 1s MusicBrainz limiter; a disc inserted mid-harvest can
+  briefly make it two a second, one request per disc.
+- **ListenBrainz splits some recordings' counts over several rows, so they are
+  summed.** Metallica's list has 2,232 rows for 2,180 recordings; "Nothing Else
+  Matters" is 2,673,155 + 144,725 + 1. Keeping the last row stored 144,725 and
+  dropped the #1 song from the box's top ten; "Fade to Black" was stored as 1.
+  The counts are all-time (from 2002, including the MLHD+ Last.fm history), per
+  `listenbrainz_spark/popularity/main.py`.
+- **Only recordings the library holds are stored.** ListenBrainz returns
+  Metallica's whole catalogue (2,232 recordings); the backup would carry them all.
+- **Similar artists are filtered to the library.** A box that can only play what
+  it holds has no use for a name it cannot open.
+- **The credit is a link everywhere but the panel**, where it would navigate the
+  kiosk's only window away from the app.
+- **Similar artists come from a slow labs endpoint, and may fail alone.**
+  Measured from the box: 6–24s an artist and sometimes past 30s (2s from a
+  desktop); it takes one artist per request. The first deploy's run died on it
+  after 39s. Now it gets 60s, a failure leaves that artist's `similar` NULL to be
+  asked again next run, and albums are harvested first so they never wait on it.
+- **A timeout is retried; an unreachable host is not.** The second deploy's run
+  stored 1,000 albums (920 with an intro) then lost a 30s SPARQL timeout. Slow is
+  normal for these services from the box, so a timeout gets three retries;
+  SPARQL gets Wikidata's own 60s limit and batches of 100.
+- **Settings → Status shows it**: the phase and *n* of *m* while running, how the
+  last run ended (kept in memory, so "not run since the server started" after a
+  restart), and coverage counted from the tables against the library.
+- **A failed fetch stops the run and stores nothing for it**: being offline says
+  nothing about an artist. A clean "not found" is a miss, retried after 7 days.
+  Hits refresh after 30 days (artists, for the listen counts) or 90 (albums).
+  Runs 2 minutes after start, after every scan, and every 6 hours; on an
+  up-to-date box a run is two MPD `list`s and a query.
+
+## Playlist generator: an in-memory index, paged in, popularity per artist (2026-10-07)
+
+- **Matched in memory, like search, not with MPD's `find`.** No MPD filter can
+  express popularity, artist genres or "unplayed". Measured on the box (42,343
+  songs):
+  - Cold build: 8–9s. That is 43 `find "(base \"\")" window a:b` pages of
+    1,000; `listallinfo` overflows MPD's output buffer.
+  - Warm: `options` 27ms, a count 44–146ms.
+  - The build is lazy and shared. A scan drops it, and so does a harvest that
+    touched artists.
+- **The index is ~10 MB live.** RSS still went from ~110 to ~370–420 MB after
+  the first build, and stays there. That is parse garbage: the service runs
+  with no `--max-old-space-size`, so on a 4 GB board V8 grows the heap rather
+  than collect it, and never gives it back. The first version kept all 42k
+  `LibrarySong`s until the end (411 MB); building page by page and interning
+  the repeated strings brought the live set down to ~10 MB, but RSS barely
+  moved. A heap cap in `setup-server.sh` is the lever if memory ever matters.
+- **Popularity is a percentile within the album artist, not a share of the
+  artist's top count.** ListenBrainz counts are far too skewed to slide over:
+  "Nothing Else Matters" has 2.7M listens, and most of an album has under 2%
+  of that. The user wanted "each artist's hits", and a rank gives that evenly.
+  - Counted over distinct recordings, so a song on two releases ranks once.
+  - A recording with no count, by an artist that has counts, ranks at the
+    bottom: ListenBrainz returns every recording that has any listens at all.
+  - An artist with no counts at all was never harvested. Its tracks are left
+    out by any narrowed popularity range, rather than ranked as unpopular.
+- **Library popularity is the same percentile, taken across the whole library.**
+  It is a second slider, not a mode of the first, because the two mean
+  different things and are useful together. Artist-high with library-low gives
+  a small band's best songs. It uses the same counts: only harvested artists,
+  and only distinct recordings.
+- **"Related to artists" uses the artist screen's similar artists, cut off at
+  the same point.** That is ListenBrainz's list, filtered to the library, the
+  first `SIMILAR_LIMIT` (12) per chosen artist. Taking all of up to 100 would
+  drift a long way from the selection, and the filter would disagree with the
+  screen. The chosen artists are excluded, because "related to Tool" asks for
+  everyone but Tool; the Artist filter is how to include them. The index keeps
+  album artist → MusicBrainz ids (Queen have two) to join on.
+- **Years before 1877 are treated as undated.** 43 tracks on the box are tagged
+  `0001`, and they set the Era slider's floor to year 1.
+- **Genres are matched folded, and shown in the spelling most tracks use.**
+  The sources are tag genres ("Rock") and MusicBrainz genres ("rock"). 487
+  distinct genres on the box.
+- **"Unplayed" means never in `track_play`.** An artist or album counts as
+  unplayed when none of its files has been played.
+

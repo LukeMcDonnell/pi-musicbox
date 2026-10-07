@@ -1,5 +1,12 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { PANEL_SLEEP_MINUTES } from '@musicbox/shared';
+import {
+    GENERATOR_ANY,
+    GENERATOR_DEFAULT_LENGTH,
+    GENERATOR_LENGTHS,
+    GENERATOR_LISTS,
+    PANEL_SLEEP_MINUTES,
+    type GeneratorFilters,
+} from '@musicbox/shared';
 
 /** What each setting on the Interface tab is called, and what it means. */
 export interface PreferenceValues {
@@ -12,6 +19,9 @@ export interface PreferenceValues {
     /** What the Favourites screen is sorted by. */
     favouritesSortBy: FavouritesSortBy;
     favouritesSortDescending: boolean;
+    /** The playlist generator's last filters. */
+    generatorFilters: GeneratorFilters;
+    generatorLength: number;
 }
 
 export type FavouritesSortBy = 'added' | 'released' | 'title' | 'artist';
@@ -56,6 +66,8 @@ export const DEFAULTS: Readonly<PreferenceValues> = {
     // Newest favourite first.
     favouritesSortBy: 'added',
     favouritesSortDescending: true,
+    generatorFilters: GENERATOR_ANY,
+    generatorLength: GENERATOR_DEFAULT_LENGTH,
 };
 
 export const PREFERENCES_KEY = 'musicbox.preferences';
@@ -85,6 +97,9 @@ export class Preferences {
     readonly openNowPlayingAfterIdle = computed(() => this.values().openNowPlayingAfterIdle);
     readonly favouritesSortBy = computed(() => this.values().favouritesSortBy);
     readonly favouritesSortDescending = computed(() => this.values().favouritesSortDescending);
+    // Over the defaults, so filters saved before a field existed gain it.
+    readonly generatorFilters = computed(() => ({ ...GENERATOR_ANY, ...this.values().generatorFilters }));
+    readonly generatorLength = computed(() => this.values().generatorLength);
 
     set<K extends keyof PreferenceValues>(key: K, value: PreferenceValues[K]): void {
         this.values.update((values) => ({ ...values, [key]: value }));
@@ -128,7 +143,32 @@ const GUARDS: { [K in keyof PreferenceValues]: (value: unknown) => boolean } = {
     openNowPlayingAfterIdle: (value) => IDLE_OPTIONS.some((option) => option.value === value),
     favouritesSortBy: (value) => FAVOURITES_SORT_OPTIONS.some((option) => option.value === value),
     favouritesSortDescending: (value) => typeof value === 'boolean',
+    generatorFilters: isGeneratorFilters,
+    generatorLength: (value) => (GENERATOR_LENGTHS as readonly unknown[]).includes(value),
 };
+
+const isNames = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+const isRange = (value: unknown, lo: number, hi: number): boolean => {
+    const { min, max } = (value ?? {}) as { min?: unknown; max?: unknown };
+    return typeof min === 'number' && typeof max === 'number' && lo <= min && min <= max && max <= hi;
+};
+
+function isGeneratorFilters(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null) return false;
+    const f = value as Record<string, unknown>;
+    return (
+        isNames(f['lists']) &&
+        f['lists'].every((id) => GENERATOR_LISTS.some((list) => list.id === id)) &&
+        isRange(f['popularity'], 0, 100) &&
+        (f['libraryPopularity'] === undefined || isRange(f['libraryPopularity'], 0, 100)) &&
+        (f['years'] === null || isRange(f['years'], 0, 9999)) &&
+        isNames(f['artists']) &&
+        (f['related'] === undefined || isNames(f['related'])) &&
+        isNames(f['genres'])
+    );
+}
 
 function save(values: PreferenceValues): void {
     try {

@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync, statfsSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { join } from 'node:path';
-import type { SystemStatus, Temperature, ThumbnailStatus, Usage } from '../../shared/api.ts';
+import type { MetadataStatus, SystemStatus, Temperature, ThumbnailStatus, Usage } from '../../shared/api.ts';
 
 export interface SystemStatusDeps {
     /** Prefixed to every /proc and /sys path. Tests point this at a temp tree. */
@@ -68,6 +68,7 @@ export interface SystemStatusReader {
 export function createSystemStatus(
     thumbnails: () => Promise<ThumbnailStatus>,
     deps: SystemStatusDeps = defaultSystemStatusDeps,
+    metadata: (() => MetadataStatus) | null = null,
 ): SystemStatusReader {
     const path = (p: string) => join(deps.root || '/', p);
     let last: CpuSample | null = null;
@@ -156,6 +157,7 @@ export function createSystemStatus(
                 temperatures: temperatures(),
                 underVoltage: underVoltage(),
                 thumbnails: thumbs,
+                metadata: metadata?.() ?? null,
             };
         },
     };

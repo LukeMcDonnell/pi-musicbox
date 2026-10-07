@@ -16,12 +16,16 @@ import {
     artistDirOf,
     artistImageOf,
     createLibrary,
+    listensByFile,
+    popularOf,
     recentAlbumsFrom,
     sortAlbumTracks,
 } from './library.ts';
 import { albumDirOf } from './art.ts';
 import { songFromTags, trackFromTags } from './mpd/bridge.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
+import type { ArtistInfo } from './enrich.ts';
+import type { InfoLookup } from './library.ts';
 import type { Reply } from './mpd/protocol.ts';
 import type { RecentlyAddedAlbum, Track } from '../../shared/api.ts';
 
@@ -840,3 +844,103 @@ test('a library built with no notes at all is the library as it was', async () =
     assert.ok(artists.every((a) => a.rating === undefined));
 });
 
+
+function fakeInfo(artists: Record<string, ArtistInfo>, listens: Record<string, number> = {}): InfoLookup {
+    return {
+        artist: (mbid) => artists[mbid] ?? null,
+        album: () => null,
+        listens: (ids) => new Map(ids.flatMap((id) => (listens[id] === undefined ? [] : [[id, listens[id]] as const]))),
+    };
+}
+
+const ABOUT_ACDC: ArtistInfo = {
+    bio: 'AC/DC are an Australian rock band.',
+    bioUrl: 'https://en.wikipedia.org/wiki/AC/DC',
+    genres: ['hard rock'],
+    similar: [
+        { mbid: 'mbid-nobody-here', name: 'Rose Tattoo' },
+        { mbid: 'mbid-Radiohead', name: 'Radiohead' },
+    ],
+};
+
+test('popular tracks are most-listened first, one per recording', () => {
+    const songs = [
+        lsong('AC-DC/Back in Black/06.flac', { Title: 'Back in Black', MUSICBRAINZ_TRACKID: 'rec-bib' }),
+        lsong('AC-DC/Live/03.flac', { Title: 'Back in Black (live)', MUSICBRAINZ_TRACKID: 'rec-bib-live' }),
+        lsong('AC-DC/Best Of/01.flac', { Title: 'Back in Black', MUSICBRAINZ_TRACKID: 'rec-bib' }),
+        lsong('AC-DC/Highway/01.flac', { Title: 'Highway to Hell', MUSICBRAINZ_TRACKID: 'rec-hth' }),
+        lsong('AC-DC/Highway/02.flac', { Title: 'Girls Got Rhythm' }),
+    ];
+    const listens = listensByFile(songs, fakeInfo({}, { 'rec-bib': 900, 'rec-hth': 800, 'rec-bib-live': 5 }));
+    assert.equal(listens.size, 4);
+    assert.deepEqual(
+        popularOf(songs, listens).map((t) => t.file),
+        ['AC-DC/Back in Black/06.flac', 'AC-DC/Highway/01.flac', 'AC-DC/Live/03.flac'],
+    );
+    assert.equal(popularOf(songs, listens, 1).length, 1);
+});
+
+test('albumsOf adds the harvested bio, genres, popular tracks and similar artists it owns', async () => {
+    const bridge = fakeBridge({
+        async findSongs(): Promise<LibrarySong[]> {
+            return [
+                lsong('AC-DC/Back in Black (1980)/06.flac', {
+                    Album: 'Back in Black',
+                    MUSICBRAINZ_ALBUMARTISTID: 'mbid-AC-DC',
+                    MUSICBRAINZ_TRACKID: 'rec-bib',
+                }),
+            ];
+        },
+    });
+    const result = await createLibrary(bridge, fakeNotes({}), fakeInfo({ 'mbid-AC-DC': ABOUT_ACDC }, { 'rec-bib': 9 }))
+        .albumsOf('AC/DC');
+
+    assert.equal(result.biography, 'AC/DC are an Australian rock band.');
+    assert.equal(result.biographyUrl, 'https://en.wikipedia.org/wiki/AC/DC');
+    assert.deepEqual(result.artistGenres, ['hard rock']);
+    assert.deepEqual(result.popular.map((t) => t.file), ['AC-DC/Back in Black (1980)/06.flac']);
+    // Rose Tattoo are not in this library, so are not offered.
+    assert.deepEqual(result.similar.map((a) => a.name), ['Radiohead']);
+});
+
+test("the share's biography wins over Wikipedia's, and carries no link", async () => {
+    const bridge = fakeBridge({
+        async findSongs(): Promise<LibrarySong[]> {
+            return [lsong('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black', MUSICBRAINZ_ALBUMARTISTID: 'mbid-AC-DC' })];
+        },
+    });
+    const notes = fakeNotes({ 'AC-DC': { biography: 'Formed in Sydney in 1973.' } });
+    const result = await createLibrary(bridge, notes, fakeInfo({ 'mbid-AC-DC': ABOUT_ACDC })).albumsOf('AC/DC');
+    assert.equal(result.biography, 'Formed in Sydney in 1973.');
+    assert.equal(result.biographyUrl, null);
+    assert.deepEqual(result.artistGenres, ['hard rock']);
+});
+
+test('an artist carrying two ids is found by whichever was harvested', async () => {
+    const bridge = fakeBridge({
+        async findSongs(): Promise<LibrarySong[]> {
+            return [
+                lsong('Queen/A/01.flac', { Album: 'A', MUSICBRAINZ_ALBUMARTISTID: 'mbid-queen-1' }),
+                lsong('Queen/B/01.flac', { Album: 'B', MUSICBRAINZ_ALBUMARTISTID: 'mbid-queen-2' }),
+            ];
+        },
+    });
+    const about = { ...ABOUT_ACDC, similar: [] };
+    const result = await createLibrary(bridge, undefined, fakeInfo({ 'mbid-queen-2': about })).albumsOf('Queen');
+    assert.equal(result.biography, ABOUT_ACDC.bio);
+    // No similar artists means the index is never built for them.
+    assert.deepEqual(bridge.calls, []);
+});
+
+test('with nothing harvested the new fields are empty, not missing', async () => {
+    const bridge = fakeBridge({
+        async findSongs(): Promise<LibrarySong[]> {
+            return [lsong('AC-DC/Back in Black (1980)/01.flac', { Album: 'Back in Black' })];
+        },
+    });
+    const result = await createLibrary(bridge).albumsOf('AC/DC');
+    assert.equal(result.biographyUrl, null);
+    assert.deepEqual(result.artistGenres, []);
+    assert.deepEqual(result.popular, []);
+    assert.deepEqual(result.similar, []);
+});

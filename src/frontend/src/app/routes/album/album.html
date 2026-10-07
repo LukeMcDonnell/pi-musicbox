@@ -114,6 +114,9 @@
             <span class="w-6 flex-none text-left text-[0.85rem] text-muted tabular-nums">{{ numberOf(track, $index) }}.
             </span>
             <span class="text-xl min-w-0 flex-1 truncate">{{ titleOf(track) }}</span>
+            @if (isPopular(track)) {
+              <svg lucideFlame class="size-4 flex-none text-accent" aria-label="Popular" role="img"></svg>
+            }
             <span class="flex-none text-[0.85rem] text-muted tabular-nums">
               {{ durationOf(track) }}
             </span>
@@ -132,6 +135,11 @@
         }
       }
     </ol>
+
+    @if (about(); as text) {
+      <h2 class="pt-10 pb-1 text-[0.85rem] font-semibold text-muted">About</h2>
+      <app-about-text class="text-[0.95rem] leading-relaxed" [text]="text.text" [url]="text.url" />
+    }
   </div>
 
   <app-track-menu [(track)]="menuTrack" (play)="playFrom($event)" (queue)="queueTrack($event)"

@@ -207,6 +207,35 @@ backlight is off.** The digitizer is a separate device so it should, and a dead
 panel stream restores the backlight anyway, but nobody has put a finger on a dark
 screen yet. Worth thirty seconds next time you are at the box.
 
+## Landed: playlist generator, first cut (2026-10-07)
+
+`generator.ts` takes filters (lists, popularity, era, artists, genres) and
+returns matching tracks. The Playlists wand opens a screen for it, and Play
+fills the queue. `decisions.md` has the measurements. Next, on the same
+generator:
+- saving a pick as an m3u playlist;
+- themed radio (library, decade, recently played), which tops the queue up as
+  it plays;
+- an auto DJ.
+
+**Not yet tried on the panel itself:** the two-thumb sliders by touch, and the
+checklists with the on-screen keyboard.
+
+**Deferred: a heap cap for the server.** The first generator build takes the
+server from ~110 MB to ~370 MB resident and it never comes back, though the live
+index is ~10 MB (`decisions.md`). The fix is `--max-old-space-size` on
+`ExecStart` in `setup-server.sh`'s unit. It was written once (192 MB) and taken
+out before it reached the box. Measure the live heap before picking a number:
+too low, and the server crash-loops on an out-of-memory error.
+
+
+Artist bios, genres, popular tracks and similar artists; an album's Wikipedia
+intro and its most-listened tracks flagged. Harvested by `enrich.ts` from
+Wikipedia/Wikidata, MusicBrainz and ListenBrainz (token in
+`/etc/musicbox/listenbrainz-token`) — `decisions.md` has the measurements. Left:
+no setting turns it off, as `cdLookup` does for discs; add one if the lookups
+should be optional.
+
 ## Landed: library search (2026-10-06)
 
 A field at the top of Home; results replace the shelves, grouped Artists, Albums,

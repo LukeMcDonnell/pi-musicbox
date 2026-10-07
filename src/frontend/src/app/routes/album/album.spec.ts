@@ -36,6 +36,8 @@ function response(
             ...album,
         },
         tracks: [track('Everything', 267, 'a/1.flac'), track('Kid A', 264, 'a/2.flac')],
+        about: null,
+        listens: {},
         ...over,
     };
 }
@@ -565,5 +567,43 @@ describe('Album', () => {
         await fixture.whenStable();
         expect(fixture.componentInstance.error()).toBe('no such album');
         expect(fixture.componentInstance.loading()).toBeFalse();
+    });
+
+    describe('with harvested metadata', () => {
+        async function render(data: AlbumResponse) {
+            const fixture = create(fakeStore(data));
+            fixture.detectChanges();
+            await fixture.whenStable();
+            fixture.detectChanges();
+            return fixture;
+        }
+
+        it('marks the most-listened tracks', async () => {
+            const tracks = [1, 2, 3, 4, 5].map((n) => track(`T${n}`, 100, `a/${n}.flac`));
+            const fixture = await render(
+                response({ tracks, listens: { 'a/1.flac': 10, 'a/2.flac': 50, 'a/3.flac': 30, 'a/4.flac': 20 } }),
+            );
+            expect(tracks.filter((t) => fixture.componentInstance.isPopular(t)).map((t) => t.file)).toEqual([
+                'a/2.flac',
+                'a/3.flac',
+                'a/4.flac',
+            ]);
+            const el = fixture.nativeElement as HTMLElement;
+            expect(el.querySelectorAll('[aria-label="Popular"]').length).toBe(3);
+        });
+
+        it('marks nothing when only one track has a count', async () => {
+            const fixture = await render(response({ listens: { 'a/1.flac': 10 } }));
+            expect(fixture.componentInstance.popularFiles().size).toBe(0);
+        });
+
+        it('shows the album intro with its credit', async () => {
+            const fixture = await render(
+                response({ about: { text: 'Kid A is the fourth album.', url: 'https://en.wikipedia.org/wiki/Kid_A' } }),
+            );
+            const el = fixture.nativeElement as HTMLElement;
+            expect(el.textContent).toContain('Kid A is the fourth album.');
+            expect(el.textContent).toContain('From Wikipedia');
+        });
     });
 });

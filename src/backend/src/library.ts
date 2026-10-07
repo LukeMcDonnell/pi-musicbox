@@ -43,6 +43,7 @@ import type {
 import { artUriForDir } from './art.ts';
 import { groupBy } from './mpd/protocol.ts';
 import type { LibraryNote } from './library-notes.ts';
+import type { AlbumInfo, ArtistInfo } from './enrich.ts';
 import type { LibrarySong, MpdBridge } from './mpd/bridge.ts';
 import { albumNoteDirOf, releaseFilter } from './release.ts';
 
@@ -59,6 +60,45 @@ export { albumNoteDirOf, releaseFilter, releaseIdOf } from './release.ts';
 export interface NoteLookup {
     forArtist(directory: string): LibraryNote | null;
     forAlbum(directory: string): LibraryNote | null;
+}
+
+/** The read half of enrich.ts: SQLite lookups, never a fetch. */
+export interface InfoLookup {
+    artist(mbid: string): ArtistInfo | null;
+    album(mbid: string): AlbumInfo | null;
+    listens(mbids: readonly string[]): Map<string, number>;
+}
+
+/** How many tracks the artist screen's Popular list shows. */
+export const POPULAR_LIMIT = 10;
+/** How many similar artists from the library the artist screen shows. */
+export const SIMILAR_LIMIT = 12;
+
+/** Listen counts by file, for the songs that have one. */
+export function listensByFile(songs: LibrarySong[], info: InfoLookup): Map<string, number> {
+    const counts = info.listens(songs.flatMap((s) => (s.mbRecordingId === undefined ? [] : [s.mbRecordingId])));
+    const out = new Map<string, number>();
+    for (const song of songs) {
+        const count = song.mbRecordingId === undefined ? undefined : counts.get(song.mbRecordingId);
+        if (count !== undefined && song.track.file !== undefined) out.set(song.track.file, count);
+    }
+    return out;
+}
+
+/** Most listened first, one track per recording so a compilation cannot repeat a hit. */
+export function popularOf(songs: LibrarySong[], listens: Map<string, number>, limit = POPULAR_LIMIT): Track[] {
+    const seen = new Set<string>();
+    return songs
+        .filter((s) => s.track.file !== undefined && listens.has(s.track.file))
+        .sort((a, b) => listens.get(b.track.file!)! - listens.get(a.track.file!)!)
+        .filter((s) => {
+            const key = s.mbRecordingId ?? s.track.file!;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
+        .slice(0, limit)
+        .map((s) => s.track);
 }
 
 /**
@@ -347,8 +387,12 @@ export interface Library {
     albumsOf: (albumArtist: string) => Promise<{
         image: string | null;
         biography: string | null;
+        biographyUrl: string | null;
         rating: number | null;
         albums: AlbumSummary[];
+        artistGenres: string[];
+        popular: Track[];
+        similar: ArtistSummary[];
     }>;
     /** The album's songs, in playing order. Routes take `.track` for the wire. */
     songsOf: (release: string) => Promise<LibrarySong[]>;
@@ -360,7 +404,7 @@ export interface Library {
     builds: () => number;
 }
 
-export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
+export function createLibrary(bridge: MpdBridge, notes?: NoteLookup, info?: InfoLookup): Library {
     let cached: ArtistSummary[] | null = null;
     let building: Promise<ArtistSummary[]> | null = null;
     /** The last recent-albums answer, and the limit it was asked for. */
@@ -496,6 +540,37 @@ export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
         });
     }
 
+    /** The artists ListenBrainz calls similar, as this library's own rows. */
+    async function similarIn(similar: ArtistInfo['similar']): Promise<ArtistSummary[]> {
+        if (similar.length === 0) return [];
+        const byMbid = new Map<string, ArtistSummary>();
+        for (const artist of await artistsCached()) {
+            if (artist.mbArtistId !== undefined) byMbid.set(artist.mbArtistId, artist);
+        }
+        return similar
+            .flatMap((s) => byMbid.get(s.mbid) ?? [])
+            .slice(0, SIMILAR_LIMIT);
+    }
+
+    function artistsCached(): Promise<ArtistSummary[]> {
+        if (cached !== null) return Promise.resolve(cached);
+        // Share one build between concurrent callers. The panel and a phone
+        // opening the library at the same moment would otherwise each run
+        // 488 MPD commands.
+        if (building === null) {
+            const mine = generation;
+            building = build()
+                .then((artists) => {
+                    if (mine === generation) cached = artists;
+                    return artists;
+                })
+                .finally(() => {
+                    if (mine === generation) building = null;
+                });
+        }
+        return building;
+    }
+
     return {
         builds: () => builds,
         invalidate: () => {
@@ -509,24 +584,7 @@ export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
             // list for the life of the process.
             generation += 1;
         },
-        artists: async () => {
-            if (cached !== null) return cached;
-            // Share one build between concurrent callers. The panel and a phone
-            // opening the library at the same moment would otherwise each run
-            // 488 MPD commands.
-            if (building === null) {
-                const mine = generation;
-                building = build()
-                    .then((artists) => {
-                        if (mine === generation) cached = artists;
-                        return artists;
-                    })
-                    .finally(() => {
-                        if (mine === generation) building = null;
-                    });
-            }
-            return building;
-        },
+        artists: artistsCached,
         albumsOf: async (albumArtist) => {
             const songs = await bridge.findSongs(['albumartist', albumArtist]);
             // The artist's own directory, from a track we already have. The same
@@ -535,14 +593,23 @@ export function createLibrary(bridge: MpdBridge, notes?: NoteLookup): Library {
             const file = songs.find((s) => s.track.file !== undefined)?.track.file;
             const dir = file === undefined ? '' : artistDirOf(file);
             const note = dir === '' || notes === undefined ? null : notes.forArtist(dir);
+            // Queen carry two artist ids; whichever was harvested answers.
+            const ids = [...new Set(songs.flatMap((s) => (s.mbArtistId === undefined ? [] : [s.mbArtistId])))];
+            const about = info === undefined ? null : ids.map((id) => info.artist(id)).find((a) => a !== null) ?? null;
+            // The share's own biography wins: it is what the library's owner filed.
+            const biography = note?.biography ?? about?.bio ?? null;
             return {
                 // From a track we already have, so this costs no MPD command and
                 // does not touch the index. `artistDirOf` is the first path
                 // segment — see its note for why not two dirnames.
                 image: artistImageOf(songs),
-                biography: note?.biography ?? null,
+                biography,
+                biographyUrl: biography !== null && biography === about?.bio ? about.bioUrl : null,
                 rating: note?.rating ?? null,
                 albums: albumsFromSongs(albumArtist, songs, notes),
+                artistGenres: about?.genres ?? [],
+                popular: info === undefined ? [] : popularOf(songs, listensByFile(songs, info)),
+                similar: about === null ? [] : await similarIn(about.similar),
             };
         },
         songsOf: async (release) => sortAlbumSongs(await bridge.findSongs(releaseFilter(release))),

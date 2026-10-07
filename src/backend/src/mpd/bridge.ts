@@ -202,6 +202,8 @@ export interface LibrarySong {
     mbAlbumId?: string;
     mbReleaseGroupId?: string;
     mbArtistId?: string;
+    /** `MUSICBRAINZ_TRACKID`, which is the recording id despite the name. */
+    mbRecordingId?: string;
 }
 
 /**
@@ -236,10 +238,12 @@ export function songFromTags(tags: Map<string, string[]>): LibrarySong | null {
     const albumId = first('MUSICBRAINZ_ALBUMID');
     const groupId = first('MUSICBRAINZ_RELEASEGROUPID');
     const artistId = first('MUSICBRAINZ_ALBUMARTISTID');
+    const recordingId = first('MUSICBRAINZ_TRACKID');
     if (label) song.label = label;
     if (albumId) song.mbAlbumId = albumId;
     if (groupId) song.mbReleaseGroupId = groupId;
     if (artistId) song.mbArtistId = artistId;
+    if (recordingId) song.mbRecordingId = recordingId;
     return song;
 }
 
@@ -782,8 +786,17 @@ export class MpdBridge {
      * 372ms, which is 80 albums once grouped. See library.recentlyAdded.
      */
     async songsByAdded(offset: number, count: number): Promise<LibrarySong[]> {
+        return this.songsWindow(offset, count, '-Added');
+    }
+
+    /**
+     * One window of the whole library, in MPD's order unless `sort` is given.
+     * The paged way to read every song: `listallinfo` overflows MPD's buffer.
+     */
+    async songsWindow(offset: number, count: number, sort?: '-Added'): Promise<LibrarySong[]> {
         const window = `${Math.max(0, Math.trunc(offset))}:${Math.max(0, Math.trunc(offset + count))}`;
-        const reply = await this.send(`find "(base \\"\\")" sort -Added window ${window}`);
+        const order = sort === undefined ? '' : ` sort ${sort}`;
+        const reply = await this.send(`find "(base \\"\\")"${order} window ${window}`);
         return groupByMulti(reply, 'file')
             .map(songFromTags)
             .filter((s): s is LibrarySong => s !== null);

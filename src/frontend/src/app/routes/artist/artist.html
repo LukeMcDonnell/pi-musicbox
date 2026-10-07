@@ -22,20 +22,10 @@
           {{ list.length }}{{ list.length === 1 ? ' album' : ' albums' }}
         </p>
       }
-      <!--
-        Absent for 446 of 506 artists, so this must not leave a gap when it is:
-        the whole paragraph is omitted rather than rendered empty. line-clamp,
-        never truncate — the text is centred under the picture on a phone, and
-        truncate on a centred line clips both ends. Tap to expand.
-      -->
-      @if (biography(); as text) {
-        <button type="button"
-                class="mt-1 block w-full cursor-pointer text-left text-[0.85rem] leading-snug
-                       text-muted [overflow-wrap:anywhere] max-[40rem]:text-center"
-                [attr.aria-expanded]="bioOpen()"
-                (click)="toggleBio()">
-          <span class="block" [class.line-clamp-3]="!bioOpen()">{{ text }}</span>
-        </button>
+      <!-- Omitted, never rendered empty. line-clamp, not truncate: a centred
+           nowrap line on a phone clips at both ends. -->
+      @if (genreLine(); as line) {
+        <p class="line-clamp-1 text-[0.85rem] text-muted" [title]="line">{{ line }}</p>
       }
     </div>
   </div>
@@ -50,6 +40,7 @@
     @if (loading()) {
       <p class="pt-3 text-[0.95rem] text-muted">Loading albums…</p>
     }
+
 
     <ul class="flex flex-col pt-2">
       @for (album of albums(); track album.release) {
@@ -100,8 +91,99 @@
         }
       }
     </ul>
+
+    @if (popular().length > 0) {
+      <div class="flex items-center gap-1 pt-10">
+        <h2 class="min-w-0 flex-1 truncate text-[0.85rem] font-semibold text-muted">Popular tracks</h2>
+        <button type="button" class="flex min-h-11 flex-none cursor-pointer touch-manipulation items-center gap-1.5 rounded-full
+                       px-3 text-accent text-[0.85rem] font-semibold select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy()" aria-label="Play the popular tracks" (click)="playPopularAll()">
+          <svg lucidePlay class="size-4 fill-current" aria-hidden="true"></svg>
+          Play
+        </button>
+        <button type="button" class="flex min-h-11 flex-none cursor-pointer touch-manipulation items-center gap-1.5 rounded-full
+                       px-3 text-muted text-[0.85rem] font-semibold select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy()" aria-label="Add the popular tracks to the queue" (click)="queuePopularAll()">
+          <svg lucideListEnd class="size-4" aria-hidden="true"></svg>
+          Queue
+        </button>
+        <button type="button" class="flex min-h-11 flex-none cursor-pointer touch-manipulation items-center gap-1.5 rounded-full
+                       -me-3 px-3 text-muted text-[0.85rem] font-semibold select-none active:bg-raised disabled:opacity-40"
+                [disabled]="busy()" aria-haspopup="dialog" aria-label="Add the popular tracks to a playlist"
+                (click)="playlistFiles.set(popularFiles())">
+          <svg lucideListPlus class="size-4" aria-hidden="true"></svg>
+          Playlist
+        </button>
+      </div>
+      <ol class="flex flex-col pt-1">
+        @for (track of popularShown(); track track.file) {
+          <li class="flex items-center gap-1">
+            <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
+                           gap-3 rounded-md px-2 py-1 text-left select-none active:bg-raised disabled:opacity-40"
+                    (click)="openAlbumOf(track)">
+              <span class="w-6 flex-none text-[0.85rem] text-muted tabular-nums">{{ $index + 1 }}.</span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-xl">{{ track.title || track.file }}</span>
+                <span class="block truncate text-[0.85rem] text-muted">{{ track.album }}</span>
+              </span>
+              <span class="flex-none text-[0.85rem] text-muted tabular-nums">{{ durationOf(track) }}</span>
+            </button>
+            <button type="button"
+                    class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" [attr.aria-label]="'Play ' + (track.title || track.file)"
+                    (click)="playPopular(track)">
+              <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
+            </button>
+            <button type="button"
+                    class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                           rounded-full text-muted select-none active:bg-raised disabled:opacity-40"
+                    [disabled]="busy()" aria-haspopup="dialog" [attr.aria-label]="'More for ' + (track.title || track.file)"
+                    (click)="menuTrack.set(track)">
+              <svg lucideEllipsisVertical class="size-5" aria-hidden="true"></svg>
+            </button>
+          </li>
+        }
+      </ol>
+      @if (popular().length > popularShown().length || popularOpen()) {
+        <button type="button"
+                class="flex min-h-11 cursor-pointer touch-manipulation items-center rounded-full px-2
+                       text-[0.85rem] font-semibold text-accent select-none active:bg-raised"
+                (click)="popularOpen.set(!popularOpen())">
+          {{ popularOpen() ? 'Show less' : 'Show more' }}
+        </button>
+      }
+    }
+
+    @if (biography(); as text) {
+      <h2 class="pt-10 pb-1 text-[0.85rem] font-semibold text-muted">Artist Bio</h2>
+      <app-about-text class="text-[0.95rem] leading-relaxed" [text]="text" [url]="biographyUrl()" />
+    }
+
+    @if (similar().length > 0) {
+      <h2 class="pt-10 pb-2 text-[0.85rem] font-semibold text-muted">Similar artists in your library</h2>
+      <ul class="-mx-4 flex gap-2 overflow-x-auto px-4 pb-2">
+        @for (artist of similar(); track artist.name) {
+          <li class="w-24 flex-none">
+            <button class="flex w-full cursor-pointer touch-manipulation flex-col items-center gap-1
+                           rounded-md py-1 select-none active:bg-raised"
+                    (click)="openArtist(artist.name)">
+              <app-cover-art class="size-20 rounded-full bg-surface" [uri]="pictureOf(artist)"
+                             [width]="80" [height]="80" lazy thumb (failed)="onCoverError($event)">
+                <svg lucideUserRound class="size-6 text-muted" aria-hidden="true"></svg>
+              </app-cover-art>
+              <span class="w-full truncate text-center text-[0.85rem]">{{ artist.name }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
   </div>
 
+  <app-playlist-add [(files)]="playlistFiles" [subtitle]="name() + ' · Popular tracks'"
+                    (added)="notice.set('Added to “' + $event + '”')" />
+  <app-track-menu [(track)]="menuTrack" (play)="playPopular($event)" (queue)="queueTrack($event)"
+                  (playNext)="playTrackNext($event)" (added)="notice.set('Added to “' + $event + '”')" />
   <app-album-menu [(album)]="menuAlbum" (play)="play($event)" (queue)="queue($event)"
                   (playNext)="playNext($event)" (added)="notice.set('Added to “' + $event + '”')" />
 </section>

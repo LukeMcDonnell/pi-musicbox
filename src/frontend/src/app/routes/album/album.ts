@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucideListEnd, LucidePlay } from '@lucide/angular';
+import { LucideChevronLeft, LucideDisc3, LucideEllipsisVertical, LucideFlame, LucideListEnd, LucidePlay } from '@lucide/angular';
 import type { AlbumRef, AlbumResponse, AlbumSummary, Track } from '@musicbox/shared';
 import { AppHistory } from '../../services/app-history';
 import { LibraryStore } from '../../services/library-store';
@@ -13,6 +13,10 @@ import { FavouriteButton } from '../../components/favourite-button/favourite-but
 import { CoverArt } from '../../components/cover-art/cover-art';
 import { TrackMenu } from '../../components/track-menu/track-menu';
 import { AlbumMenu } from '../../components/album-menu/album-menu';
+import { AboutText } from '../../components/about-text/about-text';
+
+/** How many of an album's most-listened tracks are marked. */
+export const POPULAR_MARKED = 3;
 
 /*
   One album: its cover as a hero, two buttons, and the tracks.
@@ -42,6 +46,7 @@ import { AlbumMenu } from '../../components/album-menu/album-menu';
 @Component({
     selector: 'app-album',
     imports: [
+        AboutText,
         AlbumMenu,
         CoverArt,
         FavouriteButton,
@@ -51,6 +56,7 @@ import { AlbumMenu } from '../../components/album-menu/album-menu';
         LucideDisc3,
         LucideListEnd,
         LucideEllipsisVertical,
+        LucideFlame,
         LucidePlay,
         TrackMenu,
     ],
@@ -127,6 +133,28 @@ export class Album {
         const genres = this.data()?.album.genres ?? [];
         return genres.length === 0 ? null : genres.join(', ');
     });
+
+    /** The album's Wikipedia intro, or null. */
+    readonly about = computed(() => this.data()?.about ?? null);
+
+    /**
+     * The files of the album's most-listened tracks, per ListenBrainz. Empty
+     * unless at least two tracks have a count: one alone ranks nothing.
+     */
+    readonly popularFiles = computed<ReadonlySet<string>>(() => {
+        const listens = Object.entries(this.data()?.listens ?? {});
+        if (listens.length < 2) return new Set();
+        return new Set(
+            listens
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, POPULAR_MARKED)
+                .map(([file]) => file),
+        );
+    });
+
+    isPopular(track: Track): boolean {
+        return track.file !== undefined && this.popularFiles().has(track.file);
+    }
 
     /**
      * The tracks, split into discs.

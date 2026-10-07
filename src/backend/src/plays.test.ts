@@ -245,3 +245,12 @@ test('the limit cuts the list, keeping the most played', () => {
     db.close();
 });
 
+
+test('every file played is listed once, however often it played', () => {
+    const { db, plays } = fresh();
+    plays.record(track('Tool', 'Ænima', '01'));
+    plays.record(track('Tool', 'Ænima', '01'));
+    plays.record(track('Tool', 'Lateralus', '02'));
+    assert.deepEqual(plays.playedFiles().sort(), ['Tool/Lateralus/02.flac', 'Tool/Ænima/01.flac']);
+    db.close();
+});

@@ -62,6 +62,13 @@ describe('Playlists', () => {
         expect(dialog).toContain('Delete');
     });
 
+    it('opens the generator from the wand beside +', () => {
+        const { el } = create();
+        const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+        (el.querySelector('[aria-label="Generate a playlist"]') as HTMLButtonElement).click();
+        expect(navigate).toHaveBeenCalledWith(['/playlists/generate']);
+    });
+
     it('opens a playlist by its name', () => {
         const { el } = create();
         const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);

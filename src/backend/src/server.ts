@@ -9,7 +9,7 @@
 
 import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net';
 import Fastify from 'fastify';
-import { loadConfig, DEFAULT_CONF_PATH } from './config.ts';
+import { loadConfig, readToken, DEFAULT_CONF_PATH } from './config.ts';
 import { MpdBridge } from './mpd/bridge.ts';
 import { registerCors } from './cors.ts';
 import { registerRoutes, type RouteHandle } from './routes.ts';
@@ -23,6 +23,7 @@ import { openDb } from './db.ts';
 import { createSettings } from './settings.ts';
 import { createLibraryScanner } from './library-scan.ts';
 import { createLibraryNotes } from './library-notes.ts';
+import { createEnrich } from './enrich.ts';
 import { createPanel } from './panel.ts';
 import { createPower } from './power.ts';
 import { createBackups } from './backup.ts';
@@ -36,6 +37,9 @@ import { createSystemStatus } from './system-status.ts';
 /** Replaced at build time by esbuild's define. */
 declare const __MUSICBOX_BUILD__: string;
 const BUILD = typeof __MUSICBOX_BUILD__ === 'string' ? __MUSICBOX_BUILD__ : 'dev';
+const USER_AGENT = `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`;
+/** A box that was offline catches up on the next of these. */
+const ENRICH_EVERY_MS = 6 * 60 * 60 * 1000;
 
 async function main(): Promise<void> {
     const confPath = process.env.MUSICBOX_CONF ?? DEFAULT_CONF_PATH;
@@ -87,6 +91,21 @@ async function main(): Promise<void> {
         log: (level, msg) => app.log[level](msg),
     });
 
+    const enrich = createEnrich({
+        db,
+        bridge,
+        userAgent: USER_AGENT,
+        listenBrainzToken: readToken(config.listenBrainzTokenFile),
+        log: (level, msg) => app.log[level](msg),
+    });
+    const enrichNow = () =>
+        void enrich
+            .run()
+            .then((r) => {
+                if (r.artists > 0) routes.invalidateGenerator();
+            })
+            .catch((err: Error) => app.log.warn(`enrich failed: ${err.message}`));
+
     // Cover thumbnails are built by the musicbox-thumbs helper, never here. See thumbs.ts.
     const thumbs = createThumbRequests(config.thumbRequestDir, config.thumbDir);
 
@@ -112,6 +131,7 @@ async function main(): Promise<void> {
             await notes.harvest();
             routes.invalidateLibrary();
             await thumbs.request('library');
+            enrichNow();
         },
     });
 
@@ -151,7 +171,8 @@ async function main(): Promise<void> {
         favourites: createFavourites(db),
         plays,
         notes,
-        systemStatus: createSystemStatus(thumbs.status),
+        info: enrich,
+        systemStatus: createSystemStatus(thumbs.status, undefined, enrich.status),
     });
     registerStatic(app, config.webRoot);
 
@@ -181,7 +202,7 @@ async function main(): Promise<void> {
         lookup: createCdLookup({
             db,
             artDir: config.cdArtDir,
-            userAgent: `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`,
+            userAgent: USER_AGENT,
             log: (level, msg) => app.log[level](msg),
             onCover: () => void thumbs.request('cd'),
         }),
@@ -245,6 +266,17 @@ async function main(): Promise<void> {
         };
         armInitialHarvest(0);
     }
+
+    // Only what is missing or stale is fetched, so a run on an up-to-date box is
+    // three MPD lists and a query. Not at boot: the first minutes belong to the UI.
+    const armEnrich = (attempt: number): void => {
+        setTimeout(() => {
+            if (bridge.status === 'ok') enrichNow();
+            else if (attempt < 10) armEnrich(attempt + 1);
+        }, attempt === 0 ? 120_000 : 15_000).unref();
+    };
+    armEnrich(0);
+    setInterval(enrichNow, ENRICH_EVERY_MS).unref();
 
     // The first build, on a box that has never completed one; after that the nightly
     // scan keeps them current. Asked again at every start until one completes.

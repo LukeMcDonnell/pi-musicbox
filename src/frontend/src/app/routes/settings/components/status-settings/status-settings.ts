@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import type { SystemStatus, ThumbnailStatus, Usage } from '@musicbox/shared';
+import type { MetadataStatus, SystemStatus, ThumbnailStatus, Usage } from '@musicbox/shared';
 import { ago } from '../../../../services/ago';
 import { ApiClient } from '../../../../services/api-client';
 import { MusicboxApi } from '../../../../services/musicbox-api';
@@ -54,6 +54,38 @@ export function thumbnailLabel(t: ThumbnailStatus, now: number): string {
             return `${what} last built${when}${counts.length ? ` — ${counts.join(', ')}` : ''}.`;
         }
     }
+}
+
+/** What the metadata harvest is doing, or how its last run went. */
+export function metadataRunLabel(m: MetadataStatus, now: number): string {
+    if (m.phase !== null) {
+        return `Fetching ${m.phase} — ${(m.progress ?? 0).toLocaleString()} of ${(m.total ?? 0).toLocaleString()}`;
+    }
+    const last = m.lastRun;
+    if (last === null) return 'Not run since the server started. It runs two minutes after start.';
+    const when = ago(last.finishedAt, now);
+    if (last.stopped !== null) return `Last run stopped ${when}: ${last.stopped}. It tries again within six hours.`;
+    const updated = last.albums + last.artists;
+    const retry = last.unsure > 0 ? ` ${count(last.unsure, 'artist')} to retry for similar artists.` : '';
+    return updated === 0
+        ? `Up to date — last checked ${when}.${retry}`
+        : `Last run finished ${when} — ${count(last.albums, 'album')}, ${count(last.artists, 'artist')} updated.${retry}`;
+}
+
+/** How much of the library has each kind of metadata. */
+export function metadataCoverageLabels(m: MetadataStatus): string[] {
+    const c = m.coverage;
+    const artists = (c.libraryArtists ?? c.artists).toLocaleString();
+    const albums = (c.libraryAlbums ?? c.albums).toLocaleString();
+    return [
+        `Biographies for ${c.bios.toLocaleString()} of ${artists} artists, similar artists for ${c.similar.toLocaleString()}` +
+            (m.hasToken ? `, listen counts for ${c.listens.toLocaleString()}.` : '.'),
+        `Album intros for ${c.abouts.toLocaleString()} of ${albums} albums.`,
+    ];
+}
+
+function count(n: number, noun: string): string {
+    return `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`;
 }
 
 /**
@@ -121,6 +153,26 @@ export function thumbnailLabel(t: ThumbnailStatus, now: number): string {
                 </div>
             }
         }
+
+        @if (status()?.metadata; as meta) {
+            <h3 class="pt-5 text-[0.95rem] font-semibold">Online metadata</h3>
+            <div class="pt-1 text-[0.85rem] text-muted" aria-live="polite">
+                <p>{{ metadataRun(meta) }}</p>
+                @if (meta.phase !== null && meta.total) {
+                    <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface" role="progressbar"
+                         aria-label="Online metadata" aria-valuemin="0"
+                         [attr.aria-valuemax]="meta.total" [attr.aria-valuenow]="meta.progress">
+                        <div class="h-full bg-accent" [style.width.%]="(100 * (meta.progress ?? 0)) / meta.total"></div>
+                    </div>
+                }
+                @for (line of coverage(meta); track $index) {
+                    <p class="pt-1">{{ line }}</p>
+                }
+                @if (!meta.hasToken) {
+                    <p class="pt-1 text-warn">No ListenBrainz token, so no popular tracks. See the README.</p>
+                }
+            </div>
+        }
     `,
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -155,6 +207,14 @@ export class StatusSettings {
 
     protected thumbnail(t: ThumbnailStatus): string {
         return thumbnailLabel(t, Date.now());
+    }
+
+    protected metadataRun(m: MetadataStatus): string {
+        return metadataRunLabel(m, Date.now());
+    }
+
+    protected coverage(m: MetadataStatus): string[] {
+        return metadataCoverageLabels(m);
     }
 
     protected scanLabel(): string {

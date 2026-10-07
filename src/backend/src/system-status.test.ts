@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ThumbnailStatus } from '../../shared/api.ts';
+import type { MetadataStatus, ThumbnailStatus } from '../../shared/api.ts';
 import { createSystemStatus, parseCpuLine, parseMeminfo, type SystemStatusDeps } from './system-status.ts';
 
 const THUMBS: ThumbnailStatus = {
@@ -65,6 +65,10 @@ test('reads the Pi 4 as it is laid out on the box', async () => {
         assert.deepEqual(status.temperatures, [{ name: 'cpu-thermal', celsius: 75.5 }]);
         assert.equal(status.underVoltage, false);
         assert.equal(status.thumbnails, THUMBS);
+        assert.equal(status.metadata, null);
+
+        const metadata = { phase: null, hasToken: false } as unknown as MetadataStatus;
+        assert.equal((await createSystemStatus(async () => THUMBS, deps(root), () => metadata).read()).metadata, metadata);
 
         await writeFile(join(root, 'sys/class/hwmon/hwmon1/in0_lcrit_alarm'), '1\n');
         assert.equal((await createSystemStatus(async () => THUMBS, deps(root)).read()).underVoltage, true);
