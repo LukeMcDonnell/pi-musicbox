@@ -211,8 +211,9 @@ screen yet. Worth thirty seconds next time you are at the box.
 
 `generator.ts` takes filters (lists, popularity, era, artists, genres) and
 returns matching tracks. The Playlists wand opens a screen for it, and Play
-fills the queue. `decisions.md` has the measurements. Next, on the same
-generator:
+fills the queue. Nine presets ("Radio") play in one tap from a Home shelf
+and the top of Playlists. `decisions.md` has the measurements. Next, on the
+same generator:
 - saving a pick as an m3u playlist;
 - themed radio (library, decade, recently played), which tops the queue up as
   it plays;

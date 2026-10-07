@@ -6,9 +6,11 @@ import {
     LucideListEnd,
     LucidePlay,
     LucidePlus,
+    LucideSlidersHorizontal,
     LucideWandSparkles,
 } from '@lucide/angular';
-import type { PlaylistSummary } from '@musicbox/shared';
+import { GENERATOR_PRESETS, type GeneratorPreset, type PlaylistSummary } from '@musicbox/shared';
+import { PresetIcon } from '../../components/preset-card/preset-card';
 import {
     PlaylistDialog,
     type PlaylistDialogView,
@@ -18,6 +20,7 @@ import { ApiClient } from '../../services/api-client';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { PlaylistsStore } from '../../services/playlists-store';
 import { Preferences } from '../../services/preferences';
+import { PresetPlayer } from '../../services/preset-player';
 import { runtime } from '../album/album';
 
 /** The box's playlists: open one, play or queue it, or make a new one. */
@@ -30,8 +33,10 @@ import { runtime } from '../album/album';
         LucideListEnd,
         LucidePlay,
         LucidePlus,
+        LucideSlidersHorizontal,
         LucideWandSparkles,
         PlaylistDialog,
+        PresetIcon,
     ],
     templateUrl: './playlists.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +50,9 @@ export class Playlists {
 
     readonly playlists = computed(() => this.store.playlists() ?? []);
     readonly loading = computed(() => this.store.playlists() === null);
+
+    readonly presets = GENERATOR_PRESETS;
+    readonly presetPlayer = inject(PresetPlayer);
 
     readonly dialog = signal<PlaylistDialogView | null>(null);
     readonly busy = signal(false);
@@ -68,6 +76,11 @@ export class Playlists {
 
     generate(): void {
         void this.router.navigate(['/playlists/generate']);
+    }
+
+    /** Generate, with this preset's filters in place of the last ones. */
+    customise(preset: GeneratorPreset): void {
+        void this.router.navigate(['/playlists/generate'], { queryParams: { preset: preset.id } });
     }
 
     open(playlist: PlaylistSummary): void {

@@ -42717,7 +42717,7 @@ function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps, metadata
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-07T06:49:41Z" : "dev";
+var BUILD = true ? "2026-10-07T08:04:52Z" : "dev";
 var USER_AGENT = `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`;
 var ENRICH_EVERY_MS = 6 * 60 * 60 * 1e3;
 async function main() {

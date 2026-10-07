@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { GENERATOR_ANY, type ArtistSummary, type GeneratorFilters, type GeneratorOptions } from '@musicbox/shared';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { GENERATOR_ANY, GENERATOR_PRESETS, presetFilters, type ArtistSummary, type GeneratorFilters, type GeneratorOptions } from '@musicbox/shared';
 import { COUNT_DEBOUNCE_MS, Generate } from './generate';
 import { GeneratorClient } from '../../services/generator-client';
 import { LibraryStore } from '../../services/library-store';
@@ -20,7 +20,7 @@ async function settle(fixture: { detectChanges: () => void; whenStable: () => Pr
     fixture.detectChanges();
 }
 
-async function create() {
+async function create(queryParams: Record<string, string> = {}) {
     const client = {
         options: jasmine.createSpy('options').and.resolveTo(OPTIONS),
         count: jasmine.createSpy('count').and.resolveTo(1234),
@@ -32,6 +32,7 @@ async function create() {
         imports: [Generate],
         providers: [
             provideRouter([]),
+            { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(queryParams) } } },
             { provide: GeneratorClient, useValue: client },
             { provide: LibraryStore, useValue: library },
         ],
@@ -130,6 +131,16 @@ describe('Generate', () => {
             jasmine.objectContaining({ libraryPopularity: { min: 90, max: 100 } }),
             jasmine.any(Number),
         );
+    });
+
+    it('opens with a preset’s filters in place of the last ones', async () => {
+        localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ generatorFilters: { ...GENERATOR_ANY, artists: ['Tool'] } }));
+        const { page } = await create({ preset: 'hidden-gems' });
+        expect(page.filters()).toEqual(presetFilters(GENERATOR_PRESETS.find((p) => p.id === 'hidden-gems')!));
+        TestBed.resetTestingModule();
+        // An unknown preset leaves the stored filters alone.
+        const again = await create({ preset: 'nope' });
+        expect(again.page.filters().popularity).toEqual({ min: 80, max: 100 });
     });
 
     it('resets to no filters', async () => {

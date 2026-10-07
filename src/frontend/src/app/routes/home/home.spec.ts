@@ -2,12 +2,14 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import type {
-    FavouriteAlbum,
-    MostPlayedArtist,
-    RecentPlayAlbum,
-    RecentlyAddedAlbum,
+import {
+    GENERATOR_PRESETS,
+    type FavouriteAlbum,
+    type MostPlayedArtist,
+    type RecentPlayAlbum,
+    type RecentlyAddedAlbum,
 } from '@musicbox/shared';
+import { PresetPlayer } from '../../services/preset-player';
 import { FavouritesStore } from '../../services/favourites-store';
 import { LibraryStore } from '../../services/library-store';
 import { PlaysStore } from '../../services/plays-store';
@@ -113,6 +115,26 @@ function shelfSkeleton(fixture: ReturnType<typeof create>, heading: string): HTM
 }
 
 describe('Home', () => {
+    it('leads with every radio preset, one tap to play, pointing at Playlists', () => {
+        const fixture = create(albums(4));
+        const host = fixture.nativeElement as HTMLElement;
+        const radio = [...host.querySelectorAll('app-shelf')][0]!;
+        expect(radio.querySelector('h2')!.textContent!.trim()).toBe('Radio');
+        expect(radio.querySelector('a')!.getAttribute('href')).toBe('/playlists');
+        expect(radio.querySelectorAll('app-preset-card').length).toBe(GENERATOR_PRESETS.length);
+        const play = spyOn(TestBed.inject(PresetPlayer), 'play').and.resolveTo();
+        (radio.querySelector('[aria-label="Play Library Radio"]') as HTMLButtonElement).click();
+        expect(play).toHaveBeenCalledWith(GENERATOR_PRESETS[0]!);
+    });
+
+    it('says inline when a preset could not start', () => {
+        const fixture = create(albums(4));
+        TestBed.inject(PresetPlayer).error.set('Favourites Radio: no tracks match');
+        fixture.detectChanges();
+        expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')!.textContent)
+            .toContain('no tracks match');
+    });
+
     it('shows ten favourites, however many there are', () => {
         // Two shelves now, so the cards are counted per shelf.
         expect(shelfCards(create(albums(40)), 'From your Favourites').length).toBe(10);
@@ -124,16 +146,16 @@ describe('Home', () => {
         expect(recent.length).toBe(10);
         expect(recent[0].textContent).toContain('New 0');
         expect(recent[9].textContent).toContain('New 9');
-        // Favourites lead, just under the CD card; the newest albums come last.
+        // Radio leads, just under the CD card; the newest albums come last.
         const headings = [...(fixture.nativeElement as HTMLElement).querySelectorAll('h2')];
         expect(headings.map((h) => h.textContent!.trim()))
-            .toEqual(['From your Favourites', 'Recent Plays', 'Most Played Artists', 'Recently Added']);
+            .toEqual(['Radio', 'From your Favourites', 'Recent Plays', 'Most Played Artists', 'Recently Added']);
     });
 
     it('points the newest shelf at its own screen', () => {
         const host = create(albums(40)).nativeElement as HTMLElement;
         const shelves = [...host.querySelectorAll('app-shelf')];
-        expect(shelves[3]!.querySelector('a')!.getAttribute('href')).toBe('/home/recently-added');
+        expect(shelves[4]!.querySelector('a')!.getAttribute('href')).toBe('/home/recently-added');
     });
 
     it('follows the favourites with what was played lately, pointing at its own screen', () => {
@@ -142,7 +164,7 @@ describe('Home', () => {
         const played = shelfCards(fixture, 'Recent Plays');
         expect(played.length).toBe(10);
         expect(played[0].textContent).toContain('Played 0');
-        expect([...host.querySelectorAll('app-shelf')][1]!.querySelector('a')!.getAttribute('href'))
+        expect([...host.querySelectorAll('app-shelf')][2]!.querySelector('a')!.getAttribute('href'))
             .toBe('/home/recent-plays');
     });
 
@@ -172,7 +194,7 @@ describe('Home', () => {
 
     it('names the shelf and points at the full list', () => {
         const host = create(albums(40)).nativeElement as HTMLElement;
-        const favourites = [...host.querySelectorAll('app-shelf')][0]!;
+        const favourites = [...host.querySelectorAll('app-shelf')][1]!;
         expect(favourites.querySelector('h2')!.textContent!.trim()).toBe('From your Favourites');
         expect(favourites.querySelector('a')!.getAttribute('href')).toBe('/favourites');
     });
@@ -239,7 +261,7 @@ describe('Home', () => {
         expect(artists[0].textContent).toContain('Player 0');
         expect(artists[0].textContent).toContain('100 plays');
         expect(artists[9].textContent).toContain('Player 9');
-        expect([...host.querySelectorAll('app-shelf')][2]!.querySelector('a')!.getAttribute('href'))
+        expect([...host.querySelectorAll('app-shelf')][3]!.querySelector('a')!.getAttribute('href'))
             .toBe('/home/most-played-artists');
     });
 

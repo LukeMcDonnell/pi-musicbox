@@ -1,10 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { LucideChevronLeft, LucideChevronRight, LucidePlay } from '@lucide/angular';
 import {
     GENERATOR_ANY,
     GENERATOR_LENGTHS,
     GENERATOR_LISTS,
+    GENERATOR_PRESETS,
     fold,
+    presetFilters,
     type GeneratorFilters,
     type GeneratorList,
     type GeneratorOptions,
@@ -78,6 +81,11 @@ export class Generate {
     readonly isDefault = computed(() => JSON.stringify(this.filters()) === JSON.stringify(GENERATOR_ANY));
 
     constructor() {
+        // From a preset's Customise: its filters replace the last ones, once.
+        const id = inject(ActivatedRoute).snapshot.queryParamMap.get('preset');
+        const preset = GENERATOR_PRESETS.find((p) => p.id === id);
+        if (preset !== undefined) this.prefs.set('generatorFilters', presetFilters(preset));
+
         void this.library.loadArtists().catch(() => undefined);
         this.client.options().then(
             (options) => this.options.set(options),

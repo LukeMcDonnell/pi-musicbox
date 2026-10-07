@@ -18,7 +18,7 @@ import {
 } from './generator.ts';
 import { songFromTags, type LibrarySong } from './mpd/bridge.ts';
 import type { ArtistInfo, SimilarArtist } from './enrich.ts';
-import type { GeneratorFilters } from '../../shared/api.ts';
+import { GENERATOR_PRESETS, presetFilters, type GeneratorFilters } from '../../shared/api.ts';
 
 function lsong(file: string, tags: Record<string, string | string[]> = {}): LibrarySong {
     const map = new Map<string, string[]>([['file', [file]]]);
@@ -314,4 +314,11 @@ test('the related filter keeps only tracks by artists similar to the chosen ones
     assert.deepEqual(await generator.generate({ ...ANY, related: ['Tool'] }, 50), ['APC/Y/1.flac']);
     // Nothing known about Low's neighbours: nothing matches, rather than everything.
     assert.equal(await generator.count({ ...ANY, related: ['Low'] }), 0);
+});
+
+test('every preset is a valid set of filters, under its own id', () => {
+    assert.equal(new Set(GENERATOR_PRESETS.map((p) => p.id)).size, GENERATOR_PRESETS.length);
+    for (const preset of GENERATOR_PRESETS) {
+        assert.deepEqual(filtersFrom(presetFilters(preset)), presetFilters(preset), preset.id);
+    }
 });

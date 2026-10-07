@@ -2163,6 +2163,13 @@ fetched.
   screen. The chosen artists are excluded, because "related to Tool" asks for
   everyone but Tool; the Artist filter is how to include them. The index keeps
   album artist → MusicBrainz ids (Queen have two) to join on.
+- **Presets are constants in `src/shared/api.ts` that play through the
+  ordinary `/api/generator/play`.** A preset is just a set of filters, so a
+  route of its own would be a second way to say the same thing. Sharing the
+  constants lets the backend tests check every preset with `filtersFrom`. They
+  play at the device's chosen length, and one tap plays. The first tap after a
+  scan waits out the ~9s index build, so the tile spins and other presets are
+  disabled meanwhile.
 - **Years before 1877 are treated as undated.** 43 tracks on the box are tagged
   `0001`, and they set the Era slider's floor to year 1.
 - **Genres are matched folded, and shown in the spelling most tracks use.**

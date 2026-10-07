@@ -1403,3 +1403,86 @@ export interface GeneratorPlay {
     filters: GeneratorFilters;
     length: number;
 }
+
+export type GeneratorPresetIcon = 'radio' | 'heart' | 'shovel' | 'gem' | 'ear' | 'package-open' | 'repeat' | 'flame';
+
+/** A named set of filters, played in one tap from Home or Playlists. */
+export interface GeneratorPreset {
+    id: string;
+    name: string;
+    description: string;
+    icon: GeneratorPresetIcon;
+    /** Over GENERATOR_ANY: whatever is left out constrains nothing. */
+    filters: Partial<GeneratorFilters>;
+}
+
+export const GENERATOR_PRESETS: readonly GeneratorPreset[] = [
+    {
+        id: 'library-radio',
+        name: 'Library Radio',
+        description: 'Every artist’s best-known songs',
+        icon: 'radio',
+        filters: { popularity: { min: 70, max: 100 } },
+    },
+    {
+        id: 'favourites-radio',
+        name: 'Favourites Radio',
+        description: 'The best of your favourite albums',
+        icon: 'heart',
+        filters: { lists: ['favourite-albums'], popularity: { min: 70, max: 100 } },
+    },
+    {
+        id: 'library-deep-cuts',
+        name: 'Library Deep Cuts',
+        description: 'The songs each artist is less known for',
+        icon: 'shovel',
+        filters: { popularity: { min: 0, max: 50 } },
+    },
+    {
+        id: 'favourites-deep-cuts',
+        name: 'Favourites Deep Cuts',
+        description: 'The quieter tracks on your favourite albums',
+        icon: 'shovel',
+        filters: { lists: ['favourite-albums'], popularity: { min: 0, max: 50 } },
+    },
+    {
+        id: 'hidden-gems',
+        name: 'Hidden Gems',
+        description: 'Lesser-known artists at their best',
+        icon: 'gem',
+        filters: { popularity: { min: 80, max: 100 }, libraryPopularity: { min: 20, max: 50 } },
+    },
+    {
+        id: 'fresh-ears',
+        name: 'Fresh Ears',
+        description: 'The hits of artists you’ve never played',
+        icon: 'ear',
+        filters: { lists: ['unplayed-artists'], popularity: { min: 70, max: 100 } },
+    },
+    {
+        id: 'new-arrivals',
+        name: 'New Arrivals',
+        description: 'The stronger tracks from what just landed',
+        icon: 'package-open',
+        filters: { lists: ['recently-added'], popularity: { min: 50, max: 100 } },
+    },
+    {
+        id: 'heavy-rotation',
+        name: 'Heavy Rotation',
+        description: 'What you’ve been playing lately',
+        icon: 'repeat',
+        filters: { lists: ['recent-albums', 'most-played-artists'] },
+    },
+    {
+        id: 'crowd-pleasers',
+        name: 'Crowd Pleasers',
+        description: 'The most-listened songs in the library',
+        icon: 'flame',
+        filters: { libraryPopularity: { min: 95, max: 100 } },
+    },
+];
+
+/** A preset's filters in full. */
+export function presetFilters(preset: GeneratorPreset): GeneratorFilters {
+    return { ...GENERATOR_ANY, ...preset.filters };
+}

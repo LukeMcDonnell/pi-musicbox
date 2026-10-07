@@ -1126,26 +1126,34 @@ smoothly; on the panel they jump, because an animation there is a vc4 atomic
 commit per frame and the box has a display-clock deadlock that is not closed.
 The row snaps either way, so a page lands on a card edge.
 
-The first shelf is **Recent Plays** — the ten albums the box played most
-recently, *See all* going to the screen below. It leads because picking up where
-you left off is the commonest reason to walk up to the box, and it is the shelf
-that changes most. A box that has played nothing shows no shelf for it.
+A CD in the drive comes first, above the shelves, because it is the one thing
+on the screen that someone just physically did. Below it, the shelves run in
+this order:
 
-The second is **Most Played Artists** — the ten artists the box has played most,
-all time, as round pictures rather than square covers. Tapping one opens the
-artist. A box that has played nothing shows no shelf for this either.
-
-The third is **Recently Added** — the ten newest albums, in order, *See
-all* going to the screen below. Nothing about it is random; the list is the same
-one that screen shows, fetched once and cached.
-
-The fourth is **ten of your favourites, chosen at random**, with *See all*
-going to the Favourites screen. The ten are fixed for as long as the page is
-loaded — going into an album and coming back shows the same row — and they are
-picked by hashing a per-load seed with each album's release rather than by
-shuffling, so favouriting something elsewhere does not rearrange the screen. The
-panel reloads on a deploy or a reboot, which is when the ten change. Tapping a
-card opens the album.
+1. **Radio**: the generator's presets (see *Generating a queue*) as icon
+   tiles. One tap replaces the queue and plays, and *See all* goes to
+   Playlists. It leads because it plays in one tap and never runs empty. A
+   preset that matches nothing, such as Favourites Radio with no favourites
+   yet, says so under the shelf.
+2. **From your Favourites**: ten favourites chosen at random, with *See all*
+   going to the Favourites screen. Tapping a card opens the album. A box with
+   no favourites shows a line saying how to add one instead.
+   - The ten stay fixed for as long as the page is loaded, so going into an
+     album and coming back shows the same row.
+   - They are picked by hashing a per-load seed with each album's release
+     rather than by shuffling, so favouriting something elsewhere doesn't
+     rearrange the screen.
+   - The panel reloads on a deploy or a reboot, which is when the ten change.
+3. **Recent Plays**: the ten albums the box played most recently, with *See
+   all* going to its own screen. Picking up where you left off is the next
+   commonest reason to walk up to the box. A box that has played nothing shows
+   no shelf for it.
+4. **Most Played Artists**: the ten artists the box has played most, all time,
+   as round pictures rather than square covers. Tapping one opens the artist.
+   A box that has played nothing shows no shelf for this either.
+5. **Recently Added**: the ten newest albums, in order, with *See all* going to
+   its own screen. Nothing about it is random; the list is the same one that
+   screen shows, fetched once and cached.
 
 Each shelf fills at its own moment, and while one is still waiting it shows a
 row of **blank cards** the exact size of the real ones rather than a line of
@@ -1280,8 +1288,9 @@ album screen is opened.
 ### Playlists
 
 The Playlists tab lists MPD's own stored playlists (the `.m3u` files in
-`/var/lib/mpd/playlists`) with Play, Queue, and Rename and Delete behind ⋮. The
-+ at the top right makes a new, empty one, and tapping a row opens its tracks.
+`/var/lib/mpd/playlists`) with Play, Queue, and Rename and Delete behind ⋮.
+**New playlist**, beside the Playlists heading, makes a new, empty one, and
+tapping a row opens its tracks.
 Each playlist shows its first four different album covers as a 2×2, or its first
 cover alone when it has fewer. The server reads them with `listplaylist` — file
 names only, since a cover is its file's folder — and caches them with the list.
@@ -1310,7 +1319,7 @@ name that is taken, so a clash can never touch an existing playlist.
 
 ### Generating a queue
 
-The wand beside + on Playlists opens a filter screen. Play replaces the queue
+Generate, beside the Radio heading on Playlists, opens a filter screen. Play replaces the queue
 with a random pick of what matches and starts it. The filters are:
 
 - **From**: one or more lists: favourite albums, recently played albums, the
@@ -1353,6 +1362,25 @@ library with `find` in windows of 1,000, because `listallinfo` overflows MPD's
 output buffer. The index is built on first use: about 9s for 42,343 songs on
 the box, and about 10 MB once built. After that a count takes 40–150 ms. A scan
 drops the index, and so does a metadata harvest that touched any artist.
+
+#### Presets
+
+Nine fixed presets play in one tap, from the Radio shelf on Home or the Radio
+section at the top of Playlists. They use the length last chosen on Generate.
+On Playlists, the sliders button beside a preset opens Generate with that
+preset's filters loaded, ready to tweak.
+
+| Preset | Filters |
+|---|---|
+| Library Radio | artist popularity 70–100% |
+| Favourites Radio | Favourite Albums, artist popularity 70–100% |
+| Library Deep Cuts | artist popularity 0–50% |
+| Favourites Deep Cuts | Favourite Albums, artist popularity 0–50% |
+| Hidden Gems | artist popularity 80–100%, library popularity 20–50% |
+| Fresh Ears | Unplayed Artists, artist popularity 70–100% |
+| New Arrivals | Recently Added Albums, artist popularity 50–100% |
+| Heavy Rotation | Recently Played Albums + Most Played Artists |
+| Crowd Pleasers | library popularity 95–100% |
 
 ### The queue on screen
 

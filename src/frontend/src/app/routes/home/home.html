@@ -4,6 +4,16 @@
   @if (!searching()) {
     <app-cd-card />
 
+    <app-shelf heading="Radio" link="/playlists">
+      @for (preset of presets; track preset.id) {
+        <app-preset-card [preset]="preset" [busy]="presetPlayer.busy() === preset.id"
+                         [disabled]="presetPlayer.busy() !== null" (play)="presetPlayer.play(preset)" />
+      }
+    </app-shelf>
+    @if (presetPlayer.error(); as message) {
+      <p class="pt-1 text-[0.9rem] text-warn" role="alert">{{ message }}</p>
+    }
+
     @if (loading()) {
       <app-shelf heading="From your Favourites" link="/favourites">
         <app-shelf-skeleton />

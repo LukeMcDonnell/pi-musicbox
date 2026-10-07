@@ -1,7 +1,8 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import type { PlaylistSummary } from '@musicbox/shared';
+import { GENERATOR_PRESETS, type PlaylistSummary } from '@musicbox/shared';
+import { PresetPlayer } from '../../services/preset-player';
 import { Playlists, summaryOf } from './playlists';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
 import { PlaylistsStore } from '../../services/playlists-store';
@@ -34,7 +35,7 @@ describe('Playlists', () => {
 
     it('lists each playlist with its count and length', () => {
         const { el } = create();
-        const rows = [...el.querySelectorAll('li')].map((li) => li.textContent!.replace(/\s+/g, ' ').trim());
+        const rows = [...el.querySelectorAll('[aria-label="Stored playlists"] li')].map((li) => li.textContent!.replace(/\s+/g, ' ').trim());
         expect(rows[0]).toContain('Road trip');
         expect(rows[0]).toContain('3 tracks · 10:00');
         expect(rows[1]).toContain('Empty');
@@ -46,7 +47,7 @@ describe('Playlists', () => {
         expect(create(null).el.textContent).toContain('Loading playlists');
     });
 
-    it('opens the new-playlist dialog from the top-right button', () => {
+    it('opens the new-playlist dialog from the button beside the Playlists heading', () => {
         const { fixture, el } = create();
         (el.querySelector('[aria-label="New playlist"]') as HTMLButtonElement).click();
         fixture.detectChanges();
@@ -62,17 +63,35 @@ describe('Playlists', () => {
         expect(dialog).toContain('Delete');
     });
 
-    it('opens the generator from the wand beside +', () => {
+    it('opens the generator from Generate beside the Radio heading', () => {
         const { el } = create();
         const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
         (el.querySelector('[aria-label="Generate a playlist"]') as HTMLButtonElement).click();
         expect(navigate).toHaveBeenCalledWith(['/playlists/generate']);
     });
 
+    it('lists every radio preset above the playlists, and plays one from its row', () => {
+        const { el } = create();
+        const player = TestBed.inject(PresetPlayer);
+        const play = spyOn(player, 'play').and.resolveTo();
+        const rows = el.querySelectorAll('[aria-label="Radio"] li');
+        expect(rows.length).toBe(GENERATOR_PRESETS.length);
+        expect(rows[0]!.textContent).toContain('Library Radio');
+        (el.querySelector('[aria-label="Play Hidden Gems"]') as HTMLButtonElement).click();
+        expect(play).toHaveBeenCalledWith(GENERATOR_PRESETS.find((p) => p.id === 'hidden-gems')!);
+    });
+
+    it('customises a preset by opening Generate with it', () => {
+        const { el } = create();
+        const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+        (el.querySelector('[aria-label="Customise Crowd Pleasers"]') as HTMLButtonElement).click();
+        expect(navigate).toHaveBeenCalledWith(['/playlists/generate'], { queryParams: { preset: 'crowd-pleasers' } });
+    });
+
     it('opens a playlist by its name', () => {
         const { el } = create();
         const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
-        (el.querySelector('li button') as HTMLButtonElement).click();
+        (el.querySelector('[aria-label="Stored playlists"] li button') as HTMLButtonElement).click();
         expect(navigate).toHaveBeenCalledWith(['/playlists/playlist'], { queryParams: { name: 'Road trip' } });
     });
 
