@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { blur, focus } from '../testing/focus';
 import { KEYBOARD_ENABLED, OnScreenKeyboard, isTextField, wantsKeyboard } from './on-screen-keyboard';
 
 function service(enabled = true): OnScreenKeyboard {
@@ -15,7 +16,7 @@ function field(html: string, caret?: number): HTMLInputElement | HTMLTextAreaEle
     host.innerHTML = html;
     document.body.appendChild(host);
     const el = host.querySelector('input, textarea') as HTMLInputElement | HTMLTextAreaElement;
-    el.focus();
+    focus(el);
     if (caret !== undefined) el.setSelectionRange(caret, caret);
     return el;
 }
@@ -63,7 +64,7 @@ describe('OnScreenKeyboard', () => {
         expect(osk.target()).toBe(a);
         const b = field('<input id="b">');
         expect(osk.target()).toBe(b);
-        b.blur();
+        blur(b);
         expect(osk.open()).toBeFalse();
     });
 

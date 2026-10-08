@@ -28,12 +28,16 @@ both, and `run-all.sh` says so rather than leaving a cryptic error.
 ## The frontend specs are NOT in run-all.sh
 
 ```sh
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 312 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless   # 599 specs
 ```
 
 Karma + Jasmine, colocated `*.spec.ts`. `run-all.sh` does not run them — its only
 Node step is the backend's `node:test` — so they have to be run by hand and are
 easy to forget. `tools/build.sh --check` does not run them either.
+
+Headless Chrome 151+ starts with no focused window, so `el.focus()` sends no
+`focusin`/`focusout`. Specs that depend on those events focus through
+`src/app/testing/focus.ts`.
 
 The pattern, from `queue.spec.ts` and the three library ones: build a fixture
 typed from `@musicbox/shared`, provide a hand-rolled fake service through

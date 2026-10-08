@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { KEYBOARD_ENABLED, OnScreenKeyboard } from '../../services/on-screen-keyboard';
+import { focus } from '../../testing/focus';
 import { Keyboard, type Key } from './keyboard';
 
 function create() {
@@ -12,12 +13,12 @@ function create() {
     return { fixture, cmp: fixture.componentInstance, osk: TestBed.inject(OnScreenKeyboard) };
 }
 
-function focus(html: string): HTMLInputElement {
+function field(html: string): HTMLInputElement {
     const host = document.createElement('div');
     host.innerHTML = html;
     document.body.appendChild(host);
     const el = host.querySelector('input')!;
-    el.focus();
+    focus(el);
     return el;
 }
 
@@ -46,14 +47,14 @@ describe('Keyboard', () => {
         const { fixture } = create();
         fixture.detectChanges();
         expect(fixture.nativeElement.querySelector('button')).toBeNull();
-        focus('<input>');
+        field('<input>');
         fixture.detectChanges();
         expect(fixture.nativeElement.querySelectorAll('button').length).toBeGreaterThan(30);
     });
 
     it('types, and stops a tap from doing anything else', () => {
         const { cmp } = create();
-        const el = focus('<input>');
+        const el = field('<input>');
         const event = pointer();
         cmp.press(char(cmp, 'q'), event);
         expect(el.value).toBe('q');
@@ -63,7 +64,7 @@ describe('Keyboard', () => {
 
     it('shifts once, then locks, then releases', () => {
         const { cmp } = create();
-        const el = focus('<input>');
+        const el = field('<input>');
         cmp.press(action(cmp, 'shift'), pointer());
         cmp.press(char(cmp, 'A'), pointer());
         cmp.press(char(cmp, 'b'), pointer());
@@ -79,21 +80,21 @@ describe('Keyboard', () => {
 
     it('starts a numeric field on digits, and resets per field', () => {
         const { cmp } = create();
-        focus('<input type="tel">');
+        field('<input type="tel">');
         expect(cmp.layer()).toBe('digits');
         cmp.press(find(cmp, (k) => k.label === 'ABC'), pointer());
         expect(cmp.layer()).toBe('letters');
-        focus('<input inputmode="numeric">');
+        field('<input inputmode="numeric">');
         expect(cmp.layer()).toBe('digits');
-        focus('<input>');
+        field('<input>');
         expect(cmp.layer()).toBe('letters');
     });
 
     it('labels Enter from enterkeyhint', () => {
         const { cmp } = create();
-        focus('<input enterkeyhint="search">');
+        field('<input enterkeyhint="search">');
         expect(cmp.enterLabel()).toBe('Search');
-        focus('<input>');
+        field('<input>');
         expect(cmp.enterLabel()).toBeNull();
     });
 
@@ -101,7 +102,7 @@ describe('Keyboard', () => {
         jasmine.clock().install();
         try {
             const { cmp } = create();
-            const el = focus('<input value="abcdefghij">');
+            const el = field('<input value="abcdefghij">');
             el.setSelectionRange(10, 10);
             cmp.press(action(cmp, 'backspace'), pointer());
             expect(el.value).toBe('abcdefghi');

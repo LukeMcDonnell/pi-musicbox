@@ -88,7 +88,7 @@ run directly. Debian's node 20 does neither. `native/` needs
 
 ```sh
 bash tests/run-all.sh          # shellcheck + 10 suites (877 asserts) + 500 node tests
-cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 439 specs
+cd src/frontend && npx ng test --watch=false --browsers=ChromeHeadless  # 599 specs
 bash tests/test-server-config.sh   # one suite
 tools/build.sh --check             # typecheck + node tests + bundle
 tools/dev-push.sh --backend        # build, push to the Pi, ~2.5s
