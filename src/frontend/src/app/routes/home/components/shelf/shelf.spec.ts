@@ -40,9 +40,9 @@ function create({ panel = true }: { panel?: boolean } = {}) {
 
 /** What a click asked the rail for, without letting it actually animate. */
 function behaviorOf(fixture: ReturnType<typeof create>, button: 0 | 1): ScrollBehavior {
-    const scrollBy = spyOn(rail(fixture), 'scrollBy');
+    const scrollTo = spyOn(rail(fixture), 'scrollTo');
     buttons(fixture)[button].click();
-    return (scrollBy.calls.mostRecent().args[0] as ScrollToOptions).behavior!;
+    return (scrollTo.calls.mostRecent().args[0] as ScrollToOptions).behavior!;
 }
 
 function buttons(fixture: ReturnType<typeof create>): HTMLButtonElement[] {
@@ -105,6 +105,33 @@ describe('Shelf', () => {
         expect(buttons(fixture)[0].disabled).toBe(false);
     });
 
+    /* 100px cards and a 12px gap in a 140px row: a page aims at 119, and the
+       nearest card start is the second card's, at 112. */
+    it('lands a page on a card edge', () => {
+        const fixture = create();
+        buttons(fixture)[1].click();
+        expect(rail(fixture).scrollLeft).toBe(112);
+        buttons(fixture)[1].click();
+        expect(rail(fixture).scrollLeft).toBe(224);
+        fixture.detectChanges();
+        buttons(fixture)[0].click();
+        expect(rail(fixture).scrollLeft).toBe(112);
+    });
+
+    it('does not snap a swipe', () => {
+        expect(getComputedStyle(rail(create())).scrollSnapType).toBe('none');
+    });
+
+    it('has no buttons on a touch screen', () => {
+        spyOn(window, 'matchMedia').and.returnValue({ matches: true } as MediaQueryList);
+        expect(buttons(create({ panel: false })).length).toBe(0);
+    });
+
+    it('keeps its buttons on the panel, which is a touch screen too', () => {
+        spyOn(window, 'matchMedia').and.returnValue({ matches: true } as MediaQueryList);
+        expect(buttons(create()).length).toBe(2);
+    });
+
     it('scrolls back', () => {
         const fixture = create();
         buttons(fixture)[1].click();
@@ -132,7 +159,7 @@ describe('Shelf', () => {
         expect(behaviorOf(fixture, 1)).toBe('auto');
     });
 
-    /* The arrows' own state is the thing a smooth scroll could break: `scrollBy`
+    /* The arrows' own state is the thing a smooth scroll could break: `scrollTo`
        returns before the row has moved, so the measurement has to come from the
        scroll events it emits on the way. Real animation, really waited on. */
     it('the arrows still catch up after a smooth scroll has settled', async () => {

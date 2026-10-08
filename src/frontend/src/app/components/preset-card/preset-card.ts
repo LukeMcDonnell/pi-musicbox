@@ -57,13 +57,17 @@ export class PresetIcon {
     imports: [PresetIcon],
     template: `
         <button type="button"
-                class="flex w-card flex-none snap-start cursor-pointer touch-manipulation flex-col gap-2
+                class="flex w-card flex-none cursor-pointer touch-manipulation flex-col gap-2
                        rounded-md text-left select-none active:bg-raised disabled:opacity-60"
                 [attr.aria-label]="'Play ' + preset().name" [attr.aria-busy]="busy()" [disabled]="disabled()"
                 (click)="play.emit()">
-            <span class="grid aspect-square w-full place-items-center rounded-md bg-surface
+            <span class="@container grid aspect-square w-full place-items-center rounded-md bg-surface
                          bg-gradient-to-br from-accent/35 to-transparent text-accent">
-                <app-preset-icon class="size-1/3" [icon]="preset().icon" [busy]="busy()" />
+                @if (preset().badge && !busy()) {
+                    <span class="text-[22cqw] font-bold tabular-nums" aria-hidden="true">{{ preset().badge }}</span>
+                } @else {
+                    <app-preset-icon class="size-1/3" [icon]="preset().icon" [busy]="busy()" />
+                }
             </span>
             <span class="w-full min-w-0">
                 <span class="block truncate text-[0.95rem]">{{ preset().name }}</span>

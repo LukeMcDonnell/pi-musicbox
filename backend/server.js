@@ -37460,6 +37460,21 @@ var GENERATOR_LISTS = [
   { id: "recently-added", label: "Recently Added Albums" }
 ];
 var GENERATOR_LENGTHS = [25, 50, 100, 250];
+var DECADE_PRESETS = [1950, 1960, 1970, 1980, 1990, 2e3, 2010, 2020].map((d) => {
+  const badge = d < 2e3 ? `${d % 100}s` : `${d}s`;
+  return {
+    id: `decade-${d}s`,
+    name: `${badge} Radio`,
+    description: `The best-known songs of the ${d}s`,
+    icon: "radio",
+    badge,
+    filters: {
+      popularity: { min: 80, max: 100 },
+      libraryPopularity: { min: 50, max: 100 },
+      years: { min: d, max: d + 9 }
+    }
+  };
+});
 
 // src/art.ts
 import { createReadStream as createReadStream2 } from "node:fs";
@@ -38787,6 +38802,17 @@ function yearOf2(date) {
   const year = m === null ? null : Number(m[1]);
   return year === null || year < FIRST_YEAR ? null : year;
 }
+var QUALIFIER = /[([]([^)\]]*)[)\]]|\s[-–]\s(.+)$/g;
+var OUTTAKE = /\b(demos?|takes? \d+|from take|rehearsals?|instrumental|backing track|(studio )?jam|outtakes?|alternate|alt\.? (take|version|mix)|rough mix|early version|work(ing)? (tape|version|mix)|false start|run[- ]?through|guide vocal|karaoke|a cappella|sessions?|studio chatter|(first|second|third) version)\b/i;
+function isOuttake(title) {
+  if (title === void 0) return false;
+  for (const m of title.matchAll(QUALIFIER)) if (OUTTAKE.test(m[1] ?? m[2] ?? "")) return true;
+  return false;
+}
+function songKey(albumArtist, title) {
+  const bare = squeeze(fold((title ?? "").replace(QUALIFIER, "")));
+  return bare === "" ? null : `${albumArtist}\0${bare}`;
+}
 function percentiles(counts) {
   const sorted = [...counts.values()].sort((a, b) => a - b);
   const below = /* @__PURE__ */ new Map();
@@ -38863,7 +38889,12 @@ function indexBuilder(info) {
           genres,
           recordingId: song.mbRecordingId ?? null,
           popularity: null,
-          libraryPopularity: null
+          libraryPopularity: null,
+          outtake: isOuttake(song.track.title),
+          song: (() => {
+            const key2 = songKey(albumArtist, song.track.title);
+            return key2 === null ? null : intern(key2);
+          })()
         });
       }
     },
@@ -38920,7 +38951,18 @@ function filtersFrom(body) {
   if (typeof related === "string") return related;
   const genres = namesFrom(raw.genres, "genres");
   if (typeof genres === "string") return genres;
-  return { lists: [...new Set(lists)], popularity, libraryPopularity, years, artists, related, genres };
+  const outtakes = raw.outtakes ?? false;
+  if (typeof outtakes !== "boolean") return "'outtakes' must be true or false";
+  return {
+    lists: [...new Set(lists)],
+    popularity,
+    libraryPopularity,
+    years,
+    artists,
+    related,
+    genres,
+    outtakes
+  };
 }
 function lengthFrom(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= GENERATOR_MAX_LENGTH ? value : `'length' must be a whole number from 1 to ${GENERATOR_MAX_LENGTH}`;
@@ -38987,23 +39029,35 @@ function matching(entries, filters, lists, related = null) {
   const artists = new Set(filters.artists);
   const genres = new Set(filters.genres.map(fold));
   return entries.filter(
-    (e) => (lists.length === 0 || lists.some((t) => t(e))) && byPopularity(e.popularity) && byLibraryPopularity(e.libraryPopularity) && (years === null || e.year !== null && e.year >= years.min && e.year <= years.max) && (artists.size === 0 || artists.has(e.albumArtist)) && (related === null || related.has(e.albumArtist)) && (genres.size === 0 || e.genres.some((g) => genres.has(g)))
+    (e) => (filters.outtakes || !e.outtake) && (lists.length === 0 || lists.some((t) => t(e))) && byPopularity(e.popularity) && byLibraryPopularity(e.libraryPopularity) && (years === null || e.year !== null && e.year >= years.min && e.year <= years.max) && (artists.size === 0 || artists.has(e.albumArtist)) && (related === null || related.has(e.albumArtist)) && (genres.size === 0 || e.genres.some((g) => genres.has(g)))
   );
 }
 function pick(entries, length, random = Math.random) {
-  const deck = [...entries];
-  for (let i = deck.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
+  const byArtist = /* @__PURE__ */ new Map();
+  for (const e of entries) {
+    let tracks = byArtist.get(e.albumArtist);
+    if (tracks === void 0) byArtist.set(e.albumArtist, tracks = []);
+    tracks.push(e);
   }
+  const pools = [...byArtist.values()].map((tracks) => ({ tracks, weight: Math.sqrt(tracks.length) }));
+  let total = pools.reduce((sum, p) => sum + p.weight, 0);
   const seen = /* @__PURE__ */ new Set();
   const chosen = [];
-  for (const e of deck) {
-    if (chosen.length === length) break;
-    if (e.recordingId !== null) {
-      if (seen.has(e.recordingId)) continue;
-      seen.add(e.recordingId);
+  while (chosen.length < length && pools.length > 0) {
+    let at = 0;
+    for (let r = random() * total; at < pools.length - 1 && r >= pools[at].weight; at += 1) r -= pools[at].weight;
+    const pool = pools[at];
+    const i = Math.floor(random() * pool.tracks.length);
+    const e = pool.tracks[i];
+    pool.tracks[i] = pool.tracks.at(-1);
+    pool.tracks.pop();
+    if (pool.tracks.length === 0) {
+      pools.splice(at, 1);
+      total -= pool.weight;
     }
+    const keys = [e.recordingId, e.song].filter((k) => k !== null);
+    if (keys.some((k) => seen.has(k))) continue;
+    for (const k of keys) seen.add(k);
     chosen.push(e);
   }
   const left = /* @__PURE__ */ new Map();
@@ -39011,12 +39065,9 @@ function pick(entries, length, random = Math.random) {
   const out = [];
   while (chosen.length > 0) {
     const last = out.at(-1)?.albumArtist;
-    let at = 0;
-    let most = -1;
-    chosen.forEach((e, i) => {
-      const n = left.get(e.albumArtist);
-      if (e.albumArtist !== last && n > most) [at, most] = [i, n];
-    });
+    const crowded = [...left].find(([artist, n]) => artist !== last && 2 * n > chosen.length)?.[0];
+    let at = chosen.findIndex((e) => crowded === void 0 ? e.albumArtist !== last : e.albumArtist === crowded);
+    if (at === -1) at = 0;
     const [next] = chosen.splice(at, 1);
     left.set(next.albumArtist, left.get(next.albumArtist) - 1);
     out.push(next);
@@ -42717,7 +42768,7 @@ function createSystemStatus(thumbnails, deps = defaultSystemStatusDeps, metadata
 }
 
 // src/server.ts
-var BUILD = true ? "2026-10-07T08:04:52Z" : "dev";
+var BUILD = true ? "2026-10-08T01:57:13Z" : "dev";
 var USER_AGENT = `musicbox/${BUILD} ( https://github.com/LukeMcDonnell/pi-musicbox )`;
 var ENRICH_EVERY_MS = 6 * 60 * 60 * 1e3;
 async function main() {

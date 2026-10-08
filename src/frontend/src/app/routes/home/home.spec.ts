@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import {
+    DECADE_PRESETS,
     GENERATOR_PRESETS,
     type FavouriteAlbum,
     type MostPlayedArtist,
@@ -115,16 +116,28 @@ function shelfSkeleton(fixture: ReturnType<typeof create>, heading: string): HTM
 }
 
 describe('Home', () => {
-    it('leads with every radio preset, one tap to play, pointing at Playlists', () => {
+    it('offers every radio preset, one tap to play, pointing at Playlists', () => {
         const fixture = create(albums(4));
         const host = fixture.nativeElement as HTMLElement;
-        const radio = [...host.querySelectorAll('app-shelf')][0]!;
+        const radio = [...host.querySelectorAll('app-shelf')].find((el) => el.querySelector('h2')!.textContent!.trim() === 'Radio')!;
         expect(radio.querySelector('h2')!.textContent!.trim()).toBe('Radio');
         expect(radio.querySelector('a')!.getAttribute('href')).toBe('/playlists');
         expect(radio.querySelectorAll('app-preset-card').length).toBe(GENERATOR_PRESETS.length);
         const play = spyOn(TestBed.inject(PresetPlayer), 'play').and.resolveTo();
         (radio.querySelector('[aria-label="Play Library Radio"]') as HTMLButtonElement).click();
         expect(play).toHaveBeenCalledWith(GENERATOR_PRESETS[0]!);
+    });
+
+    it('follows Radio with a Decade Radio shelf', () => {
+        const fixture = create(albums(4));
+        const shelves = [...(fixture.nativeElement as HTMLElement).querySelectorAll('app-shelf')];
+        const decades = shelves[shelves.findIndex((el) => el.querySelector('h2')!.textContent!.trim() === 'Radio') + 1]!;
+        expect(decades.querySelector('h2')!.textContent!.trim()).toBe('Decade Radio');
+        expect(decades.querySelectorAll('app-preset-card').length).toBe(DECADE_PRESETS.length);
+        expect(decades.textContent).toContain('70s');
+        const play = spyOn(TestBed.inject(PresetPlayer), 'play').and.resolveTo();
+        (decades.querySelector('[aria-label="Play 70s Radio"]') as HTMLButtonElement).click();
+        expect(play).toHaveBeenCalledWith(DECADE_PRESETS.find((p) => p.id === 'decade-1970s')!);
     });
 
     it('says inline when a preset could not start', () => {
@@ -146,16 +159,16 @@ describe('Home', () => {
         expect(recent.length).toBe(10);
         expect(recent[0].textContent).toContain('New 0');
         expect(recent[9].textContent).toContain('New 9');
-        // Radio leads, just under the CD card; the newest albums come last.
+        // Favourites lead, Radio follows Recent Plays; the newest albums come last.
         const headings = [...(fixture.nativeElement as HTMLElement).querySelectorAll('h2')];
         expect(headings.map((h) => h.textContent!.trim()))
-            .toEqual(['Radio', 'From your Favourites', 'Recent Plays', 'Most Played Artists', 'Recently Added']);
+            .toEqual(['From your Favourites', 'Recent Plays', 'Radio', 'Decade Radio', 'Most Played Artists', 'Recently Added']);
     });
 
     it('points the newest shelf at its own screen', () => {
         const host = create(albums(40)).nativeElement as HTMLElement;
         const shelves = [...host.querySelectorAll('app-shelf')];
-        expect(shelves[4]!.querySelector('a')!.getAttribute('href')).toBe('/home/recently-added');
+        expect(shelves[5]!.querySelector('a')!.getAttribute('href')).toBe('/home/recently-added');
     });
 
     it('follows the favourites with what was played lately, pointing at its own screen', () => {
@@ -164,7 +177,7 @@ describe('Home', () => {
         const played = shelfCards(fixture, 'Recent Plays');
         expect(played.length).toBe(10);
         expect(played[0].textContent).toContain('Played 0');
-        expect([...host.querySelectorAll('app-shelf')][2]!.querySelector('a')!.getAttribute('href'))
+        expect([...host.querySelectorAll('app-shelf')][1]!.querySelector('a')!.getAttribute('href'))
             .toBe('/home/recent-plays');
     });
 
@@ -194,7 +207,7 @@ describe('Home', () => {
 
     it('names the shelf and points at the full list', () => {
         const host = create(albums(40)).nativeElement as HTMLElement;
-        const favourites = [...host.querySelectorAll('app-shelf')][1]!;
+        const favourites = [...host.querySelectorAll('app-shelf')][0]!;
         expect(favourites.querySelector('h2')!.textContent!.trim()).toBe('From your Favourites');
         expect(favourites.querySelector('a')!.getAttribute('href')).toBe('/favourites');
     });
@@ -261,7 +274,7 @@ describe('Home', () => {
         expect(artists[0].textContent).toContain('Player 0');
         expect(artists[0].textContent).toContain('100 plays');
         expect(artists[9].textContent).toContain('Player 9');
-        expect([...host.querySelectorAll('app-shelf')][3]!.querySelector('a')!.getAttribute('href'))
+        expect([...host.querySelectorAll('app-shelf')][4]!.querySelector('a')!.getAttribute('href'))
             .toBe('/home/most-played-artists');
     });
 

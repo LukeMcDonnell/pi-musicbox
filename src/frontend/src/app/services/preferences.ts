@@ -166,7 +166,8 @@ function isGeneratorFilters(value: unknown): boolean {
         (f['years'] === null || isRange(f['years'], 0, 9999)) &&
         isNames(f['artists']) &&
         (f['related'] === undefined || isNames(f['related'])) &&
-        isNames(f['genres'])
+        isNames(f['genres']) &&
+        (f['outtakes'] === undefined || typeof f['outtakes'] === 'boolean')
     );
 }
 

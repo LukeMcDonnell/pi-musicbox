@@ -1119,23 +1119,19 @@ time their disc goes in, if the box is online.
 The screen the box opens on — `/` and anything unrecognised land here.
 
 It carries **shelves**: a heading, a row of cards that scrolls sideways with a
-button at each end, and a link through to the full list. The buttons are always
-visible to a thumb and fade in on hover where there is a mouse to hover with; the
-row has no scrollbar. On a phone or a desktop browser the buttons scroll
-smoothly; on the panel they jump, because an animation there is a vc4 atomic
-commit per frame and the box has a display-clock deadlock that is not closed.
-The row snaps either way, so a page lands on a card edge.
+button at each end, and a link through to the full list. The buttons are for the
+panel and a mouse: always visible on the panel, faded in on hover where there is
+a mouse, and absent on a phone or tablet, which swipes. The row has no scrollbar.
+On a desktop browser the buttons scroll smoothly; on the panel they jump, because
+an animation there is a vc4 atomic commit per frame and the box has a
+display-clock deadlock that is not closed. A button lands a page on a card edge;
+a swipe stops wherever it stops — the row does not snap.
 
 A CD in the drive comes first, above the shelves, because it is the one thing
 on the screen that someone just physically did. Below it, the shelves run in
 this order:
 
-1. **Radio**: the generator's presets (see *Generating a queue*) as icon
-   tiles. One tap replaces the queue and plays, and *See all* goes to
-   Playlists. It leads because it plays in one tap and never runs empty. A
-   preset that matches nothing, such as Favourites Radio with no favourites
-   yet, says so under the shelf.
-2. **From your Favourites**: ten favourites chosen at random, with *See all*
+1. **From your Favourites**: ten favourites chosen at random, with *See all*
    going to the Favourites screen. Tapping a card opens the album. A box with
    no favourites shows a line saying how to add one instead.
    - The ten stay fixed for as long as the page is loaded, so going into an
@@ -1144,14 +1140,20 @@ this order:
      rather than by shuffling, so favouriting something elsewhere doesn't
      rearrange the screen.
    - The panel reloads on a deploy or a reboot, which is when the ten change.
-3. **Recent Plays**: the ten albums the box played most recently, with *See
-   all* going to its own screen. Picking up where you left off is the next
+2. **Recent Plays**: the ten albums the box played most recently, with *See
+   all* going to its own screen. Picking up where you left off is the
    commonest reason to walk up to the box. A box that has played nothing shows
    no shelf for it.
-4. **Most Played Artists**: the ten artists the box has played most, all time,
+3. **Radio**: the generator's presets (see *Generating a queue*) as icon
+   tiles. One tap replaces the queue and plays, and *See all* goes to
+   Playlists. A preset that matches nothing, such as Favourites Radio with no
+   favourites yet, says so under the Decade Radio shelf.
+4. **Decade Radio**: the decade presets, one per decade from the 50s to the
+   2020s, each tile showing its decade ("70s") in place of an icon.
+5. **Most Played Artists**: the ten artists the box has played most, all time,
    as round pictures rather than square covers. Tapping one opens the artist.
    A box that has played nothing shows no shelf for this either.
-5. **Recently Added**: the ten newest albums, in order, with *See all* going to
+6. **Recently Added**: the ten newest albums, in order, with *See all* going to
    its own screen. Nothing about it is random; the list is the same one that
    screen shows, fetched once and cached.
 
@@ -1329,6 +1331,7 @@ with a random pick of what matches and starts it. The filters are:
 - **Era**: a range of years.
 - **Artist**, **Related to artists** and **Genre / style**: searchable
   checklists. Related to artists picks from the same artist list.
+- **Include demos & outtakes**: off by default, and off in every preset.
 - **Length**: 25, 50, 100 or 250 tracks.
 
 Filters combine with AND; the choices inside one filter combine with OR. A
@@ -1353,8 +1356,18 @@ second.
   genres.
 - **Years** come from `OriginalDate`, else `Date`.
 
-The pick never repeats a recording, and it keeps one artist from playing twice
-in a row wherever the mix allows. The filters are this screen's, so they are
+- **Outtakes** are recognised from the title's tags: "(Esher demo)", "(take
+  14)", "(rehearsal)", "(studio jam)", "(instrumental)", "(rough mix)" and the
+  like, about 930 tracks on the box. Live, mono, remix and remaster versions
+  aren't outtakes. A take with an untagged title, such as "(vocal, guitar &
+  drums)", still gets through.
+
+The pick draws an artist first, then one of their tracks. An artist's chance
+grows with the square root of their matching tracks, so an artist with 500
+tracks comes up about three times as often as one with 58, not nine. A queue
+holds one version of each song ("Blackbird" and "Blackbird (2018 mix)" are the
+same song) and never repeats a recording. It keeps one artist from playing
+twice in a row wherever the mix allows. The filters are this screen's, so they are
 saved per device.
 
 The server matches against an in-memory index of every song. It reads the
@@ -1365,8 +1378,8 @@ drops the index, and so does a metadata harvest that touched any artist.
 
 #### Presets
 
-Nine fixed presets play in one tap, from the Radio shelf on Home or the Radio
-section at the top of Playlists. They use the length last chosen on Generate.
+Fixed presets play in one tap, from the Radio and Decade Radio shelves on Home
+or the matching sections at the top of Playlists. They use the length last chosen on Generate.
 On Playlists, the sliders button beside a preset opens Generate with that
 preset's filters loaded, ready to tweak.
 
@@ -1374,13 +1387,14 @@ preset's filters loaded, ready to tweak.
 |---|---|
 | Library Radio | artist popularity 70–100% |
 | Favourites Radio | Favourite Albums, artist popularity 70–100% |
-| Library Deep Cuts | artist popularity 0–50% |
-| Favourites Deep Cuts | Favourite Albums, artist popularity 0–50% |
+| Library Deep Cuts | artist popularity 20–70% |
+| Favourites Deep Cuts | Favourite Albums, artist popularity 20–70% |
 | Hidden Gems | artist popularity 80–100%, library popularity 20–50% |
 | Fresh Ears | Unplayed Artists, artist popularity 70–100% |
 | New Arrivals | Recently Added Albums, artist popularity 50–100% |
 | Heavy Rotation | Recently Played Albums + Most Played Artists |
-| Crowd Pleasers | library popularity 95–100% |
+| Crowd Pleasers | artist popularity 80–100%, library popularity 95–100% |
+| 50s Radio … 2020s Radio (Decade Radio) | artist popularity 80–100%, library popularity 50–100%, era that decade |
 
 ### The queue on screen
 

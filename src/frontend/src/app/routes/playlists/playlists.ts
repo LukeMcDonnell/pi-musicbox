@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
@@ -9,7 +10,7 @@ import {
     LucideSlidersHorizontal,
     LucideWandSparkles,
 } from '@lucide/angular';
-import { GENERATOR_PRESETS, type GeneratorPreset, type PlaylistSummary } from '@musicbox/shared';
+import { DECADE_PRESETS, GENERATOR_PRESETS, type GeneratorPreset, type PlaylistSummary } from '@musicbox/shared';
 import { PresetIcon } from '../../components/preset-card/preset-card';
 import {
     PlaylistDialog,
@@ -28,6 +29,7 @@ import { runtime } from '../album/album';
     selector: 'app-playlists',
     imports: [
         CoverGrid,
+        NgTemplateOutlet,
         LucideEllipsisVertical,
         LucideListMusic,
         LucideListEnd,
@@ -52,6 +54,7 @@ export class Playlists {
     readonly loading = computed(() => this.store.playlists() === null);
 
     readonly presets = GENERATOR_PRESETS;
+    readonly decades = DECADE_PRESETS;
     readonly presetPlayer = inject(PresetPlayer);
 
     readonly dialog = signal<PlaylistDialogView | null>(null);

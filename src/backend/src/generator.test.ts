@@ -5,6 +5,7 @@ import {
     createGenerator,
     filtersFrom,
     indexOf,
+    isOuttake,
     lengthFrom,
     listTests,
     matching,
@@ -12,13 +13,14 @@ import {
     popularityOf,
     readLibrary,
     relatedTo,
+    songKey,
     yearOf,
     type Entry,
     type ListSources,
 } from './generator.ts';
 import { songFromTags, type LibrarySong } from './mpd/bridge.ts';
 import type { ArtistInfo, SimilarArtist } from './enrich.ts';
-import { GENERATOR_PRESETS, presetFilters, type GeneratorFilters } from '../../shared/api.ts';
+import { DECADE_PRESETS, GENERATOR_PRESETS, presetById, presetFilters, type GeneratorFilters } from '../../shared/api.ts';
 
 function lsong(file: string, tags: Record<string, string | string[]> = {}): LibrarySong {
     const map = new Map<string, string[]>([['file', [file]]]);
@@ -38,6 +40,8 @@ function entry(file: string, over: Partial<Entry> = {}): Entry {
         recordingId: null,
         popularity: null,
         libraryPopularity: null,
+        outtake: false,
+        song: null,
         ...over,
     };
 }
@@ -50,6 +54,7 @@ const ANY: GeneratorFilters = {
     artists: [],
     related: [],
     genres: [],
+    outtakes: false,
 };
 
 const NO_SOURCES: ListSources = {
@@ -225,6 +230,86 @@ test('pick keeps one artist from playing twice running where it can', () => {
     assert.equal(pick([entry('A/X/1'), entry('A/X/2')], 5).length, 2);
 });
 
+test('pick draws artists by the square root of their tracks, not by their tracks', () => {
+    const entries = [
+        ...Array.from({ length: 500 }, (_, i) => entry(`Quo/A/${i}`)),
+        ...Array.from({ length: 50 }, (_, a) => Array.from({ length: 10 }, (_, i) => entry(`X${a}/A/${i}`))).flat(),
+    ];
+    let state = 1;
+    const random = () => ((state = (state * 48271) % 2147483647) / 2147483647);
+    let quo = 0;
+    for (let run = 0; run < 40; run += 1) quo += pick(entries, 50, random).filter((e) => e.albumArtist === 'Quo').length;
+    // sqrt(500) / (sqrt(500) + 50 sqrt(10)) is 12%; an even shuffle gives 48%.
+    assert.ok(quo / 40 > 3 && quo / 40 < 9, `${quo / 40} per 50`);
+});
+
+test('pick doesn’t bunch the busiest artist at the start of a long queue', () => {
+    const entries = Array.from({ length: 150 }, (_, a) => Array.from({ length: a < 3 ? 300 : 15 }, (_, i) => entry(`X${a}/A/${i}`))).flat();
+    let state = 7;
+    const random = () => ((state = (state * 48271) % 2147483647) / 2147483647);
+    let first = 0;
+    for (let run = 0; run < 40; run += 1) {
+        const head = pick(entries, 250, random).slice(0, 50);
+        first += head.filter((e) => e.albumArtist === head[0]!.albumArtist).length;
+    }
+    // Ordering by most left gave the first artist 6 of the first 50.
+    assert.ok(first / 40 < 3, `${first / 40} of the first 50`);
+});
+
+test('pick plays one version of a song, but keeps untitled tracks apart', () => {
+    const entries = [
+        entry('A/X/1', { song: 'A\0blackbird' }),
+        entry('A/Y/1', { song: 'A\0blackbird' }),
+        entry('A/Z/1'),
+        entry('A/Z/2'),
+    ];
+    const out = pick(entries, 10, seeded([0.1, 0.6, 0.3, 0.9]));
+    assert.equal(out.length, 3);
+    assert.equal(out.filter((e) => e.song !== null).length, 1);
+});
+
+test('outtakes are read from the title’s tags', () => {
+    for (const title of [
+        'Yer Blues (Esher demo)',
+        'Revolution (take 14 / instrumental backing track)',
+        'Julia (two rehearsals)',
+        'Blue Moon (studio jam)',
+        'Hazel Eyes [Whitfield Street Rough Mix]',
+        'Drain You - Demo',
+    ]) {
+        assert.ok(isOuttake(title), title);
+    }
+    for (const title of [
+        'Blackbird (2018 mix)',
+        'Brown Sugar (live at Wembley)',
+        'Taxman (mono)',
+        'Demolition Man',
+        'Takedown',
+        'Instrumental Song',
+        undefined,
+    ]) {
+        assert.ok(!isOuttake(title), title);
+    }
+});
+
+test('a song is its artist and bare title', () => {
+    assert.equal(songKey('The Beatles', 'Blackbird (2018 mix)'), songKey('The Beatles', 'Blackbird'));
+    assert.equal(songKey('The Beatles', 'Ob‐La‐Di, Ob‐La‐Da (take 3)'), 'The Beatles\0obladioblada');
+    assert.notEqual(songKey('Low', 'Blackbird'), songKey('The Beatles', 'Blackbird'));
+    assert.equal(songKey('Tool', ''), null);
+    assert.equal(songKey('Tool', '(silence)'), null);
+    assert.equal(songKey('Tool', undefined), null);
+});
+
+test('outtakes are left out unless asked for', () => {
+    const entries = indexOf([lsong('A/X/1', { AlbumArtist: 'A', Title: 'Song' }), lsong('A/X/2', { AlbumArtist: 'A', Title: 'Song (demo)' })]).entries;
+    assert.deepEqual(matching(entries, ANY, []).map((e) => e.file), ['A/X/1']);
+    assert.equal(matching(entries, { ...ANY, outtakes: true }, []).length, 2);
+    assert.equal((filtersFrom({}) as GeneratorFilters).outtakes, false);
+    assert.equal((filtersFrom({ outtakes: true }) as GeneratorFilters).outtakes, true);
+    assert.equal(typeof filtersFrom({ outtakes: 'yes' }), 'string');
+});
+
 test('the library is read in pages until a short one', async () => {
     const asked: number[] = [];
     const pages: number[] = [];
@@ -317,8 +402,18 @@ test('the related filter keeps only tracks by artists similar to the chosen ones
 });
 
 test('every preset is a valid set of filters, under its own id', () => {
-    assert.equal(new Set(GENERATOR_PRESETS.map((p) => p.id)).size, GENERATOR_PRESETS.length);
-    for (const preset of GENERATOR_PRESETS) {
+    const all = [...GENERATOR_PRESETS, ...DECADE_PRESETS];
+    assert.equal(new Set(all.map((p) => p.id)).size, all.length);
+    for (const preset of all) {
         assert.deepEqual(filtersFrom(presetFilters(preset)), presetFilters(preset), preset.id);
+        assert.equal(presetById(preset.id), preset);
     }
+});
+
+test('decade presets run from the 50s to the 2020s, ten years each', () => {
+    assert.deepEqual(DECADE_PRESETS.map((p) => p.badge), ['50s', '60s', '70s', '80s', '90s', '2000s', '2010s', '2020s']);
+    const seventies = presetById('decade-1970s')!;
+    assert.equal(seventies.name, '70s Radio');
+    assert.deepEqual(presetFilters(seventies).years, { min: 1970, max: 1979 });
+    assert.equal(presetById('nope'), undefined);
 });

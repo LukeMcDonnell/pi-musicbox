@@ -20,17 +20,17 @@ import { IS_PANEL } from '../../../../services/panel-client';
   It knows nothing about what it carries — Home has albums and artists to show in
   this shape, and the cards differ while the rail does not.
 
-  THE ARROWS ARE ALWAYS THERE FOR A THUMB. They only fade in on hover where there
-  is a pointer to hover with: `fine` is (hover: hover) and (pointer: fine), which
-  the panel never matches. See styles.scss.
+  THE ARROWS ARE FOR THE PANEL AND A MOUSE. A phone or tablet swipes, so a coarse
+  primary pointer hides them unless this is the panel. Where they show to a mouse
+  they fade in on hover: `fine` is (hover: hover) and (pointer: fine). See styles.scss.
 
   SCROLLING IS SMOOTH EVERYWHERE BUT THE PANEL. An animated scroll is a repaint
   per frame, and on the DSI panel every one of those is a vc4 atomic commit —
   one half of the deadlock in clock-deadlock.md, which is not called closed. A
   phone's GPU does not care, so it is the device that decides, not the taste:
   `IS_PANEL`, the same token panel sleep and the on-screen keyboard use. Reduced
-  motion turns it off too. The rail snaps either way, so a page still lands on a
-  card edge. See decisions.md.
+  motion turns it off too. There is no CSS snap — a swipe stops where it stops —
+  so the arrows pick a card edge themselves. See decisions.md.
 */
 @Component({
     selector: 'app-shelf',
@@ -48,6 +48,9 @@ export class Shelf implements AfterViewInit {
     /** Where the heading's link goes, if it has one. */
     readonly link = input<string | null>(null);
     readonly linkLabel = input('See all');
+
+    readonly showButtons =
+        this.isPanel || !this.window?.matchMedia('(pointer: coarse)').matches;
 
     private readonly rail = viewChild.required<ElementRef<HTMLElement>>('rail');
 
@@ -78,13 +81,23 @@ export class Shelf implements AfterViewInit {
     /** Most of a screenful, so the card at the edge stays as a handhold. */
     scrollBy(direction: -1 | 1): void {
         const rail = this.rail().nativeElement;
-        rail.scrollBy({
-            left: direction * Math.round(rail.clientWidth * 0.85),
-            behavior: this.behavior(),
-        });
+        rail.scrollTo({ left: this.target(rail, direction), behavior: this.behavior() });
         // Instant has already landed. A smooth scroll re-measures from the scroll
         // events it emits on the way, the last of which is the one that counts.
         this.measure();
+    }
+
+    /** The card start nearest a page away, but always at least one card along. */
+    private target(rail: HTMLElement, direction: -1 | 1): number {
+        const from = rail.scrollLeft;
+        const aim = from + direction * rail.clientWidth * 0.85;
+        const origin = rail.getBoundingClientRect().left - from;
+        const starts = Array.from(rail.children, (c) => c.getBoundingClientRect().left - origin)
+            .filter((x) => direction * (x - from) > 1);
+        if (starts.length === 0) return direction > 0 ? rail.scrollWidth : 0;
+        return Math.round(
+            starts.reduce((best, x) => (Math.abs(x - aim) < Math.abs(best - aim) ? x : best)),
+        );
     }
 
     /** Animated only where a frame is cheap, and only if motion is wanted. */

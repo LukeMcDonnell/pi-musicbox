@@ -21,35 +21,14 @@
   </div>
   <ul class="flex flex-col" aria-label="Radio">
     @for (preset of presets; track preset.id) {
-      <li class="flex items-center gap-1">
-        <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
-                       gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised disabled:opacity-60"
-                [disabled]="presetPlayer.busy() !== null" (click)="presetPlayer.play(preset)">
-          <span class="grid size-12 flex-none place-items-center rounded bg-surface
-                       bg-gradient-to-br from-accent/35 to-transparent text-accent">
-            <app-preset-icon class="size-6" [icon]="preset.icon" [busy]="presetPlayer.busy() === preset.id" />
-          </span>
-          <span class="min-w-0 flex-1">
-            <span class="text-xl block truncate">{{ preset.name }}</span>
-            <span class="block truncate text-[0.85rem] text-muted">{{ preset.description }}</span>
-          </span>
-        </button>
-        <button type="button"
-                class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
-                       rounded-full text-muted select-none active:bg-raised"
-                [attr.aria-label]="'Customise ' + preset.name"
-                (click)="customise(preset)">
-          <svg lucideSlidersHorizontal class="size-5" aria-hidden="true"></svg>
-        </button>
-        <button type="button"
-                class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
-                       rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
-                [disabled]="presetPlayer.busy() !== null"
-                [attr.aria-label]="'Play ' + preset.name"
-                (click)="presetPlayer.play(preset)">
-          <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
-        </button>
-      </li>
+      <ng-container *ngTemplateOutlet="presetRow; context: { $implicit: preset }" />
+    }
+  </ul>
+
+  <h2 class="pt-4 text-[0.85rem] font-semibold tracking-wide text-muted uppercase">Decade Radio</h2>
+  <ul class="flex flex-col" aria-label="Decade Radio">
+    @for (preset of decades; track preset.id) {
+      <ng-container *ngTemplateOutlet="presetRow; context: { $implicit: preset }" />
     }
   </ul>
 
@@ -114,3 +93,39 @@
 
   <app-playlist-dialog [(view)]="dialog" />
 </section>
+
+<ng-template #presetRow let-preset>
+  <li class="flex items-center gap-1">
+    <button class="flex min-h-[3.5rem] min-w-0 flex-1 cursor-pointer touch-manipulation items-center
+                   gap-3 rounded-md px-0 py-2 text-left select-none active:bg-raised disabled:opacity-60"
+            [disabled]="presetPlayer.busy() !== null" (click)="presetPlayer.play(preset)">
+      <span class="grid size-12 flex-none place-items-center rounded bg-surface
+                   bg-gradient-to-br from-accent/35 to-transparent text-accent">
+        @if (preset.badge && presetPlayer.busy() !== preset.id) {
+          <span class="text-[0.8rem] font-bold tabular-nums" aria-hidden="true">{{ preset.badge }}</span>
+        } @else {
+          <app-preset-icon class="size-6" [icon]="preset.icon" [busy]="presetPlayer.busy() === preset.id" />
+        }
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class="text-xl block truncate">{{ preset.name }}</span>
+        <span class="block truncate text-[0.85rem] text-muted">{{ preset.description }}</span>
+      </span>
+    </button>
+    <button type="button"
+            class="grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                   rounded-full text-muted select-none active:bg-raised"
+            [attr.aria-label]="'Customise ' + preset.name"
+            (click)="customise(preset)">
+      <svg lucideSlidersHorizontal class="size-5" aria-hidden="true"></svg>
+    </button>
+    <button type="button"
+            class="-me-3 grid size-11 flex-none cursor-pointer touch-manipulation place-items-center
+                   rounded-full text-accent select-none active:bg-raised disabled:opacity-40"
+            [disabled]="presetPlayer.busy() !== null"
+            [attr.aria-label]="'Play ' + preset.name"
+            (click)="presetPlayer.play(preset)">
+      <svg lucidePlay class="size-5 fill-current" aria-hidden="true"></svg>
+    </button>
+  </li>
+</ng-template>

@@ -105,6 +105,7 @@ describe('Preferences', () => {
             artists: ['Tool'],
             related: ['Low'],
             genres: ['Rock'],
+            outtakes: true,
         };
         prefs.set('generatorFilters', filters);
         prefs.set('generatorLength', 100);
@@ -118,6 +119,7 @@ describe('Preferences', () => {
             { ...filters, libraryPopularity: { min: 0, max: 101 } },
             { ...filters, artists: 'Tool' },
             { ...filters, related: [1] },
+            { ...filters, outtakes: 'yes' },
             null,
         ]) {
             localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ generatorFilters: bad, generatorLength: 7 }));
@@ -130,6 +132,6 @@ describe('Preferences', () => {
     it('keeps generator filters saved before library popularity existed', () => {
         const older = { lists: ['unplayed-tracks'], popularity: { min: 80, max: 100 }, years: null, artists: [], genres: [] };
         localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ generatorFilters: older }));
-        expect(fresh().generatorFilters()).toEqual({ ...older, libraryPopularity: { min: 0, max: 100 }, related: [] } as never);
+        expect(fresh().generatorFilters()).toEqual({ ...older, libraryPopularity: { min: 0, max: 100 }, related: [], outtakes: false } as never);
     });
 });

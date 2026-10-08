@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
+    DECADE_PRESETS,
     GENERATOR_PRESETS,
     type AlbumIdentity,
     type AlbumSummary,
@@ -21,18 +22,18 @@ import { Shelf } from './components/shelf/shelf';
 import { ShelfSkeleton } from './components/shelf-skeleton/shelf-skeleton';
 
 /*
-  The screen the box opens on. Five shelves: the radio presets, ten of your
-  favourites — the same ten for as long as the page is loaded, see
-  favourite-picks.ts — then what was played lately, who has been played most, and
-  the newest albums. Only the favourites are picked at random; the rest are the
-  first ten of the lists their own screens show.
+  The screen the box opens on. Six shelves: ten of your favourites — the same
+  ten for as long as the page is loaded, see favourite-picks.ts — what was played
+  lately, the radio and decade presets, who has been played most, and the newest
+  albums. Only the favourites are picked at random; the rest are the first ten of
+  the lists their own screens show.
 
   A CD IN THE DRIVE COMES FIRST of all, above the shelves: it is the one thing
   here that someone just physically did.
 
-  RADIO LEADS the shelves: its presets play in one tap and never run empty. Then
-  favourites, then Recent Plays: picking up where you left off is the next
-  commonest reason to walk up to the box.
+  FAVOURITES LEAD, then Recent Plays: picking up where you left off is the
+  commonest reason to walk up to the box. The radio shelves follow, one tap to a
+  fresh queue.
 
   A SEARCH REPLACES ALL OF IT while the field holds text; see search.ts.
 
@@ -65,6 +66,7 @@ export class Home {
     readonly albums = inject(FavouritePicks).albums;
 
     readonly presets = GENERATOR_PRESETS;
+    readonly decades = DECADE_PRESETS;
     readonly presetPlayer = inject(PresetPlayer);
 
     /** Null is "the stream has not answered yet", which is not an empty list. */

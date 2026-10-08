@@ -143,6 +143,12 @@ describe('Generate', () => {
         expect(again.page.filters().popularity).toEqual({ min: 80, max: 100 });
     });
 
+    it('opens with a decade preset’s years', async () => {
+        const { page } = await create({ preset: 'decade-1980s' });
+        expect(page.filters().years).toEqual({ min: 1980, max: 1989 });
+        expect(page.filters().popularity).toEqual({ min: 80, max: 100 });
+    });
+
     it('resets to no filters', async () => {
         const { fixture, page, el } = await create();
         page.setPopularity({ min: 80, max: 100 });
@@ -167,6 +173,18 @@ describe('Generate', () => {
         page.setRelated(['Tool']);
         await page.play();
         expect(client.play).toHaveBeenCalledWith(jasmine.objectContaining({ related: ['Tool'], artists: [] }), jasmine.any(Number));
+    });
+
+    it('leaves outtakes out until the switch is on', async () => {
+        const { fixture, page, client, el } = await create();
+        const toggle = el.querySelector<HTMLButtonElement>('[role="switch"]')!;
+        expect(toggle.textContent).toContain('Include demos & outtakes');
+        expect(toggle.getAttribute('aria-checked')).toBe('false');
+        toggle.click();
+        await settle(fixture);
+        expect(toggle.getAttribute('aria-checked')).toBe('true');
+        await page.play();
+        expect(client.play).toHaveBeenCalledWith(jasmine.objectContaining({ outtakes: true }), jasmine.any(Number));
     });
 
     it('opens the artist picker from its row', async () => {

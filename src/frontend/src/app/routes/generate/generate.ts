@@ -5,8 +5,8 @@ import {
     GENERATOR_ANY,
     GENERATOR_LENGTHS,
     GENERATOR_LISTS,
-    GENERATOR_PRESETS,
     fold,
+    presetById,
     presetFilters,
     type GeneratorFilters,
     type GeneratorList,
@@ -15,6 +15,7 @@ import {
 } from '@musicbox/shared';
 import { MultiPick, type PickOption } from '../../components/multi-pick/multi-pick';
 import { RangeSlider } from '../../components/range-slider/range-slider';
+import { SettingSwitch } from '../settings/components/setting-switch/setting-switch';
 import { AppHistory } from '../../services/app-history';
 import { GeneratorClient } from '../../services/generator-client';
 import { LibraryStore } from '../../services/library-store';
@@ -29,7 +30,7 @@ const FALLBACK_FIRST_YEAR = 1950;
 /** Filters in, a fresh queue out. The filters are this device's, and kept. */
 @Component({
     selector: 'app-generate',
-    imports: [LucideChevronLeft, LucideChevronRight, LucidePlay, MultiPick, RangeSlider],
+    imports: [LucideChevronLeft, LucideChevronRight, LucidePlay, MultiPick, RangeSlider, SettingSwitch],
     templateUrl: './generate.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -83,7 +84,7 @@ export class Generate {
     constructor() {
         // From a preset's Customise: its filters replace the last ones, once.
         const id = inject(ActivatedRoute).snapshot.queryParamMap.get('preset');
-        const preset = GENERATOR_PRESETS.find((p) => p.id === id);
+        const preset = presetById(id);
         if (preset !== undefined) this.prefs.set('generatorFilters', presetFilters(preset));
 
         void this.library.loadArtists().catch(() => undefined);
@@ -144,6 +145,10 @@ export class Generate {
 
     setGenres(genres: string[]): void {
         this.update({ genres });
+    }
+
+    setOuttakes(outtakes: boolean): void {
+        this.update({ outtakes });
     }
 
     setLength(length: number): void {

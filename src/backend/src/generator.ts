@@ -8,6 +8,7 @@ import {
     GENERATOR_LENGTHS,
     GENERATOR_LISTS,
     fold,
+    squeeze,
     type GeneratorFilters,
     type GeneratorGenre,
     type GeneratorList,
@@ -40,6 +41,9 @@ export interface Entry {
     popularity: number | null;
     /** 0–100 across the library, or null when nothing is known. */
     libraryPopularity: number | null;
+    outtake: boolean;
+    /** Album artist and bare title: one per queue. Null when the title is empty. */
+    song: string | null;
 }
 
 export interface GeneratorIndex {
@@ -93,6 +97,24 @@ export function yearOf(date: string | null): number | null {
     const m = date === null ? null : /^(\d{4})/.exec(date);
     const year = m === null ? null : Number(m[1]);
     return year === null || year < FIRST_YEAR ? null : year;
+}
+
+/** The bracketed tags and a trailing ` - …` of a title. */
+const QUALIFIER = /[([]([^)\]]*)[)\]]|\s[-–]\s(.+)$/g;
+const OUTTAKE =
+    /\b(demos?|takes? \d+|from take|rehearsals?|instrumental|backing track|(studio )?jam|outtakes?|alternate|alt\.? (take|version|mix)|rough mix|early version|work(ing)? (tape|version|mix)|false start|run[- ]?through|guide vocal|karaoke|a cappella|sessions?|studio chatter|(first|second|third) version)\b/i;
+
+/** Read from the title's tags only, so "Demolition Man" plays. Live versions are not outtakes. */
+export function isOuttake(title: string | undefined): boolean {
+    if (title === undefined) return false;
+    for (const m of title.matchAll(QUALIFIER)) if (OUTTAKE.test(m[1] ?? m[2] ?? '')) return true;
+    return false;
+}
+
+/** "Blackbird (2018 mix)" and "Blackbird" are one song. */
+export function songKey(albumArtist: string, title: string | undefined): string | null {
+    const bare = squeeze(fold((title ?? '').replace(QUALIFIER, '')));
+    return bare === '' ? null : `${albumArtist}\0${bare}`;
 }
 
 /** Each id's percentile among these counts: 100 the most listened, 0 the least. */
@@ -196,6 +218,11 @@ export function indexBuilder(info?: Pick<InfoLookup, 'artist' | 'listens'>): Ind
                     recordingId: song.mbRecordingId ?? null,
                     popularity: null,
                     libraryPopularity: null,
+                    outtake: isOuttake(song.track.title),
+                    song: (() => {
+                        const key = songKey(albumArtist, song.track.title);
+                        return key === null ? null : intern(key);
+                    })(),
                 });
             }
         },
@@ -268,7 +295,18 @@ export function filtersFrom(body: unknown): GeneratorFilters | string {
     if (typeof related === 'string') return related;
     const genres = namesFrom(raw.genres, 'genres');
     if (typeof genres === 'string') return genres;
-    return { lists: [...new Set(lists)] as GeneratorList[], popularity, libraryPopularity, years, artists, related, genres };
+    const outtakes = raw.outtakes ?? false;
+    if (typeof outtakes !== 'boolean') return "'outtakes' must be true or false";
+    return {
+        lists: [...new Set(lists)] as GeneratorList[],
+        popularity,
+        libraryPopularity,
+        years,
+        artists,
+        related,
+        genres,
+        outtakes,
+    };
 }
 
 export function lengthFrom(value: unknown): number | string {
@@ -353,6 +391,7 @@ export function matching(
     const genres = new Set(filters.genres.map(fold));
     return entries.filter(
         (e) =>
+            (filters.outtakes || !e.outtake) &&
             (lists.length === 0 || lists.some((t) => t(e))) &&
             byPopularity(e.popularity) &&
             byLibraryPopularity(e.libraryPopularity) &&
@@ -363,35 +402,49 @@ export function matching(
     );
 }
 
-/** A random `length` of them, one per recording, the same artist never twice running where avoidable. */
+/**
+ * A random `length` of them, one per recording and per song, the same artist
+ * never twice running where avoidable. An artist is drawn first, weighted by the
+ * square root of their matches, so Status Quo's 28 albums don't swamp the rest.
+ */
 export function pick(entries: readonly Entry[], length: number, random: () => number = Math.random): Entry[] {
-    const deck = [...entries];
-    for (let i = deck.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(random() * (i + 1));
-        [deck[i], deck[j]] = [deck[j]!, deck[i]!];
+    const byArtist = new Map<string, Entry[]>();
+    for (const e of entries) {
+        let tracks = byArtist.get(e.albumArtist);
+        if (tracks === undefined) byArtist.set(e.albumArtist, (tracks = []));
+        tracks.push(e);
     }
+    const pools = [...byArtist.values()].map((tracks) => ({ tracks, weight: Math.sqrt(tracks.length) }));
+    let total = pools.reduce((sum, p) => sum + p.weight, 0);
     const seen = new Set<string>();
     const chosen: Entry[] = [];
-    for (const e of deck) {
-        if (chosen.length === length) break;
-        if (e.recordingId !== null) {
-            if (seen.has(e.recordingId)) continue;
-            seen.add(e.recordingId);
+    while (chosen.length < length && pools.length > 0) {
+        let at = 0;
+        for (let r = random() * total; at < pools.length - 1 && r >= pools[at]!.weight; at += 1) r -= pools[at]!.weight;
+        const pool = pools[at]!;
+        const i = Math.floor(random() * pool.tracks.length);
+        const e = pool.tracks[i]!;
+        pool.tracks[i] = pool.tracks.at(-1)!;
+        pool.tracks.pop();
+        if (pool.tracks.length === 0) {
+            pools.splice(at, 1);
+            total -= pool.weight;
         }
+        const keys = [e.recordingId, e.song].filter((k) => k !== null);
+        if (keys.some((k) => seen.has(k))) continue;
+        for (const k of keys) seen.add(k);
         chosen.push(e);
     }
-    // The artist with the most left goes next, else it ends up back to back at the end.
+    // Drawn order, except the same artist twice running. An artist holding over
+    // half of what is left must go now, or they end up back to back at the end.
     const left = new Map<string, number>();
     for (const e of chosen) left.set(e.albumArtist, (left.get(e.albumArtist) ?? 0) + 1);
     const out: Entry[] = [];
     while (chosen.length > 0) {
         const last = out.at(-1)?.albumArtist;
-        let at = 0;
-        let most = -1;
-        chosen.forEach((e, i) => {
-            const n = left.get(e.albumArtist)!;
-            if (e.albumArtist !== last && n > most) [at, most] = [i, n];
-        });
+        const crowded = [...left].find(([artist, n]) => artist !== last && 2 * n > chosen.length)?.[0];
+        let at = chosen.findIndex((e) => (crowded === undefined ? e.albumArtist !== last : e.albumArtist === crowded));
+        if (at === -1) at = 0;
         const [next] = chosen.splice(at, 1);
         left.set(next!.albumArtist, left.get(next!.albumArtist)! - 1);
         out.push(next!);

@@ -219,6 +219,11 @@ same generator:
   it plays;
 - an auto DJ.
 
+Picks draw artists by the square root of their matches, skip outtakes unless
+asked, and hold one version per song (2026-10-08). If mid albums still come
+through, the next step is album-level popularity: rank each artist's albums by
+their tracks' listens, which needs no new harvest.
+
 **Not yet tried on the panel itself:** the two-thumb sliders by touch, and the
 checklists with the on-screen keyboard.
 

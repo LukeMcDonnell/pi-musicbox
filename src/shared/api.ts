@@ -1367,6 +1367,8 @@ export interface GeneratorFilters {
     related: string[];
     /** As `GeneratorOptions.genres` spells them; matched without regard to case. */
     genres: string[];
+    /** Whether demos, takes and other outtakes may play. Absent from filters saved before it existed. */
+    outtakes: boolean;
 }
 
 /** Filters that constrain nothing. */
@@ -1378,6 +1380,7 @@ export const GENERATOR_ANY: Readonly<GeneratorFilters> = {
     artists: [],
     related: [],
     genres: [],
+    outtakes: false,
 };
 
 export const GENERATOR_LENGTHS = [25, 50, 100, 250] as const;
@@ -1412,6 +1415,8 @@ export interface GeneratorPreset {
     name: string;
     description: string;
     icon: GeneratorPresetIcon;
+    /** Short text the tile shows in place of the icon: "70s". */
+    badge?: string;
     /** Over GENERATOR_ANY: whatever is left out constrains nothing. */
     filters: Partial<GeneratorFilters>;
 }
@@ -1436,14 +1441,14 @@ export const GENERATOR_PRESETS: readonly GeneratorPreset[] = [
         name: 'Library Deep Cuts',
         description: 'The songs each artist is less known for',
         icon: 'shovel',
-        filters: { popularity: { min: 0, max: 50 } },
+        filters: { popularity: { min: 20, max: 70 } },
     },
     {
         id: 'favourites-deep-cuts',
         name: 'Favourites Deep Cuts',
         description: 'The quieter tracks on your favourite albums',
         icon: 'shovel',
-        filters: { lists: ['favourite-albums'], popularity: { min: 0, max: 50 } },
+        filters: { lists: ['favourite-albums'], popularity: { min: 20, max: 70 } },
     },
     {
         id: 'hidden-gems',
@@ -1478,11 +1483,32 @@ export const GENERATOR_PRESETS: readonly GeneratorPreset[] = [
         name: 'Crowd Pleasers',
         description: 'The most-listened songs in the library',
         icon: 'flame',
-        filters: { libraryPopularity: { min: 95, max: 100 } },
+        filters: { popularity: { min: 80, max: 100 }, libraryPopularity: { min: 95, max: 100 } },
     },
 ];
 
 /** A preset's filters in full. */
+/** Each decade's best-known songs. Fixed, so the shelf doesn't shift as the library grows. */
+export const DECADE_PRESETS: readonly GeneratorPreset[] = [1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020].map((d) => {
+    const badge = d < 2000 ? `${d % 100}s` : `${d}s`;
+    return {
+        id: `decade-${d}s`,
+        name: `${badge} Radio`,
+        description: `The best-known songs of the ${d}s`,
+        icon: 'radio',
+        badge,
+        filters: {
+            popularity: { min: 80, max: 100 },
+            libraryPopularity: { min: 50, max: 100 },
+            years: { min: d, max: d + 9 },
+        },
+    };
+});
+
+export function presetById(id: string | null): GeneratorPreset | undefined {
+    return [...GENERATOR_PRESETS, ...DECADE_PRESETS].find((p) => p.id === id);
+}
+
 export function presetFilters(preset: GeneratorPreset): GeneratorFilters {
     return { ...GENERATOR_ANY, ...preset.filters };
 }

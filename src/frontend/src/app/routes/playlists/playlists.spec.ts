@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { GENERATOR_PRESETS, type PlaylistSummary } from '@musicbox/shared';
+import { DECADE_PRESETS, GENERATOR_PRESETS, type PlaylistSummary } from '@musicbox/shared';
 import { PresetPlayer } from '../../services/preset-player';
 import { Playlists, summaryOf } from './playlists';
 import { NowPlayingSheet } from '../../services/now-playing-sheet';
@@ -79,6 +79,16 @@ describe('Playlists', () => {
         expect(rows[0]!.textContent).toContain('Library Radio');
         (el.querySelector('[aria-label="Play Hidden Gems"]') as HTMLButtonElement).click();
         expect(play).toHaveBeenCalledWith(GENERATOR_PRESETS.find((p) => p.id === 'hidden-gems')!);
+    });
+
+    it('lists the decade presets under their own heading', () => {
+        const { el } = create();
+        const rows = el.querySelectorAll('[aria-label="Decade Radio"] li');
+        expect(rows.length).toBe(DECADE_PRESETS.length);
+        expect(rows[2]!.textContent).toContain('70s Radio');
+        const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+        (el.querySelector('[aria-label="Customise 70s Radio"]') as HTMLButtonElement).click();
+        expect(navigate).toHaveBeenCalledWith(['/playlists/generate'], { queryParams: { preset: 'decade-1970s' } });
     });
 
     it('customises a preset by opening Generate with it', () => {

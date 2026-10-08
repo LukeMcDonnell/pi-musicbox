@@ -1261,8 +1261,17 @@ A phone or a desktop browser has none of that, so the split is by device rather
 than by taste: `IS_PANEL` in `panel-client.ts`, which already tells the box's own
 screen from a remote for panel sleep and the on-screen keyboard, and which is
 `?panel` to force either way in development. `prefers-reduced-motion` turns the
-animation off as well. The rail is `snap-mandatory` either way, so a page still
-lands on a card edge.
+animation off as well.
+
+**No CSS snap; the arrows aim at a card edge themselves (2026-10-08).** The rail
+was `snap-mandatory`, which also grabbed every swipe and dragged it to a card —
+the user's call to drop it. `Shelf.target()` picks the card start nearest a page
+away, always at least one card along, so the buttons land exactly as they did.
+
+**The arrows are hidden on touch screens other than the panel (2026-10-08).** A
+phone swipes; the panel is the one touch screen that wants them. `(pointer:
+coarse)` read once at construction, overridden by `IS_PANEL` — not a CSS variant,
+because "is the panel" is not a media query.
 
 One thing this changes beyond the feel: `scrollBy` now returns before the row has
 moved, so the immediate `measure()` reads the old position and the arrows' own
@@ -1272,7 +1281,7 @@ enables itself — but it is the reason that `measure()` call is still there rat
 than being replaced by something cleverer.
 
 **`fine` is (hover: hover) and (pointer: fine), and non-matching is the safe
-direction.** The arrows are opaque by default and only hide themselves inside
+direction.** Where the arrows render at all (see above), they are opaque by default and only hide themselves inside
 that query, so anything that cannot answer it — including headless Chrome, which
 reports `pointer: none` — gets permanently visible arrows, which is what the
 panel wants. Verified both ways: headless at 800x480 shows them at opacity 1,
@@ -2170,6 +2179,10 @@ fetched.
   play at the device's chosen length, and one tap plays. The first tap after a
   scan waits out the ~9s index build, so the tile spins and other presets are
   disabled meanwhile.
+- **Decade presets are fixed, 50s to 2020s, not built from the library's
+  years.** A shelf that grows or loses tiles with the library is harder to
+  learn. On the box, a thin decade only costs a short queue: the 1950s match 40
+  tracks.
 - **Years before 1877 are treated as undated.** 43 tracks on the box are tagged
   `0001`, and they set the Era slider's floor to year 1.
 - **Genres are matched folded, and shown in the spelling most tracks use.**
@@ -2177,4 +2190,31 @@ fetched.
   distinct genres on the box.
 - **"Unplayed" means never in `track_play`.** An artist or album counts as
   unplayed when none of its files has been played.
+- **Artists are drawn by the square root of their matches (2026-10-08).** A
+  plain shuffle gives each artist their share of the matches. On the box Status
+  Quo have 501 tracks and The Fall 461, against a median of 58 across 510
+  album artists. That is 8–9×, and worse once a list narrows the pool to a few
+  dozen artists. Popularity can't fix it, since it is a percentile within
+  each artist. √ brings 8.6× down to 2.9×. Equal odds per artist would play a
+  one-single artist as often as the Beatles.
+- **The queue keeps its drawn order, and only steps in to avoid the same
+  artist twice running.** The first version always played whichever artist had
+  the most tracks left. That put the queue's busiest artist first and brought
+  them back every other slot: about 6 of the first 50 in a 250-track queue,
+  against a fair 2. An artist only jumps the order now when they hold over half
+  of what is left, which is the case where waiting would leave them back to
+  back at the end.
+- **Outtakes come from title tags, and are off unless asked for.** The White
+  Album deluxe is 107 tracks, 77 of them demos, takes and jams. ListenBrainz
+  ranks those outtakes *above* the album: 300–800 listens each, against 11–60
+  for the 2018 mixes, which are separate recordings. So popularity pulls them
+  in rather than out. The pattern catches 932 tracks on 162 albums, and a
+  25-track sample was all real outtakes. MusicBrainz has no harvested field
+  that says "demo". Live is deliberately not an outtake (the user's call):
+  1,101 tracks carry a live tag, and many are wanted.
+- **One version of a song per queue.** The key is the album artist plus the
+  title with its tags stripped, then folded and squeezed. 3,692 songs on the box
+  have more than one version, 5,631 extra copies in all, such as mono, 2018 mix
+  and remaster. An empty key is never shared: Tool have 59 untitled silent
+  tracks, and they would otherwise count as one song.
 

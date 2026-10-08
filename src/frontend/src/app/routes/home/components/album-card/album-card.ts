@@ -20,7 +20,7 @@ import type { AlbumIdentity } from '@musicbox/shared';
     imports: [CoverArt, LucideDisc3],
     template: `
         <button type="button"
-                class="flex w-card flex-none snap-start cursor-pointer
+                class="flex w-card flex-none cursor-pointer
                        touch-manipulation flex-col gap-2 rounded-md text-left select-none
                        active:bg-raised"
                 (click)="open.emit()">

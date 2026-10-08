@@ -16,13 +16,13 @@
        the default scale is black at 0.1, which is nothing on a near-black page. -->
   <div class="group/shelf relative">
     <!-- overscroll-x-contain: a fling that runs out here must not become a page swipe. -->
-    <div #rail class="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto
+    <div #rail class="no-scrollbar flex gap-3 overflow-x-auto
                       overscroll-x-contain"
          (scroll)="measure()">
       <ng-content />
     </div>
 
-    @if (overflows()) {
+    @if (showButtons && overflows()) {
       <button type="button"
               class="absolute start-0 top-[calc(var(--spacing-card)/2)] grid size-11
                      -translate-y-1/2 cursor-pointer touch-manipulation place-items-center

@@ -78,6 +78,8 @@
         </span>
         <svg lucideChevronRight class="size-5 flex-none text-muted" aria-hidden="true"></svg>
       </button>
+      <app-setting-switch class="-mx-2 border-b border-raised" label="Include demos & outtakes"
+                          [checked]="filters().outtakes" (toggled)="setOuttakes($event)" />
     </div>
 
     <h2 class="pt-5 pb-2 text-[0.85rem] font-semibold tracking-wide text-muted uppercase">Length</h2>
